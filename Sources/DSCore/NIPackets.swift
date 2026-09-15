@@ -58,6 +58,10 @@ public struct RequestWord: Sendable, Equatable {
     public var restartCode = false
 
     public init() {}
+    public init(rebootRoboRIO: Bool, restartCode: Bool) {
+        self.rebootRoboRIO = rebootRoboRIO
+        self.restartCode = restartCode
+    }
     public init(raw: UInt8) {
         rebootRoboRIO = raw & 0x08 != 0
         restartCode = raw & 0x04 != 0
