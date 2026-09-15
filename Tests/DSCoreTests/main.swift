@@ -380,6 +380,7 @@ runTest("tcpErrorAndStdoutParse", tcpErrorAndStdoutParse)
 runTest("allianceStationSemantics", allianceStationSemantics)
 runTest("axisEncodingSaturation", axisEncodingSaturation)
 runTest("loopbackIntegration", loopbackIntegrationTest)
+runAllPhase2Tests()
 
 print("\n\(checks) checks, \(failures.count) failures")
 for f in failures { print("  ✗ \(f)") }

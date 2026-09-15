@@ -108,11 +108,24 @@ final class DSModel {
 
     var dsEvents: [String] = []
 
+    // MARK: 抓包录制（Setup 页开关；报告 §6 决策 3）
+
+    var recording = false {
+        didSet { updateRecorder() }
+    }
+    private let recorderBox = RecorderBox()
+
+    // MARK: 图表历史（1Hz 采样，Charts 页真实时间序列）
+
+    var cpuHistory: [CPUPoint] = []
+    var lossHistory: [LossPoint] = []
+
     // MARK: 内部
 
     private let client = DSClient()
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
+    private var sequencer = PracticeSequencer()
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
     private var tickers: [Timer] = []
@@ -129,6 +142,7 @@ final class DSModel {
 
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
         client.heartbeatAge = { [heartbeatBox] in heartbeatBox.ageSeconds() }
+        client.recordSink = { [recorderBox] dir, data in recorderBox.record(dir, data) }
         client.eventHandler = { [weak self] event in
             guard let self else { return }
             Task { @MainActor in self.handle(event) }
@@ -212,13 +226,29 @@ final class DSModel {
         return false
     }
 
+    var canEnable: Bool {
+        SafetyGate.canEnable(SafetyGate.State(
+            commConnected: commConnected,
+            watchdogHealthy: watchdogHealthy,
+            estopEngaged: estopEngaged,
+            currentlyEnabled: enabled
+        ))
+    }
+
     // MARK: 操作员指令（安全门全部集中在这里）
 
     func setEnabled(_ on: Bool) {
         if on {
-            guard !estopEngaged else { log("拒绝使能：E-Stop 已触发，先复位（Esc+I 或重启代码）"); return }
-            guard commConnected else { log("拒绝使能：无机器人连接"); return }
-            guard watchdogHealthy else { log("拒绝使能：控制环心跳异常"); return }
+            let state = SafetyGate.State(
+                commConnected: commConnected,
+                watchdogHealthy: watchdogHealthy,
+                estopEngaged: estopEngaged,
+                currentlyEnabled: enabled
+            )
+            guard case .allow = SafetyGate.evaluateEnable(state) else {
+                if case .deny(let reason) = SafetyGate.evaluateEnable(state) { log("拒绝使能：\(reason)") }
+                return
+            }
         }
         enabled = on
         enabledSince = on ? Date() : nil
@@ -263,56 +293,64 @@ final class DSModel {
     // MARK: Practice 时序
 
     func startPractice() {
-        guard practicePhase == .idle || practicePhase == .finished else { return }
-        practicePhase = .delayBeforeAuto
-        practiceRemaining = practiceDelayTime
-        setMode(.autonomous)
+        guard !sequencer.phase.isActive else { return }
+        sequencer = PracticeSequencer(config: .init(
+            autoTime: practiceAutoTime, teleopTime: practiceTeleopTime, delayTime: practiceDelayTime
+        ))
+        applyPracticeEvents(sequencer.start())
         practiceTimer?.invalidate()
         practiceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.practiceTick() }
         }
-        beep()
-        log("Practice 开始：\(Int(practiceDelayTime))s 后进入 Autonomous")
     }
 
     func aStop() {
+        applyPracticeEvents(sequencer.abort())
         practiceTimer?.invalidate()
         practiceTimer = nil
-        practicePhase = .finished
-        setEnabled(false)
-        log("A-STOP：Practice 中止")
-        beep()
     }
 
     private func practiceTick() {
-        practiceRemaining -= 0.1
-        if practiceRemaining > 0 { return }
-
-        switch practicePhase {
-        case .delayBeforeAuto:
-            practicePhase = .autonomous
-            practiceRemaining = practiceAutoTime
-            setEnabled(true)
-            beep()
-        case .autonomous:
-            practicePhase = .delayBeforeTeleop
-            practiceRemaining = practiceDelayTime
-            setEnabled(false)
-            setMode(.teleoperated)
-            beep()
-        case .delayBeforeTeleop:
-            practicePhase = .teleoperated
-            practiceRemaining = practiceTeleopTime
-            setEnabled(true)
-            beep()
-        case .teleoperated:
+        applyPracticeEvents(sequencer.tick(0.1))
+        if !sequencer.phase.isActive {
             practiceTimer?.invalidate()
             practiceTimer = nil
-            practicePhase = .finished
-            setEnabled(false)
-            log("Practice 结束")
-            beep()
-        default: break
+        }
+    }
+
+    private func applyPracticeEvents(_ events: [PracticeSequencer.Event]) {
+        for event in events {
+            switch event {
+            case .entered(let phase):
+                practicePhase = mapPhase(phase)
+                practiceRemaining = sequencer.remaining
+                switch phase {
+                case .autonomous: setMode(.autonomous)
+                case .teleoperated: setMode(.teleoperated)
+                default: break
+                }
+                if phase.isActive { beep(); log("Practice → \(phase.displayName)") }
+            case .enable: setEnabled(true)
+            case .disable: setEnabled(false)
+            case .finished:
+                practicePhase = .finished
+                log("Practice 结束")
+                beep()
+            case .aborted:
+                practicePhase = .finished
+                log("A-STOP：Practice 中止")
+            }
+        }
+    }
+
+    private func mapPhase(_ phase: PracticeSequencer.Phase) -> PracticePhase {
+        switch phase {
+        case .idle: return .idle
+        case .delayBeforeAuto: return .delayBeforeAuto
+        case .autonomous: return .autonomous
+        case .delayBeforeTeleop: return .delayBeforeTeleop
+        case .teleoperated: return .teleoperated
+        case .finished: return .finished
         }
     }
 
@@ -344,6 +382,13 @@ final class DSModel {
             lossPercent = loss
             txCount = tx
             rxCount = rx
+            lossHistory.append(LossPoint(t: Date(), loss: loss))
+            if lossHistory.count > 300 { lossHistory.removeFirst(lossHistory.count - 300) }
+            if !cpuCores.isEmpty {
+                let loads = cpuCores.map { $0.reduce(0, +) }
+                cpuHistory.append(CPUPoint(t: Date(), loads: loads))
+                if cpuHistory.count > 300 { cpuHistory.removeFirst(cpuHistory.count - 300) }
+            }
         case .watchdogTripped:
             watchdogHealthy = false
             enabled = false
@@ -496,6 +541,66 @@ struct JoystickSlot: Identifiable {
         povs = device.povs
         name = device.name
     }
+}
+
+// MARK: - 录制开关（线程安全）
+
+extension DSModel {
+    fileprivate func updateRecorder() {
+        if recording {
+            recorderBox.start { url in
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyyMMdd-HHmmss"
+                return url.appendingPathComponent("capture-\(formatter.string(from: Date())).dsrec")
+            }
+            if let name = recorderBox.currentFileName { log("抓包录制开始：\(name)") }
+        } else {
+            recorderBox.stop()
+        }
+    }
+}
+
+final class RecorderBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorder: PacketRecorder?
+    private(set) var currentFileName: String?
+
+    func record(_ dir: RecordedDirection, _ data: Data) {
+        lock.lock(); defer { lock.unlock() }
+        recorder?.record(dir, data)
+    }
+
+    func start(naming: @escaping (URL) -> URL) {
+        lock.lock(); defer { lock.unlock() }
+        guard recorder == nil else { return }
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("GHDriverStation/captures", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = naming(dir)
+        do {
+            recorder = try PacketRecorder(fileURL: url)
+            currentFileName = url.lastPathComponent
+        } catch {
+            currentFileName = nil
+        }
+    }
+
+    func stop() {
+        lock.lock(); defer { lock.unlock() }
+        recorder?.close()
+        recorder = nil
+        currentFileName = nil
+    }
+}
+
+struct CPUPoint: Sendable {
+    var t: Date
+    var loads: [Float]
+}
+
+struct LossPoint: Sendable {
+    var t: Date
+    var loss: Double
 }
 
 // MARK: - Dashboard

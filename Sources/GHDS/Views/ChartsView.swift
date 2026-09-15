@@ -2,7 +2,7 @@ import SwiftUI
 import Charts
 import DSCore
 
-// MARK: - Charts 页（电池电压曲线 / roboRIO 每核 CPU / 丢包率）
+// MARK: - Charts 页（电池电压 / roboRIO 每核 CPU 历史 / 丢包率，1Hz 采样真实序列）
 
 struct ChartsView: View {
     let model: DSModel
@@ -38,22 +38,24 @@ struct ChartsView: View {
 
                 GroupBox {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("roboRIO CPU 占用（每核）").font(.headline)
-                        if !model.cpuCores.isEmpty {
-                            Chart(Array(model.cpuCores.enumerated()), id: \.offset) { core, quad in
-                                BarMark(
-                                    x: .value("占用", Double(coreLoad(quad))),
-                                    y: .value("核", "CPU \(core)")
-                                )
-                                .foregroundStyle(coreLoad(quad) > 0.8 ? Color.red.gradient : Color.accentColor.gradient)
-                                .annotation(position: .trailing) {
-                                    Text(String(format: "%.0f%%", coreLoad(quad) * 100))
-                                        .font(.caption2.monospacedDigit())
-                                        .foregroundStyle(.secondary)
-                                }
+                        HStack {
+                            Text("roboRIO CPU 历史（每核）").font(.headline)
+                            Spacer()
+                            if !model.cpuCores.isEmpty {
+                                Text(model.cpuCores.enumerated().map { core, quad in
+                                    String(format: "C%d %.0f%%", core, coreLoad(quad) * 100)
+                                }.joined(separator: " · "))
+                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                             }
-                            .chartXScale(domain: 0...1)
-                            .frame(height: CGFloat(44 * max(model.cpuCores.count, 1)))
+                        }
+                        if model.cpuHistory.count > 1 {
+                            cpuHistoryChart
+                                .chartYScale(domain: 0...1)
+                                .frame(height: 150)
+                        } else if !model.cpuCores.isEmpty {
+                            currentCPUChart
+                                .chartXScale(domain: 0...1)
+                                .frame(height: CGFloat(40 * model.cpuCores.count))
                         } else {
                             placeholder.frame(minHeight: 80)
                         }
@@ -70,11 +72,55 @@ struct ChartsView: View {
                             stat("已接收", "\(model.rxCount)")
                             Spacer()
                         }
+                        if model.lossHistory.count > 1 {
+                            Chart(Array(model.lossHistory.suffix(180).enumerated()), id: \.offset) { i, p in
+                                AreaMark(x: .value("样本", i), y: .value("loss", p.loss))
+                                    .opacity(0.2)
+                                LineMark(x: .value("样本", i), y: .value("loss", p.loss))
+                            }
+                            .chartXAxis(.hidden)
+                            .frame(height: 90)
+                        }
                     }
                     .padding(4)
                 }
             }
             .padding(14)
+        }
+    }
+
+    /// 每核一条线（历史 ≥2 样本时）
+    private var cpuHistoryChart: some View {
+        let coreCount = model.cpuHistory.compactMap(\.loads.count).max() ?? 0
+        return Chart {
+            ForEach(0..<max(coreCount, 1), id: \.self) { core in
+                ForEach(Array(model.cpuHistory.enumerated()), id: \.offset) { i, point in
+                    LineMark(
+                        x: .value("样本", i),
+                        y: .value("占用", core < point.loads.count ? Double(point.loads[core]) : 0),
+                        series: .value("核", core)
+                    )
+                    .foregroundStyle(by: .value("核", "CPU \(core)"))
+                    .interpolationMethod(.catmullRom)
+                }
+            }
+        }
+        .chartLegend(.automatic)
+    }
+
+    /// 历史不足时的当前值横条
+    private var currentCPUChart: some View {
+        Chart(Array(model.cpuCores.enumerated()), id: \.offset) { core, quad in
+            BarMark(
+                x: .value("占用", Double(coreLoad(quad))),
+                y: .value("核", "CPU \(core)")
+            )
+            .foregroundStyle(coreLoad(quad) > 0.8 ? Color.red.gradient : Color.accentColor.gradient)
+            .annotation(position: .trailing) {
+                Text(String(format: "%.0f%%", coreLoad(quad) * 100))
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
