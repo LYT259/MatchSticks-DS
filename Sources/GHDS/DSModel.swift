@@ -115,6 +115,13 @@ final class DSModel {
     }
     private let recorderBox = RecorderBox()
 
+    // MARK: .dslog 会话日志（NI DS 习惯：全程记录，AdvantageScope/dslog viewer 可读）
+
+    var dslogEnabled = true {
+        didSet { updateDSLogWriter() }
+    }
+    private var dslogWriter: DSLogWriter?
+
     // MARK: 图表历史（1Hz 采样，Charts 页真实时间序列）
 
     var cpuHistory: [CPUPoint] = []
@@ -166,6 +173,11 @@ final class DSModel {
     // MARK: 主线程 50Hz：轮询 HID → 刷新槽位 → 填快照盒子
 
     private func installTimers() {
+        updateDSLogWriter()
+        let dslog = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.appendDSLogEntry() }
+        }
+        RunLoop.main.add(dslog, forMode: .common)
         let poll = Timer(timeInterval: 0.02, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.pollAndPublishSnapshot() }
         }
@@ -473,6 +485,48 @@ final class DSModel {
         joystickSlots[index].lockedDeviceID = joystickSlots[index].lockedDeviceID == nil
             ? joystickSlots[index].uniqueID
             : nil
+    }
+
+    // MARK: .dslog 采样（1Hz）
+
+    private func updateDSLogWriter() {
+        if dslogEnabled {
+            guard dslogWriter == nil else { return }
+            let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("GHDriverStation/Logs", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy_MM_dd HH_mm_ss"
+            let url = dir.appendingPathComponent(formatter.string(from: Date()).appending(".dslog"))
+            do {
+                dslogWriter = try DSLogWriter(fileURL: url)
+                log("dslog 记录开始：\(url.lastPathComponent)")
+            } catch {
+                log("dslog 启动失败：\(error.localizedDescription)")
+                dslogEnabled = false
+            }
+        } else if let w = dslogWriter {
+            w.close()
+            dslogWriter = nil
+            log("dslog 记录停止")
+        }
+    }
+
+    private func appendDSLogEntry() {
+        guard let w = dslogWriter, commConnected else { return }
+        var entry = DSLogEntry()
+        entry.packetLossPercent = lossPercent
+        entry.batteryVolts = batteryVolts
+        entry.cpuPercent = cpuCores.map { $0.reduce(0, +) }.max()
+        entry.brownout = robotStatus.brownout
+        entry.watchdog = !watchdogHealthy
+        entry.dsTeleop = mode == .teleoperated
+        entry.dsDisabled = !enabled
+        entry.robotTeleop = robotTrace.teleopMode
+        entry.robotAuton = robotTrace.autonomousMode
+        entry.robotDisabled = robotTrace.disabled
+        entry.canPercent = can.utilizationPercent
+        w.append(entry)
     }
 
     // MARK: 日志
