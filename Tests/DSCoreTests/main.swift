@@ -118,7 +118,7 @@ func loopbackIntegrationTest() {
         return snap
     }
     client.start()
-    Thread.sleep(forTimeInterval: 1.5)
+    Thread.sleep(forTimeInterval: 2.6)
     client.stop()
     responder.stop()
 

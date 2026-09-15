@@ -1,4 +1,88 @@
 
+// MARK: SettingsStore 单测
+
+func settingsStoreTests() {
+    let name = "ghds-test-" + String(Int.random(in: 0...999_999))
+    let defaults = UserDefaults(suiteName: name)!
+    defer { defaults.removePersistentDomain(forName: name) }
+    let store = SettingsStore(defaults: defaults, prefix: "p1.")
+
+    check(store.integer("team") == nil, "缺省键读出 nil")
+    store.set("team", 254)
+    check(store.integer("team") == 254, "整型往返")
+    store.set("ip", "10.0.0.2")
+    check(store.string("ip") == "10.0.0.2", "字符串往返")
+    store.set("auto", 1.5)
+    check(abs((store.double("auto") ?? 0) - 1.5) < 0.0001, "浮点往返")
+    store.set("flag", false)
+    check(store.bool("flag") == false, "布尔往返（含 false）")
+    store.set("ip", nil as String?)
+    check(store.string("ip") == nil, "删除键")
+
+    // 前缀隔离
+    let other = SettingsStore(defaults: defaults, prefix: "p2.")
+    check(other.integer("team") == nil, "不同前缀互不可见")
+    check(store.integer("team") == 254, "原前缀不受影响")
+}
+
+// MARK: RadioProbe 单测（本机 TCP 监听模拟 radio）
+
+func radioProbeTests() {
+    // 监听 127.0.0.1:18123（可达）
+    let listener = socket(AF_INET, SOCK_STREAM, 0)
+    var yes: Int32 = 1
+    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = UInt16(18_123).bigEndian
+    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let bound = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    guard bound == 0, listen(listener, 4) == 0 else {
+        check(false, "radio 测试监听失败")
+        return
+    }
+
+    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.5, timeout: 0.5, port: 18_123))
+    probe.hostProvider = { return (host: "127.0.0.1", port: 18_123) }
+    probe.start()
+    Thread.sleep(forTimeInterval: 1.6)
+    check(probe.isReachable, "监听时可达（attempts " + String(probe.probeAttempts) + "）")
+
+    // 关闭监听 → 不可达
+    close(listener)
+    Thread.sleep(forTimeInterval: 1.6)
+    check(!probe.isReachable, "监听关闭后不可达")
+    check(probe.probeAttempts >= 4, "探测按间隔进行（" + String(probe.probeAttempts) + " 次）")
+    probe.stop()
+}
+
+// MARK: TCP 连接退避单测（无 TCP 监听的场景服务器 → 尝试数有界）
+
+func tcpBackoffScenario() {
+    let server = ScenarioServer() // 只有 UDP，1740 不监听
+    server.start()
+    Thread.sleep(forTimeInterval: 0.05)
+    var captured: DSClient?
+    let sink = runScenarioClient(
+        heartbeatStale: { _ in false },
+        intent: { t in (enabled: t > 0.5, estop: false) },
+        duration: 4.0,
+        onClient: { captured = $0 }
+    )
+    server.stop()
+    sink.lock.lock(); defer { sink.lock.unlock() }
+    check(sink.connectedCount >= 1, "退避场景：UDP 链路正常建立")
+    if let client = captured {
+        check(client.tcpConnectAttempts <= 6,
+              "TCP 连接尝试有界（4s 内 " + String(client.tcpConnectAttempts) + " 次，无风暴则 ≤6）")
+    } else {
+        check(false, "退避场景：未捕获 client")
+    }
+}
+
+
 // MARK: DSLog 编码/读取 单测
 
 func dslogTests() {
@@ -275,10 +359,12 @@ final class ClientSink: @unchecked Sendable {
 func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
                        intent: @escaping (Double) -> (enabled: Bool, estop: Bool),
                        actions: [(at: Double, run: (DSClient) -> Void)] = [],
-                       duration: Double) -> ClientSink {
+                       duration: Double,
+                       onClient: ((DSClient) -> Void)? = nil) -> ClientSink {
     let sink = ClientSink()
     let boot = Date()
     let client = DSClient()
+    onClient?(client)
     client.eventHandler = { sink.observe($0) }
     client.heartbeatAge = { heartbeatStale(Date().timeIntervalSince(boot)) ? 1.0 : 0.0 }
     client.snapshotProvider = {
@@ -524,4 +610,7 @@ func runAllPhase2Tests() {
     runTest("longRunScenario", longRunScenario)
     runTest("recordReplayScenario", recordReplayScenario)
     runTest("dslogTests", dslogTests)
+    runTest("settingsStoreTests", settingsStoreTests)
+    runTest("radioProbeTests", radioProbeTests)
+    runTest("tcpBackoffScenario", tcpBackoffScenario)
 }

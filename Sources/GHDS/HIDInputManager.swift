@@ -91,7 +91,7 @@ final class HIDInputManager {
         let vendorID = (prop(kIOHIDVendorIDKey) as? Int) ?? 0
         let productID = (prop(kIOHIDProductIDKey) as? Int) ?? 0
         let serial = (prop(kIOHIDSerialNumberKey) as? String) ?? ""
-        let uniqueID = String(format: "%04x:%04x", vendorID, productID) + (serial.isEmpty ? ":\(name.hashValue)" : ":\(serial)")
+        let uniqueID = String(format: "%04x:%04x", vendorID, productID) + (serial.isEmpty ? ":\(name)" : ":\(serial)")
 
         guard let elements = IOHIDDeviceCopyMatchingElements(device, nil, IOOptionBits(kIOHIDOptionsTypeNone)) as? [IOHIDElement] else {
             return nil

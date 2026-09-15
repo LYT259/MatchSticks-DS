@@ -18,6 +18,7 @@ struct Args {
     var stdoutInterval: Double = 1.0  // 0 = 关闭
     var quiet = false
     var replayPath: String? = nil     // --replay <file.dsrec>：按录制应答回放
+    var radioPort: UInt16 = 0         // --radio-port <n>：模拟 radio 可达性端口
 }
 
 let args: Args = {
@@ -31,6 +32,7 @@ let args: Args = {
         case "--brownout-after": if let v = value(), let d = Double(v) { a.brownoutAfter = d }
         case "--stdout-interval": if let v = value(), let d = Double(v) { a.stdoutInterval = d }
         case "--replay": a.replayPath = value()
+        case "--radio-port": if let v = value(), let p = UInt16(v) { a.radioPort = p }
         case "--quiet": a.quiet = true
         default: break
         }
@@ -476,6 +478,31 @@ fflush(stdout)
 
 runUDP(args)
 runTCP(args)
+
+// Radio 可达性模拟：监听端口，接受连接后立即关闭（reachability only）
+if args.radioPort > 0 {
+    DispatchQueue.global(qos: .utility).async {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return }
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = args.radioPort.bigEndian
+        addr.sin_addr = in_addr(s_addr: INADDR_ANY)
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        guard bound == 0, listen(fd, 4) == 0 else { simLog("radio listen failed"); return }
+        while true {
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let client = withUnsafeMutablePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { accept(fd, $0, &len) }
+            }
+            if client >= 0 { close(client) }
+        }
+    }
+}
 
 Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
     if robot.packetCount > 0 {
