@@ -88,6 +88,6 @@ scripts/             图标生成 + 打包脚本
 
 ## 许可与合规
 
-- 许可证**尚未定稿**——当前仓库私有，禁止再分发；
+- 许可证：**Apache-2.0**（2026-09-15 定稿，见 [LICENSE](LICENSE)）；
 - Practice Only：不得用于正式 FRC 比赛；
-- 协议事实来源：[frcnetworking.readthedocs.io](https://frcnetworking.readthedocs.io/)（2026-09-15 核查）与 `docs/protocol/` 纪律（建立后以其为准）。
+- 协议事实来源：[docs/protocol/ds-protocol-2026.md](docs/protocol/ds-protocol-2026.md)（本项目权威协议档案，已核查/待实测两级）与 [frcnetworking.readthedocs.io](https://frcnetworking.readthedocs.io/)（2026-09-15 核查）。
