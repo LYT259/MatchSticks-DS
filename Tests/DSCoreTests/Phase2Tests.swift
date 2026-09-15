@@ -1,4 +1,69 @@
 
+// MARK: DSLog 编码/读取 单测
+
+func dslogTests() {
+    // 头部：版本 + 时间戳（1904 纪元）
+    let date = Date(timeIntervalSinceReferenceDate: 800_000_000.5)
+    let header = DSLogFormat.encodeHeader(version: 2, timestamp: date)
+    check(header.count == 20, "dslog 头 20B（" + String(header.count) + "）")
+    var hr = ByteReader(header)
+    check(hr.u32be() == 2, "dslog 版本字段")
+    _ = hr.u32be()
+    let secs = hr.u32be() ?? 0
+    check(abs(TimeInterval(secs) - (800_000_000.5 + DSLogFormat.mac1904Offset)) < 1.0, "dslog 1904 纪元时间戳")
+
+    // 条目：已知值金样本
+    var e = DSLogEntry()
+    e.tripTimeMs = 3            // x/15 → 45
+    e.packetLossPercent = 20    // x*4 → 5
+    e.batteryVolts = 12.25      // 0x0C40
+    e.cpuPercent = 25           // x/2 → 50
+    e.brownout = true
+    e.dsTeleop = true
+    e.robotAuton = true
+    e.dsDisabled = false
+    e.canPercent = 30           // x/2 → 60
+    let encoded = DSLogFormat.encodeEntry(e)
+    check(encoded.count == 34, "dslog 条目 34B（" + String(encoded.count) + "）")
+    check(Array(encoded[0..<2]) == [45, 5], "trip/loss 金样本")
+    check(Array(encoded[2..<4]) == [0x0C, 0x40], "电池 12.25 金样本")
+    check(encoded[4] == 50, "cpu 25% → 50")
+    check(encoded[5] == 0xA3, "trace 位表：brownout 0x80 + dsTeleop 0x20 + robotAuton 0x02 + robotDisabled 0x01（默认真）= 0xA3，实际 0x" + String(encoded[5], radix: 16))
+    check(encoded[6] == 60, "can 30% → 60")
+
+    // PDP 打包回读：0-15 端口已知电流
+    var currents = [Double](repeating: 0, count: 16)
+    for i in 0..<16 { currents[i] = Double(i) * 1.25 + 0.125 }
+    let packed = DSLogFormat.pdpPacked(currents)
+    check(packed.count == 21, "PDP 21B")
+    let decoded = DSLogFile.decodePDP(packed)
+    for i in 0..<16 {
+        check(abs(decoded[i] - currents[i]) < 0.1251, "PDP 端口 " + String(i) + " 回读（" + String(decoded[i]) + " vs " + String(currents[i]) + "）")
+    }
+
+    // 全文件往返
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ghds-\(Int.random(in: 0...999_999)).dslog")
+    let writer = try! DSLogWriter(fileURL: url, version: 2, timestamp: date)
+    writer.append(e)
+    var e2 = DSLogEntry()
+    e2.batteryVolts = 11.5
+    e2.packetLossPercent = 4
+    writer.append(e2)
+    writer.close()
+
+    let raw = try! Data(contentsOf: url)
+    let file = try! DSLogFile(fileURL: url)
+    let direct = try! DSLogFile(data: raw)
+    check(direct.entries.count == file.entries.count, "data/file 两路读取一致")
+    check(file.version == 2, "读取器版本")
+    check(file.entries.count == 2, "读取器条目数")
+    check(abs(file.entries[0].batteryVolts - 12.25) < 0.005, "读取器电池（" + String(file.entries[0].batteryVolts) + "）")
+    check(file.entries[0].brownout && file.entries[0].dsTeleop && file.entries[0].robotAuton, "读取器 trace 位（b=" + String(file.entries[0].brownout) + " t=" + String(file.entries[0].dsTeleop) + " a=" + String(file.entries[0].robotAuton) + " d=" + String(file.entries[0].dsDisabled) + "）")
+    check(abs(file.entries[1].batteryVolts - 11.5) < 0.005, "读取器第二条目（" + String(file.entries[1].batteryVolts) + "）")
+    try? FileManager.default.removeItem(at: url)
+}
+
+
 // MARK: 场景 6：录制 → 回放 → 解析 全链路（真实抓包回归的预演）
 
 func recordReplayScenario() {
@@ -458,4 +523,5 @@ func runAllPhase2Tests() {
     runTest("brownoutScenario", brownoutScenario)
     runTest("longRunScenario", longRunScenario)
     runTest("recordReplayScenario", recordReplayScenario)
+    runTest("dslogTests", dslogTests)
 }

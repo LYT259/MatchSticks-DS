@@ -54,6 +54,12 @@ struct SetupView: View {
                 Toggle("阶段提示音", isOn: $model.soundsEnabled)
             }
 
+            Section("会话日志") {
+                Toggle("记录 .dslog（NI DS 格式，AdvantageScope 可读）", isOn: $model.dslogEnabled)
+                Text("写入 ~/Library/Application Support/GHDriverStation/Logs/，连接期间 1Hz 采样电池/丢包/CPU/CAN/状态位。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("抓包录制（Phase 0 回归基建）") {
                 Toggle("录制收发包（.dsrec）", isOn: $model.recording)
                 Text("录制到 ~/Library/Application Support/GHDriverStation/captures/。真实机器人抓包是协议回归的金样本（报告 §6「录制即测试」）；本机模拟器会话同样可录。")
