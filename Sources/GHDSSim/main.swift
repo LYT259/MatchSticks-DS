@@ -17,6 +17,7 @@ struct Args {
     var brownoutAfter: Double = 0     // 0 = 关闭
     var stdoutInterval: Double = 1.0  // 0 = 关闭
     var quiet = false
+    var replayPath: String? = nil     // --replay <file.dsrec>：按录制应答回放
 }
 
 let args: Args = {
@@ -29,6 +30,7 @@ let args: Args = {
         case "--tcp-port": if let v = value(), let p = UInt16(v) { a.tcpPort = p }
         case "--brownout-after": if let v = value(), let d = Double(v) { a.brownoutAfter = d }
         case "--stdout-interval": if let v = value(), let d = Double(v) { a.stdoutInterval = d }
+        case "--replay": a.replayPath = value()
         case "--quiet": a.quiet = true
         default: break
         }
@@ -231,6 +233,7 @@ final class SimRobot: @unchecked Sendable {
 // MARK: UDP
 
 let robot = SimRobot()
+nonisolated(unsafe) var replayCursor = 0
 
 func runUDP(_ a: Args) {
     let rxSock = socket(AF_INET, SOCK_DGRAM, 0)
@@ -275,11 +278,38 @@ func runUDP(_ a: Args) {
             }
             let shouldReply = robot.handleControl(packet)
             guard shouldReply else { continue }
+            var dst = src
+
+            // 回放模式：按录制分组逐包回放应答（循环）；否则走合成应答
+            if let source = replaySource {
+                var batch: [Data] = []
+                if replayCursor < source.records.count {
+                    let (b, next) = source.responseBatch(from: replayCursor)
+                    batch = b
+                    replayCursor = next < source.records.count ? next : 0
+                } else {
+                    replayCursor = 0
+                    let (b, next) = source.responseBatch(from: 0)
+                    batch = b
+                    replayCursor = next < source.records.count ? next : 0
+                }
+                for payload in batch {
+                    var p = payload
+                    withUnsafePointer(to: &dst) { dstPtr in
+                        dstPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                            p.withUnsafeMutableBytes { raw in
+                                _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                            }
+                        }
+                    }
+                }
+                continue
+            }
+
             let reply = robot.response(for: src)
             guard !reply.isEmpty else { continue }
 
             // 以 1150 端口回送到 DS 源地址:源端口（真实 roboRIO 语义）
-            var dst = src
             let sent = withUnsafePointer(to: &dst) { dstPtr in
                 dstPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
                     reply.withUnsafeBytes { raw in
@@ -421,6 +451,18 @@ func handleTCPClient(_ fd: Int32) {
 }
 
 // MARK: main
+
+var replaySource: ReplaySource? = {
+    guard let path = args.replayPath else { return nil }
+    do {
+        let source = try ReplaySource(fileURL: URL(fileURLWithPath: path))
+        print("▶ 回放模式：\(path)（\(source.records.count) 条记录，tcpOut \(source.tcpOutFrames.count) 帧）")
+        return source
+    } catch {
+        print("⚠️ 回放文件加载失败（\(path)）：\(error)——退回合成模式")
+        return nil
+    }
+}()
 
 print("""
 ┌─────────────────────────────────────────────────────┐

@@ -15,7 +15,8 @@
 - **诊断**：每核 CPU、内存、磁盘、CAN 总线指标（利用率 / BusOff / TxFull / 错误计数）、电源故障计数、TCP 版本信息、网络指示灯、丢包率
 - **图表**：电池电压曲线、每核 CPU、UDP 链路质量（Swift Charts 原生）
 - **消息**：robot stdout 控制台、错误消息（TCP 0x0B）、DS 事件流
-- **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能）
+- **抓包录制/回放**：Setup 页一键录制收发包为 `.dsrec`（金样本回归基线）；模拟器 `--replay` 按录制的真机字节应答
+- **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能，`SafetyGate` 纯逻辑单测覆盖）
 - **快捷键**：`Space` = E-Stop · `Enter` = Disable · `[ + ] + \` = Enable · `Esc + I` = E-Stop 复位 · `F1` = 重扫手柄（应用前台；全局后台键属 Phase 4 + Input Monitoring 权限）
 
 ## 内置 roboRIO 模拟器
@@ -31,6 +32,14 @@ GHDS_AUTO_SIM=1 .build/debug/GHDS
 
 或在应用内：Setup → 「启动 roboRIO 模拟器」（自动切换手动 IP 并连接）。
 
+**回放模式**（Phase 0「录制即测试」）：
+
+```bash
+# DS 侧开启抓包录制（Setup 页开关，存至 ~/Library/Application Support/GHDriverStation/captures/）
+# 然后用录制文件驱动模拟器应答——DS 端解析与真机逐字节一致：
+.build/debug/GHDSSim --replay capture-20260916-020000.dsrec
+```
+
 ## 从源码构建
 
 要求：macOS 14+、**完整 Xcode**（SwiftUI 宏需要；Command Line Tools 缺 `SwiftUIMacros` 插件）。
@@ -38,7 +47,7 @@ GHDS_AUTO_SIM=1 .build/debug/GHDS
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer  # 按本机 Xcode 路径调整
 swift build
-swift run DSCoreTests   # 协议回归测试（78 项检查，含回环集成测试）
+swift run DSCoreTests   # 回归测试：128 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放单测 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路 场景级集成测试）
 swift run GHDS          # 运行驾驶台
 ```
 

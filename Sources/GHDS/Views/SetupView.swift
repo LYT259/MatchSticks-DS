@@ -54,6 +54,12 @@ struct SetupView: View {
                 Toggle("阶段提示音", isOn: $model.soundsEnabled)
             }
 
+            Section("抓包录制（Phase 0 回归基建）") {
+                Toggle("录制收发包（.dsrec）", isOn: $model.recording)
+                Text("录制到 ~/Library/Application Support/GHDriverStation/captures/。真实机器人抓包是协议回归的金样本（报告 §6「录制即测试」）；本机模拟器会话同样可录。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("本机联调") {
                 HStack {
                     Button {

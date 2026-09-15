@@ -68,6 +68,8 @@ public final class DSClient {
     public var eventHandler: (Event) -> Void = { _ in }
     /// 返回主线程心跳停滞秒数（UI 冻结检测）
     public var heartbeatAge: () -> Double = { 0 }
+    /// 抓包录制 sink（报告 §6 决策 3「录制即测试」；loop queue 上调用，须自行保证线程安全）
+    public var recordSink: ((RecordedDirection, Data) -> Void)?
     /// 首连日期 tag 的来源
     public var dateProvider: () -> Date = { Date() }
     public var timeZoneProvider: () -> String = { TimeZone.current.identifier }
@@ -255,6 +257,8 @@ public final class DSClient {
             }
             lastResponseAt = now
 
+            recordSink?(.responseIn, Data(buffer[0 ..< n]))
+
             if packet.requestDate, !sentDateTag {
                 sentDateTag = true // 下一个 tick 构造 date/timezone tag
             }
@@ -337,7 +341,10 @@ public final class DSClient {
                 }
             }
         }
-        if sent >= 0 { txSeq &+= 1; txCount += 1 }
+        if sent >= 0 {
+            txSeq &+= 1; txCount += 1
+            recordSink?(.controlOut, packet)
+        }
     }
 
     private func nextCandidateLocked() -> String {
@@ -457,6 +464,7 @@ public final class DSClient {
         let (frames, remainder) = NICodec.extractTCPFrames(from: tcpBuffer)
         tcpBuffer = remainder
         for frame in frames where frame.id != 0 {
+            recordSink?(.tcpIn, NICodec.tcpFrame(id: frame.id, payload: frame.payload))
             if let event = NICodec.decodeTCPEvent(id: frame.id, payload: frame.payload) {
                 emit(.tcpEvent(event))
             }
@@ -495,6 +503,7 @@ public final class DSClient {
 
     private func tcpSend(_ data: Data) -> Bool {
         guard tcpSock >= 0, tcpConnected else { return false }
+        recordSink?(.tcpOut, data)
         let ok = data.withUnsafeBytes { raw -> Bool in
             guard let base = raw.baseAddress else { return false }
             return send(tcpSock, base, raw.count, 0) == raw.count
