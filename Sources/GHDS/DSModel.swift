@@ -36,21 +36,32 @@ final class HeartbeatBox: @unchecked Sendable {
 @MainActor
 @Observable
 final class DSModel {
+    static let isAutoSim = ProcessInfo.processInfo.environment["GHDS_AUTO_SIM"] == "1"
+
     // MARK: 连接与配置
 
     var teamNumber: Int = 0 {
-        didSet { syncClientConfig() }
+        didSet {
+            settings.set("teamNumber", teamNumber)
+            syncClientConfig()
+        }
     }
     var manualIP: String = "" {
-        didSet { syncClientConfig() }
+        didSet {
+            settings.set("manualIP", manualIP.isEmpty ? nil : manualIP)
+            syncClientConfig()
+        }
     }
+    var radioReachable = false
     var commState: DSClient.CommState = .idle
     var watchdogHealthy = true
 
     // MARK: 控制状态（操作员意图）
 
     var mode: NIMode = .teleoperated
-    var alliance: AllianceStation = .red1
+    var alliance: AllianceStation = .red1 {
+        didSet { settings.set("alliance", String(alliance.rawValue)) }
+    }
     private(set) var enabled = false
     private(set) var estopEngaged = false
     var enabledSince: Date?
@@ -90,7 +101,9 @@ final class DSModel {
     var gameData: String = ""
     var competition: String = ""
     var matchType: UInt8 = 0
-    var dashboardKind: DashboardKind = .advantageScope
+    var dashboardKind: DashboardKind = .advantageScope {
+        didSet { settings.set("dashboardKind", dashboardKind.rawValue) }
+    }
 
     // MARK: Practice 时序
 
@@ -99,10 +112,18 @@ final class DSModel {
     }
     var practicePhase: PracticePhase = .idle
     var practiceRemaining: TimeInterval = 0
-    var practiceAutoTime: TimeInterval = 15
-    var practiceTeleopTime: TimeInterval = 135
-    var practiceDelayTime: TimeInterval = 2
-    var soundsEnabled = true
+    var practiceAutoTime: TimeInterval = 15 {
+        didSet { settings.set("practiceAutoTime", practiceAutoTime) }
+    }
+    var practiceTeleopTime: TimeInterval = 135 {
+        didSet { settings.set("practiceTeleopTime", practiceTeleopTime) }
+    }
+    var practiceDelayTime: TimeInterval = 2 {
+        didSet { settings.set("practiceDelayTime", practiceDelayTime) }
+    }
+    var soundsEnabled = true {
+        didSet { settings.set("soundsEnabled", soundsEnabled) }
+    }
 
     // MARK: 事件日志
 
@@ -118,7 +139,10 @@ final class DSModel {
     // MARK: .dslog 会话日志（NI DS 习惯：全程记录，AdvantageScope/dslog viewer 可读）
 
     var dslogEnabled = true {
-        didSet { updateDSLogWriter() }
+        didSet {
+            settings.set("dslogEnabled", dslogEnabled)
+            updateDSLogWriter()
+        }
     }
     private var dslogWriter: DSLogWriter?
 
@@ -132,6 +156,9 @@ final class DSModel {
     private let client = DSClient()
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
+    private let settings = SettingsStore()
+    private var lastBatterySampleAt: TimeInterval = 0
+    private var radioProbe: RadioProbe?
     private var sequencer = PracticeSequencer()
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
@@ -139,7 +166,23 @@ final class DSModel {
 
     // MARK: 生命周期
 
+    var persistenceEnabled: Bool { !DSModel.isAutoSim }
+
+    func loadPersistedSettings() {
+        guard persistenceEnabled else { return }
+        if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
+        if let ip = settings.string("manualIP") { manualIP = ip }
+        if let raw = settings.string("alliance"), let a = AllianceStation(rawValue: UInt8(raw) ?? 255) { alliance = a }
+        if let kind = settings.string("dashboardKind").flatMap(DashboardKind.init(rawValue:)) { dashboardKind = kind }
+        if let v = settings.double("practiceAutoTime"), v >= 1 { practiceAutoTime = v }
+        if let v = settings.double("practiceTeleopTime"), v >= 15 { practiceTeleopTime = v }
+        if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
+        if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
+        if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
+    }
+
     func start() {
+        loadPersistedSettings()
         installTimers()
         HIDInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
@@ -154,10 +197,28 @@ final class DSModel {
             guard let self else { return }
             Task { @MainActor in self.handle(event) }
         }
+        let probe = RadioProbe(configuration: {
+            var c = RadioProbe.Configuration()
+            if DSModel.isAutoSim { c.port = 8080 } // 模拟器 radio 走非特权端口
+            return c
+        }())
+        probe.hostProvider = { [weak self] in
+            guard let self else { return nil }
+            if !self.manualIP.isEmpty { return (self.manualIP, probe.configuration.port) }
+            guard self.teamNumber > 0 else { return nil }
+            let t = self.teamNumber
+            return (String(format: "10.%d.%d.1", t / 100, t % 100), probe.configuration.port)
+        }
+        probe.onResult = { [weak self] ok in
+            Task { @MainActor in self?.radioReachable = ok }
+        }
+        probe.start()
+        radioProbe = probe
+
         client.start()
         log("GH DS 控制环已启动（20ms）")
 
-        if ProcessInfo.processInfo.environment["GHDS_AUTO_SIM"] == "1" {
+        if DSModel.isAutoSim {
             manualIP = "127.0.0.1"
             log("GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1")
         }
@@ -532,6 +593,10 @@ final class DSModel {
     // MARK: 日志
 
     private func appendBattery(_ v: Float) {
+        // 5Hz 节流：应答 50Hz 全量入列会造成 12s 窗口与 50Hz UI 失效
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - lastBatterySampleAt >= 0.2 else { return }
+        lastBatterySampleAt = now
         batteryHistory.append(v)
         if batteryHistory.count > 600 { batteryHistory.removeFirst(batteryHistory.count - 600) }
     }

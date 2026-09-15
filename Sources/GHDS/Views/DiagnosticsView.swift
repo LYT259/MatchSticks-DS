@@ -11,7 +11,7 @@ struct DiagnosticsView: View {
             Section("网络指示") {
                 HStack(spacing: 20) {
                     LED(label: "Robot (UDP)", on: model.commConnected, onColor: .green, symbol: "arrow.triangle.swap")
-                    LED(label: "Robot Radio", on: model.commConnected, onColor: .green, symbol: "wifi")
+                    LED(label: "Robot Radio", on: model.radioReachable, onColor: .green, symbol: "wifi")
                     LED(label: "USB", on: model.manualIP == "172.22.11.2", onColor: .green, symbol: "cable.connector")
                     LED(label: "FMS", on: model.robotStatus.raw != 0 && false, onColor: .blue, symbol: "building.2")
                     Spacer()

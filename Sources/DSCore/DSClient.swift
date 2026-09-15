@@ -86,6 +86,10 @@ public final class DSClient {
     private var tcpSock: Int32 = -1
     private var tcpBuffer = Data()
     private var tcpConnected = false
+    private var tcpConnectInFlight = false
+    private var tcpRetryAfter: Double = 0
+    /// TCP 连接尝试次数（测试用：stop() 后读取）
+    public private(set) var tcpConnectAttempts = 0
 
     private var candidates: [String] = []
     private var candidateIndex = 0
@@ -112,6 +116,7 @@ public final class DSClient {
 
     private var watchdogTripped = false
     private var watchdogTripStart: Double = 0
+    private var statsWindowConnected = false
 
     private let resolverQueue = DispatchQueue(label: "gh.driverstation.resolver", qos: .utility)
     private var resolvedMDNS: [String] = []
@@ -389,18 +394,26 @@ public final class DSClient {
     private func ensureTCPLocked(now: Double) {
         guard isConnectedLocked, let host = currentTarget else { return }
         if tcpConnected { drainTCPLocked(); serviceTCPTagsLocked(now: now); return }
-        // 后台阻塞式连接（2s 超时），成功后交给 loop queue
-        guard tcpSock < 0 else { return }
+        // 后台阻塞式连接（2s 超时）；in-flight 守卫 + 失败 1s 退避，
+        // 防止未建立期间每 tick 排队新连接（连接风暴）
+        guard tcpSock < 0, !tcpConnectInFlight, now >= tcpRetryAfter else { return }
+        tcpConnectInFlight = true
+        tcpConnectAttempts += 1
         let target = host
         resolverQueue.async { [weak self] in
             guard let self else { return }
             let fd = Self.blockingTCPConnect(to: target, port: NICodec.tcpPort, timeout: 2.0)
             self.queue.async {
+                self.tcpConnectInFlight = false
                 guard self.running, self.isConnectedLocked(to: target), self.currentTarget == target else {
                     if fd >= 0 { close(fd) }
+                    self.tcpRetryAfter = self.monotonicNow() + 1.0
                     return
                 }
-                guard fd >= 0 else { return }
+                guard fd >= 0 else {
+                    self.tcpRetryAfter = self.monotonicNow() + 1.0
+                    return
+                }
                 let flags = fcntl(fd, F_GETFL, 0)
                 _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
                 self.tcpSock = fd
@@ -524,15 +537,20 @@ public final class DSClient {
         sendControlPacketLocked(now: now)
         ensureTCPLocked(now: now)
 
-        // 每秒发一次统计
+        // 每秒发一次统计；窗口起点未连接（含连接瞬间的半窗）不计，
+        // 否则连接初期会出现 100% 丢包伪影
         if now - lastStatsAt > 1.0 {
+            let wasConnected = statsWindowConnected
+            statsWindowConnected = isConnectedLocked
             lastStatsAt = now
-            let txWindow = txCount - txCountAtStats
-            let rxWindow = rxCount - rxCountAtStats
+            if wasConnected {
+                let txWindow = txCount - txCountAtStats
+                let rxWindow = rxCount - rxCountAtStats
+                let loss = txWindow == 0 ? 0.0 : Double(txWindow - rxWindow) / Double(txWindow) * 100
+                emit(.stats(lossPercent: max(0, loss), rttMillis: nil, txCount: txCount, rxCount: rxCount))
+            }
             txCountAtStats = txCount
             rxCountAtStats = rxCount
-            let loss = txWindow == 0 ? 0.0 : Double(txWindow - rxWindow) / Double(txWindow) * 100
-            emit(.stats(lossPercent: max(0, loss), rttMillis: nil, txCount: txCount, rxCount: rxCount))
         }
     }
 }
