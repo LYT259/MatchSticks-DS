@@ -64,6 +64,17 @@ struct DiagnosticsView: View {
                                value: "\(model.railFaults.sixV) / \(model.railFaults.fiveV) / \(model.railFaults.threeV)")
             }
 
+            Section("本机状态（Driver Station 电脑）") {
+                if let pct = model.macStatus.batteryPercent {
+                    LabeledContent("电池", value: "\(pct)%\(model.macStatus.onAC == true ? "（交流供电）" : "（电池）")")
+                } else {
+                    LabeledContent("电源", value: "交流供电（无电池）")
+                }
+                LabeledContent("系统 CPU", value: String(format: "%.0f%%", model.macStatus.systemCPUPercent))
+                LabeledContent("DS 进程内存", value: String(format: "%.0f MB", model.macStatus.processMemoryMB))
+                LabeledContent("本机网络", value: model.localNetworkSummary)
+            }
+
             Section("版本信息（TCP 0x0A）") {
                 if model.versionEntries.isEmpty {
                     Text("未收到（需 TCP 通道）").foregroundStyle(.secondary)

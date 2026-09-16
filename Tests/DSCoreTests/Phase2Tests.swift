@@ -1,4 +1,57 @@
 
+// MARK: WPILog 编码/读取 单测（2027 VarInt 布局，依据 allwpilib datalog 模块核查）
+
+func wpilogTests() {
+    // 记录头 VarInt 金样本：entry=1, payloadSize=5, ts=123456789ms(=0x075BCD15, 4B LE)
+    let header = WPILogFormat.recordHeader(entry: 1, timestampMs: 123_456_789, payloadSize: 5)
+    check(header == [0x30, 0x01, 0x05, 0x15, 0xCD, 0x5B, 0x07],
+          "记录头金样本（" + header.map { String(format: "%02X", $0) }.joined() + "）")
+    // 大数值：entry=300 → 2 字节 LE (AC 01)
+    let header2 = WPILogFormat.recordHeader(entry: 300, timestampMs: 1, payloadSize: 1)
+    check(header2 == [0x01, 0x2C, 0x01, 0x01, 0x01], "多字节 entry 变长（" + header2.map { String(format: "%02X", $0) }.joined() + "）")
+
+    // 全文件往返：START/double/boolean/string/FINISH
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ghds-\(Int.random(in: 0...999_999)).wpilog")
+    var ts = Int64(1_700_000_000_000)
+    let writer = try! WPILogWriter(fileURL: url, timestampProvider: { ts })
+    let batteryID = writer.startEntry(name: "/DS/Battery", type: "double", metadata: "{\"unit\":\"V\"}")
+    let enabledID = writer.startEntry(name: "/DS/Enabled", type: "boolean")
+    writer.appendDouble(batteryID, 12.42)
+    writer.appendBoolean(enabledID, true)
+    ts += 20
+    writer.appendDouble(batteryID, 12.39)
+    writer.finishEntry(enabledID)
+    writer.close()
+
+    let file = try! WPILogFile(fileURL: url)
+    check(file.entries.count == 2, "wpilog START 解码 2 条（" + String(file.entries.count) + "）")
+    check(file.entries[0].name == "/DS/Battery" && file.entries[0].type == "double", "entry 名称/类型")
+    check(file.entries[0].metadata == "{\"unit\":\"V\"}", "metadata 往返")
+    check(file.records.count == 6, "记录总数 6（" + String(file.records.count) + "）")
+
+    // 数据记录解码：double 与 boolean
+    let dataRecords = file.records.filter { $0.entry != 0 }
+    let doubles = dataRecords.filter { $0.entry == batteryID }
+    check(doubles.count == 2, "battery 数据记录 2 条")
+    let v0 = doubles[0].payload.reduce(0.0) { acc, b in
+        var d = acc; d = d / 256.0 + Double(b) / 256.0; return d // 占位
+    }
+    _ = v0
+    let battery0 = Double(bitPattern: doubles[0].payload.prefix(8).reversed().reduce(UInt64(0)) { ($0 << 8) | UInt64($1) })
+    check(abs(battery0 - 12.42) < 0.0001, "double 往返（" + String(battery0) + "）")
+    let enabledRecords = dataRecords.filter { $0.entry == enabledID }
+    check(enabledRecords.first?.payload.first == 1, "boolean 真")
+
+    // FINISH 记录（entry=0, payload[0]=0x01）
+    let finishes = file.records.filter { $0.entry == 0 && $0.payload.first == 0x01 }
+    check(finishes.count == 1, "FINISH 记录 1 条")
+
+    // 坏魔数
+    check((try? WPILogFile(data: Data("NOTWPILOG!!".utf8))) == nil, "坏魔数拒绝")
+    try? FileManager.default.removeItem(at: url)
+}
+
+
 // MARK: SettingsStore 单测
 
 func settingsStoreTests() {
@@ -615,4 +668,5 @@ func runAllPhase2Tests() {
     runTest("settingsStoreTests", settingsStoreTests)
     runTest("radioProbeTests", radioProbeTests)
     runTest("tcpBackoffScenario", tcpBackoffScenario)
+    runTest("wpilogTests", wpilogTests)
 }

@@ -53,6 +53,10 @@ final class DSModel {
         }
     }
     var radioReachable = false
+    var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
+    var localNetworkSummary = "检测中…"
+    private let networkMonitor = NetworkPathMonitor()
+    private var wpilogWriter: WPILogWriter?
     var commState: DSClient.CommState = .idle
     var watchdogHealthy = true
 
@@ -184,6 +188,7 @@ final class DSModel {
     func start() {
         loadPersistedSettings()
         installTimers()
+        networkMonitor.start()
         HIDInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
         }
@@ -558,22 +563,27 @@ final class DSModel {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy_MM_dd HH_mm_ss"
-            let url = dir.appendingPathComponent(formatter.string(from: Date()).appending(".dslog"))
+            let base = formatter.string(from: Date())
             do {
-                dslogWriter = try DSLogWriter(fileURL: url)
-                log("dslog 记录开始：\(url.lastPathComponent)")
+                dslogWriter = try DSLogWriter(fileURL: dir.appendingPathComponent(base + ".dslog"))
+                wpilogWriter = try WPILogWriter(fileURL: dir.appendingPathComponent(base + ".wpilog"))
+                startWPILogEntries()
+                log("会话日志记录开始（.dslog + .wpilog）")
             } catch {
-                log("dslog 启动失败：\(error.localizedDescription)")
+                log("日志启动失败：\(error.localizedDescription)")
                 dslogEnabled = false
             }
-        } else if let w = dslogWriter {
-            w.close()
-            dslogWriter = nil
-            log("dslog 记录停止")
+        } else {
+            dslogWriter?.close(); dslogWriter = nil
+            finishWPILogEntries()
+            wpilogWriter?.close(); wpilogWriter = nil
         }
     }
 
     private func appendDSLogEntry() {
+        macStatus = MacStatusMonitor.snapshot()
+        localNetworkSummary = networkMonitor.summary
+        appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }
         var entry = DSLogEntry()
         entry.packetLossPercent = lossPercent
@@ -588,6 +598,41 @@ final class DSModel {
         entry.robotDisabled = robotTrace.disabled
         entry.canPercent = can.utilizationPercent
         w.append(entry)
+    }
+
+    // MARK: WPILog 条目
+
+    private var wpilogIDs: (battery: UInt32, loss: UInt32, cpu: UInt32, can: UInt32, enabled: UInt32, mode: UInt32, radio: UInt32)?
+
+    private func startWPILogEntries() {
+        guard let w = wpilogWriter else { return }
+        wpilogIDs = (
+            w.startEntry(name: "/DS/Battery", type: "double"),
+            w.startEntry(name: "/DS/Loss", type: "double"),
+            w.startEntry(name: "/DS/RoboRIO CPU", type: "double"),
+            w.startEntry(name: "/DS/CAN Util", type: "double"),
+            w.startEntry(name: "/DS/Enabled", type: "boolean"),
+            w.startEntry(name: "/DS/Mode", type: "string"),
+            w.startEntry(name: "/DS/Radio Reachable", type: "boolean")
+        )
+    }
+
+    private func appendWPILogSamples() {
+        guard let w = wpilogWriter, let ids = wpilogIDs else { return }
+        w.appendDouble(ids.battery, Double(batteryVolts))
+        w.appendDouble(ids.loss, lossPercent)
+        w.appendDouble(ids.cpu, Double(cpuCores.map { $0.reduce(0, +) }.max() ?? 0))
+        w.appendDouble(ids.can, Double(can.utilizationPercent))
+        w.appendBoolean(ids.enabled, enabled)
+        w.appendString(ids.mode, mode.displayName)
+        w.appendBoolean(ids.radio, radioReachable)
+    }
+
+    private func finishWPILogEntries() {
+        guard let ids = wpilogIDs, let w = wpilogWriter else { return }
+        w.finishEntry(ids.battery); w.finishEntry(ids.loss); w.finishEntry(ids.cpu)
+        w.finishEntry(ids.can); w.finishEntry(ids.enabled); w.finishEntry(ids.mode)
+        w.finishEntry(ids.radio)
     }
 
     // MARK: 日志

@@ -26,6 +26,7 @@ final class ShortcutManager {
         static let esc: UInt16 = 53
         static let i: UInt16 = 34
         static let f1: UInt16 = 122
+        static let backspace: UInt16 = 51
     }
 
     func install(model: DSModel) {
@@ -75,6 +76,9 @@ final class ShortcutManager {
             escPressedAt = Date()
         case Codes.f1:
             model?.rescanJoysticks()
+            return nil
+        case Codes.backspace:
+            model?.aStop() // NI DS 语义：Backspace = A-Stop
             return nil
         default:
             break
