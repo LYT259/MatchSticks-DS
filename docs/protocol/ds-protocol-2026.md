@@ -1,4 +1,4 @@
-# DS 协议档案 — NI（roboRIO 1.0/2.0）
+# DS 协议档案 — NI（roboRIO 1.0/2.0）与 MRC（SystemCore）
 
 > 依据 CLAUDE.md/AGENTS.md 红线 2：本文件建立后为本项目 DS 协议条目的权威记录。
 > 只收「已核查」与「待实测」两类，修改必须附依据。
@@ -80,7 +80,25 @@ robot → DS：
 - **E-Stop 锁存**：沿 First DS 语义——E-Stop 后由「重启 robot code」解锁（Request bit2），不要求 roboRIO 断电（NI DS 旧体验的升级）；模拟器按此实现
 - 失联判定 >1.25s；UI 心跳看门狗 >200ms 冻结使能（OpenDS 模式，报告 §6 决策 2）
 
-## 待实测（真机核对清单）
+## MRC（SystemCore / MrcCommDaemon，Comm Version 2）— 已核查（编码器已实现）
+
+依据：Compatibility Proxy 逆向文档 DS_MRCCOMM_UDP_PROTOCOL.md（2026-09-16 核查；双端反汇编交叉验证）。实现 Sources/DSCore/MRCPackets.swift + CRC32C.swift。
+
+- 控制包（UDP 1110，6B 头 + tags）：seq u16 BE / **ver 0x02** / ctrl（bit0 Test、bit1 Auto、bit2 Enabled、bit3 FMS、bit7 E-Stop）/ request（**bit0 RequestNormal，清零停机**）/ alliance 0-5；tags：0x0C 手柄（同 NI 框架；轴负数÷128 非负÷127）、0x07 match time f32 BE
+- 应答（回送源端口，24B 头）：seq u16 BE 回显 / ver / ctrl（bit0-1 mode 0 Unknown/1 Auto/2 Teleop/3 Test、bit2 Enabled、bit5 HasCode、bit7 E-Stop）/ status（**bit0 WatchdogFed 每包必须**，连续 >4 缺失 → DS「Watchdog Not Fed」；bit5 HasUserCodeReady + bit6 HasUserCode 同置才清「无代码」）/ batt（整数+分数/256）/ flags / 保留 8B / payload CRC32C LE / **header CRC32C（只算 [0..20)）LE**；CRC32C Castagnoli 0x82F63B78，向量 "123456789"→0xE3069283
+- 0xFF 错误包（8B）：版本不符时 [seq][0xFF][errorCode][0×4]，观察值 101
+- 手柄输出 tag **0x2E**（UDP 或 TCP）：6 槽 × 11B = RGB LED + 左/右/左扳机/右扳机 rumble u16 BE
+- TCP 1740 同帧格式；robot→DS **0x13 OpMode 列表**（自定义大端二进制非 protobuf：count + 每项 u8 前缀 name/group/desc（≤64B，任一为空整表拒绝）+ u64 BE hash（bit56-57 模式、bit58 enabled）+ u32 BE 文字色/背景色）；DS 忽略 /Dscomm/* 的远程 NT4 写入——OpMode 列表必须走 TCP
+- **金样本**：文档 §8 实测包（seq 0x0123/有码/失能/12.0V/0x2E 全零 tag，92B）——本仓编码器已逐字节复现（DSCoreTests mrcGoldenPacketTests）
+- **NT4 平面（6767，DS 侧 server，MrcComm 反连）**：OpMode 选择/告警/显示走此通道——**下一批实现**
+
+### 待实测（MRC/SystemCore）
+- [ ] 真机 SystemCore 抓包比对（现行依据为逆向文档 + robot_sim 语义）
+- [ ] NT4 6767 握手与 /Dscomm/OpModeSelection 写入路径（下一批实现后以 robot_sim.py 联测）
+- [ ] console/error 的 TCP tag id（0x0B–0x19 范围内，具体值待核）
+- [ ] 0x2E rumble 值到物理手柄的映射（Phase 4 震动测试）
+
+## 待实测（真机核对清单 — NI）
 
 - [ ] 控制包/应答包逐字节抓包比对（协议年份 2025/2026 变体是否存在字段漂移）
 - [ ] 0x0C 手柄 tag：多手柄时确为「每手柄一 tag」还是单 tag 多条目（两实现兼容性以真机为准）

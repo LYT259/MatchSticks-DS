@@ -1,4 +1,352 @@
 
+// MARK: Phase 3/4：msgpack + protobuf-lite + NT4 server 往返
+
+import Network
+
+func msgPackTests() {
+    // 正负整数 / bool / double / string / bin / 数组 的 pack→unpack 往返
+    let packed = MsgPack.pack([Int64(1), Int64(300), Int64(-5), true, 12.5, "hello", Data([0xAB, 0xCD])] as [Any])
+    print("  [dbg] packed=" + [UInt8](packed).map { String(format: "%02X", $0) }.joined(separator: " ") + " count=" + String(packed.count))
+    let unpacked: [Any]
+    do { unpacked = try MsgPack.unpackAll(packed) }
+    catch { print("  [dbg] UNPACK THROWN: \(error)"); unpacked = [] }
+    check(unpacked.count == 1, "顶层单数组（\(unpacked.count)）")
+    guard let arr = unpacked.first as? [Any] else { check(false, "顶层数组"); return }
+    check(arr.count == 7, "msgpack 元素数（\(arr.count)）")
+    check((arr[0] as? Int64) == 1, "小整数（fixint）")
+    check((arr[1] as? Int64) == 300, "uint16 整数")
+    check((arr[2] as? Int64) == -5, "负整数")
+    check((arr[3] as? Bool) == true, "布尔")
+    check((arr[4] as? Double) == 12.5, "float64")
+    check((arr[5] as? String) == "hello", "字符串")
+    check((arr[6] as? Data) == Data([0xAB, 0xCD]), "bin")
+
+    // NT4 值帧形态：[id, ts_us, type_id, value]（大整数时间戳）
+    let frame = MsgPack.pack([Int64(3), Int64(1_700_000_000_123_456), Int(5), Data([1, 2, 3])] as [Any])
+    let frames = (try? MsgPack.unpackAll(frame)) as? [[Any]]
+    check(frames?.count == 1, "值帧单条")
+    check((frames?.first?.count) == 4, "值帧四元组")
+}
+
+func protobufLiteTests() {
+    // 手工推演金样本：MatchTime=0 / 无手柄 / CurrentOpMode=1 / ControlWord=5 / GameData=""
+    let data = ProtobufLite.mrcControlData(controlWord: 5, matchTimeSec: 0,
+                                           joysticks: [], currentOpMode: 1, gameData: "")
+    check([UInt8](data) == [
+        0x10, 0x00,                                              // field2 varint 0
+        0x21, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,    // field4 fixed64 1
+        0x28, 0x05,                                              // field5 varint 5
+        0x32, 0x00,                                              // field6 空串
+    ], "ControlData 金样本（" + [UInt8](data).map { String(format: "%02X", $0) }.joined() + "）")
+
+    // JoystickData 子消息非空
+    let js = ProtobufLite.JoystickWire(buttons: 0b101, buttonCount: 3,
+                                       axes: [0.0], povsPacked: 0xFFFF)
+    let jd = ProtobufLite.mrcJoystickData(js)
+    check(jd.contains(0x10), "JoystickData AvailableButtons varint 字段（field2 uint64 走 varint，key 0x10）")
+}
+
+func nt4ServerTests() {
+    final class Box: @unchecked Sendable {
+        var announced = false
+        var gotValue: (name: String, value: NT4Server.NT4Value)? = nil
+        var gotBinary: Data? = nil
+        var lock = NSLock()
+    }
+    let box = Box()
+
+    let server = NT4Server(port: 18_767)
+    server.onValue = { name, value in
+        box.lock.lock(); box.gotValue = (name, value); box.lock.unlock()
+    }
+    server.start()
+    Thread.sleep(forTimeInterval: 0.3)
+
+    // 裸 WebSocket 客户端（RFC6455；服务器要求 Upgrade 握手）
+    let sock = socket(AF_INET, SOCK_STREAM, 0)
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = UInt16(18_767).bigEndian
+    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let connected = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    check(connected == 0, "NT4：TCP 连接")
+    var tv = timeval(tv_sec: 3, tv_usec: 0)
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+    let handshake = "GET /nt/test HTTP/1.1\r\nHost: 127.0.0.1:18767\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+        + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    let handshakeData = Data(handshake.utf8)
+    _ = handshakeData.withUnsafeBytes { raw in send(sock, raw.baseAddress, raw.count, 0) }
+    // 读握手响应头（至 \r\n\r\n）
+    var headerData = Data()
+    var byte: UInt8 = 0
+    while headerData.count < 4096 {
+        let n = recv(sock, &byte, 1, 0)
+        guard n == 1 else { break }
+        headerData.append(byte)
+        if [UInt8](headerData.suffix(4)) == [0x0D, 0x0A, 0x0D, 0x0A] { break }
+    }
+    let headerText = String(decoding: headerData, as: UTF8.self)
+    check(headerText.contains("101"), "握手 101（" + headerText.prefix(40) + "）")
+    check(headerText.contains("v4.1.networktables.first.wpi.edu"), "子协议回显")
+
+    func sendClientFrame(opcode: UInt8, payload: Data) {
+        var frame = Data([0x80 | opcode])
+        // 客户端帧按 RFC 必须掩码；服务器实现兼容带/不带掩码
+        let mask: [UInt8] = [0x11, 0x22, 0x33, 0x44]
+        if payload.count < 126 {
+            frame.append(UInt8(0x80 | payload.count))
+        } else {
+            frame.append(UInt8(0x80 | 126))
+            frame.append(UInt8(payload.count >> 8)); frame.append(UInt8(payload.count & 0xFF))
+        }
+        frame.append(contentsOf: mask)
+        var masked = [UInt8](payload)
+        for i in 0..<masked.count { masked[i] ^= mask[i % 4] }
+        frame.append(contentsOf: masked)
+        frame.withUnsafeBytes { raw in _ = send(sock, raw.baseAddress, raw.count, 0) }
+    }
+
+    func recvServerFrame() -> (opcode: UInt8, payload: Data)? {
+        // 用与服务器同款的读帧逻辑（无掩码）
+        return NT4Server.readTestFrame(sock)
+    }
+
+    // ① publish → announce
+    sendClientFrame(opcode: 0x1, payload: Data("[{\"method\":\"publish\",\"params\":{\"name\":\"/Netcomm/Status/HasUserCode\",\"pubuid\":1,\"type\":\"boolean\",\"properties\":{}}}]".utf8))
+    if let (op, payload) = recvServerFrame() {
+        check(op == 0x1, "announce 为文本帧")
+        let text = String(decoding: payload, as: UTF8.self)
+        check(text.contains("announce") && text.contains("HasUserCode"), "announce 内容（\(text.prefix(80))）")
+    } else { check(false, "announce 帧未收到") }
+
+    // ② 服务端发布 + 客户端订阅 + 服务端 set → 客户端收值帧
+    server.publish(name: "/Dscomm/Control/ControlData", type: "proto:mrc.proto.ProtobufControlData")
+    sendClientFrame(opcode: 0x1, payload: Data("[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"/Dscomm/Control/\"],\"subuid\":7,\"options\":{\"prefix\":true,\"all\":true}}}]".utf8))
+    Thread.sleep(forTimeInterval: 0.3) // 订阅处理
+    server.set(name: "/Dscomm/Control/ControlData", .raw(Data([1, 2, 3])))
+    var gotBinary: Data?
+    for _ in 0..<3 {
+        if let (op, payload) = recvServerFrame(), op == 0x2 {
+            gotBinary = payload
+            break
+        }
+    }
+    check(gotBinary != nil, "server.set → 值帧下发")
+    if let payload = gotBinary {
+        let arr = (try? MsgPack.unpackAll(payload)) as? [[Any]]
+        check(arr?.count == 1 && arr?[0].count == 4, "值帧四元组")
+        check((arr?[0][2] as? Int64) == 5, "raw type_id=5")
+        check((arr?[0][3] as? Data) == Data([1, 2, 3]), "raw payload 往返")
+    }
+
+    // ③ 客户端发值 → server.onValue
+    let valueFrame = MsgPack.pack([Int64(1), Int64(123_456), Int(0), true] as [Any])
+    sendClientFrame(opcode: 0x2, payload: valueFrame)
+    for _ in 0..<20 {
+        box.lock.lock()
+        let got = box.gotValue
+        box.lock.unlock()
+        if let g = got {
+            check(g.name == "/Netcomm/Status/HasUserCode", "客户端值 topic（\(g.name)）")
+            if case .boolean(let b) = g.value { check(b == true, "布尔值") } else { check(false, "布尔值类型") }
+            break
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+    close(sock)
+    server.stop()
+}
+
+
+func runAllPhase3Tests() {
+    runTest("msgPackTests", msgPackTests)
+    runTest("protobufLiteTests", protobufLiteTests)
+    runTest("nt4ServerTests", nt4ServerTests)
+}
+
+
+// MARK: Phase 3：CRC32C + MRC V2 协议（金样本 = Compatibility Proxy 文档 §8 实测包）
+
+func crc32cTests() {
+    check(CRC32C.checksum(Array("123456789".utf8)) == 0xE3069283, "CRC32C 标准向量")
+    check(CRC32C.checksum([]) == 0x00000000, "CRC32C 空输入")
+}
+
+func mrcGoldenPacketTests() {
+    // 文档 §8：robot_sim.py 对 seq=0x0123、有代码、失能状态的真实应答包
+    var payload = Data([0x43, 0x2E]) + Data(repeating: 0, count: 66)
+    _ = payload
+    let golden = Data([
+        0x01, 0x23,                                     // seq
+        0x02,                                           // comm version
+        0x20,                                           // ctrl: HasCode, disabled, mode=Unknown
+        0x61,                                           // status: WatchdogFed | HasUserCodeReady | HasUserCode
+        0x0C, 0x00,                                     // battery 12.0V
+        0x00,                                           // flags
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
+        0xA7, 0x26, 0xDC, 0xC3,                         // payload CRC32C LE
+        0x96, 0xCF, 0x7C, 0x5D,                         // header CRC32C LE
+        0x43, 0x2E,                                     // tag: len 0x43, id 0x2E
+    ] + Array(repeating: 0, count: 66))
+    let decoded = MRCPackets.decodeReply(golden)
+    check(decoded != nil, "金样本包 CRC 校验通过")
+    check(decoded?.seq == 0x0123, "seq 回显")
+    check(decoded?.mode == .unknown, "mode Unknown")
+    check(decoded?.enabled == false, "失能")
+    check(decoded?.hasCode == true, "HasCode")
+    check(decoded?.watchdogFed == true, "WatchdogFed")
+    check(decoded?.hasUserCode == true && decoded?.hasUserCodeReady == true, "用户代码就绪位")
+    check(abs((decoded?.batteryVoltage ?? 0) - 12.0) < 0.001, "电池 12.0V")
+    check(decoded?.slotOutputs.count == 6, "6 手柄槽位输出（" + String(decoded?.slotOutputs.count ?? 0) + "）")
+
+    // 编码器应产出逐字节相同的包
+    let slots = (0..<6).map { _ in MRCSlotOutput() }
+    var payloadData = Data([0x43, 0x2E])
+    for slot in slots {
+        var w = ByteWriter()
+        w.u8(slot.ledR); w.u8(slot.ledG); w.u8(slot.ledB)
+        w.u16be(slot.leftRumble); w.u16be(slot.rightRumble)
+        w.u16be(slot.leftTriggerRumble); w.u16be(slot.rightTriggerRumble)
+        payloadData.append(Data(w.data))
+    }
+    let encoded = MRCPackets.replyPacket(seq: 0x0123, mode: .unknown, enabled: false,
+                                         hasCode: true, batteryVolts: 12.0, payload: payloadData)
+    check(encoded == golden, "编码器复现金样本（\(Array(encoded.prefix(24)).map { String(format: "%02X", $0) }.joined())）")
+
+    // 单字节翻转 → CRC 拒绝
+    var corrupted = golden
+    corrupted[30] ^= 0xFF
+    check(MRCPackets.decodeReply(corrupted) == nil, "坏 CRC 拒绝")
+
+    // 错误包
+    check(MRCPackets.decodeErrorPacket(Data([0x01, 0x23, 0xFF, 0x65, 0, 0, 0, 0])) == 101, "0xFF 错误包错误码 101")
+}
+
+func mrcControlRoundTrip() {
+    var control = MRCControlWord()
+    control.enabled = true
+    control.autonomous = true
+    var js = JoystickData(axes: [-1.0, 0.5], buttonCount: 9, buttons: 0b101, povs: [270])
+    js.buttonCount = 9
+    let packet = MRCPackets.controlPacket(seq: 77, control: control, alliance: .blue2,
+                                          joysticks: [js], matchTime: 15.5)
+    let decoded = MRCPackets.decodeControl(packet)
+    check(decoded != nil, "MRC 控制包解码")
+    check(decoded?.seq == 77, "seq")
+    check(decoded?.control.enabled == true && decoded?.control.autonomous == true, "控制位")
+    check(decoded?.control.test == false, "test 位未误置")
+    check(decoded?.request.normal == true, "RequestNormal 默认置位")
+    check(decoded?.alliance == .blue2, "alliance")
+    check(decoded?.joysticks.count == 1, "手柄数")
+    check(decoded?.joysticks.first?.buttons == 0b101, "按钮位")
+    check(decoded?.joysticks.first?.povs == [270], "POV")
+    check((decoded?.matchTime.map { abs($0 - 15.5) < 0.01 }) == true, "match time")
+}
+
+func mrcOpModesTests() {
+    let ops = [
+        MRCOpModeInfo(name: "TensorFlow Detect", group: "Auto", description: "vision auto",
+                      hash: (1 << 56) | 0x1234),
+        MRCOpModeInfo(name: "Teleop Main", group: "Teleop", description: "main teleop",
+                      hash: (2 << 56) | (1 << 58) | 0x5678),
+    ]
+    let tag = MRCPackets.opModesTag(ops)
+    let (frames, _) = NICodec.extractTCPFrames(from: tag)
+    check(frames.count == 1 && frames[0].id == 0x13, "0x13 帧")
+    let decoded = MRCPackets.decodeOpModes(frames[0].payload)
+    check(decoded == ops, "OpMode 列表往返")
+    // 空字符串元素应被拒（DS 语义：任一字符串为空即弃整个列表）
+    let bad = MRCPackets.decodeOpModes(Data([1, 0, 5]) + Data("Group".utf8) + Data([5]) + Data("Descr".utf8) + Data(repeating: 0, count: 12))
+    check(bad.isEmpty, "空 name 元素被拒")
+}
+
+func mrcLoopbackScenario() {
+
+    let server = MRCResponder()
+    server.start()
+    Thread.sleep(forTimeInterval: 0.05)
+
+    // 简化：直接用 client 层（protocolKind .mrc）——需 DSClient 支持，此处先用 codec 对打验证
+    // 起一个 NI DSClient 会拿到 MRC 应答（版本字节 0x02）→ NI 解码失败 → 不会误判连接
+    let sink = ClientSink()
+    let boot = Date()
+    let client = DSClient()
+    client.eventHandler = { sink.observe($0) }
+    client.updateConfig { $0.manualIP = "127.0.0.1" }
+    client.snapshotProvider = {
+        var snap = DSClient.Snapshot()
+        snap.control.enabled = Date().timeIntervalSince(boot) > 0.5
+        snap.control.mode = .autonomous
+        return snap
+    }
+    client.start()
+    Thread.sleep(forTimeInterval: 2.0)
+    client.stop()
+    server.stop()
+
+    sink.lock.lock(); defer { sink.lock.unlock() }
+    check(server.rawPackets >= 60, "MRC 场景：NI 模式 DS 持续发控制包（线缆 \(server.rawPackets)）")
+    check(server.packets == 0, "MRC 场景：NI 格式包被 MRC 解码器全部拒绝（\(server.packets)）")
+    // NI 解码器读 MRC 应答（0x02 版本）应拒绝 → 不误建链（避免误驱动 SystemCore）
+    check(sink.connectedCount == 0, "MRC 场景：NI 解码器不认 MRC 应答（正确行为）")
+}
+
+
+// MARK: WPILog 编码/读取 单测（2027 VarInt 布局，依据 allwpilib datalog 模块核查）
+
+func wpilogTests() {
+    // 记录头 VarInt 金样本：entry=1, payloadSize=5, ts=123456789ms(=0x075BCD15, 4B LE)
+    let header = WPILogFormat.recordHeader(entry: 1, timestampMs: 123_456_789, payloadSize: 5)
+    check(header == [0x30, 0x01, 0x05, 0x15, 0xCD, 0x5B, 0x07],
+          "记录头金样本（" + header.map { String(format: "%02X", $0) }.joined() + "）")
+    // 大数值：entry=300 → 2 字节 LE (AC 01)
+    let header2 = WPILogFormat.recordHeader(entry: 300, timestampMs: 1, payloadSize: 1)
+    check(header2 == [0x01, 0x2C, 0x01, 0x01, 0x01], "多字节 entry 变长（" + header2.map { String(format: "%02X", $0) }.joined() + "）")
+
+    // 全文件往返：START/double/boolean/string/FINISH
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ghds-\(Int.random(in: 0...999_999)).wpilog")
+    var ts = Int64(1_700_000_000_000)
+    let writer = try! WPILogWriter(fileURL: url, timestampProvider: { ts })
+    let batteryID = writer.startEntry(name: "/DS/Battery", type: "double", metadata: "{\"unit\":\"V\"}")
+    let enabledID = writer.startEntry(name: "/DS/Enabled", type: "boolean")
+    writer.appendDouble(batteryID, 12.42)
+    writer.appendBoolean(enabledID, true)
+    ts += 20
+    writer.appendDouble(batteryID, 12.39)
+    writer.finishEntry(enabledID)
+    writer.close()
+
+    let file = try! WPILogFile(fileURL: url)
+    check(file.entries.count == 2, "wpilog START 解码 2 条（" + String(file.entries.count) + "）")
+    check(file.entries[0].name == "/DS/Battery" && file.entries[0].type == "double", "entry 名称/类型")
+    check(file.entries[0].metadata == "{\"unit\":\"V\"}", "metadata 往返")
+    check(file.records.count == 6, "记录总数 6（" + String(file.records.count) + "）")
+
+    // 数据记录解码：double 与 boolean
+    let dataRecords = file.records.filter { $0.entry != 0 }
+    let doubles = dataRecords.filter { $0.entry == batteryID }
+    check(doubles.count == 2, "battery 数据记录 2 条")
+    let v0 = doubles[0].payload.reduce(0.0) { acc, b in
+        var d = acc; d = d / 256.0 + Double(b) / 256.0; return d // 占位
+    }
+    _ = v0
+    let battery0 = Double(bitPattern: doubles[0].payload.prefix(8).reversed().reduce(UInt64(0)) { ($0 << 8) | UInt64($1) })
+    check(abs(battery0 - 12.42) < 0.0001, "double 往返（" + String(battery0) + "）")
+    let enabledRecords = dataRecords.filter { $0.entry == enabledID }
+    check(enabledRecords.first?.payload.first == 1, "boolean 真")
+
+    // FINISH 记录（entry=0, payload[0]=0x01）
+    let finishes = file.records.filter { $0.entry == 0 && $0.payload.first == 0x01 }
+    check(finishes.count == 1, "FINISH 记录 1 条")
+
+    // 坏魔数
+    check((try? WPILogFile(data: Data("NOTWPILOG!!".utf8))) == nil, "坏魔数拒绝")
+    try? FileManager.default.removeItem(at: url)
+}
+
+
 // MARK: SettingsStore 单测
 
 func settingsStoreTests() {
@@ -216,6 +564,79 @@ import DSCore
 // 场景覆盖（红线 3 的验证证据链）：E-Stop 锁存与复位 / roboRIO 重启断联与恢复 /
 // UI 冻结看门狗冻结使能 / brownout 解码 / 30s 长跑稳定性。
 
+final class MRCResponder {
+    var rxSock: Int32 = -1
+    var txSock: Int32 = -1
+    private(set) var packets = 0        // 通过 MRC 解码的包
+    private(set) var rawPackets = 0     // 线缆上收到的包（含被拒的）
+    private(set) var sawEnabled = false
+    private(set) var sawAuto = false
+    private var stopFlag = false
+    private var seq: UInt16 = 0
+
+    func start() {
+        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
+        txSock = socket(AF_INET, SOCK_DGRAM, 0)
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = NICodec.udpControlPort.bigEndian
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        _ = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(rxSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        var txAddr = addr
+        txAddr.sin_port = NICodec.udpResponsePort.bigEndian
+        _ = withUnsafePointer(to: &txAddr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(txSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        Thread.detachNewThread { [weak self] in self?.loop() }
+    }
+
+    private func loop() {
+        var buf = [UInt8](repeating: 0, count: 2048)
+        while !stopFlag {
+            var src = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let n = withUnsafeMutablePointer(to: &src) { p in
+                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
+                }
+            }
+            guard n > 0 else { continue }
+            rawPackets += 1
+            guard let packet = MRCPackets.decodeControl(Data(buf[0..<n])) else { continue }
+            packets += 1
+            if packet.control.enabled { sawEnabled = true }
+            if packet.control.autonomous { sawAuto = true }
+
+            seq &+= 1
+            var payload = ByteWriter()
+            payload.u8(0x43); payload.u8(0x2E)
+            for _ in 0..<6 {
+                payload.u8(0); payload.u8(0); payload.u8(0)
+                payload.u16be(0); payload.u16be(0); payload.u16be(0); payload.u16be(0)
+            }
+            let reply = MRCPackets.replyPacket(seq: packet.seq, mode: packet.control.autonomous ? .autonomous : .teleoperated,
+                                               enabled: packet.control.enabled && !packet.control.estop,
+                                               batteryVolts: 12.1,
+                                               payload: Data(payload.data))
+            withUnsafePointer(to: &src) { dst in
+                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    reply.withUnsafeBytes { raw in
+                        _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        stopFlag = true
+        if rxSock >= 0 { close(rxSock) }
+        if txSock >= 0 { close(txSock) }
+    }
+}
+
 // MARK: ScenarioServer：可编程 roboRIO 应答器（每个场景独立实例，端口 1110/1150）
 
 final class ScenarioServer {
@@ -336,6 +757,7 @@ final class ClientSink: @unchecked Sendable {
     var sawEstopStatus = false
     var estopClearedAfterLatch = false
     var estopStatusHistory: [Bool] = []
+    var batteryOK = false
 
     func observe(_ event: DSClient.Event) {
         lock.lock(); defer { lock.unlock() }
@@ -347,6 +769,7 @@ final class ClientSink: @unchecked Sendable {
         case .watchdogRecovered: watchdogRecovered += 1
         case .response(let p):
             responses += 1
+            if p.batteryVoltage > 3.0 { batteryOK = true }
             if p.status.brownout { sawBrownout = true }
             estopStatusHistory.append(p.status.estop)
             if p.status.estop { sawEstopStatus = true }
@@ -361,7 +784,8 @@ func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
                        intent: @escaping (Double) -> (enabled: Bool, estop: Bool),
                        actions: [(at: Double, run: (DSClient) -> Void)] = [],
                        duration: Double,
-                       onClient: ((DSClient) -> Void)? = nil) -> ClientSink {
+                       onClient: ((DSClient) -> Void)? = nil,
+                       protocolKind: DSClient.ProtocolKind = .ni) -> ClientSink {
     let sink = ClientSink()
     let boot = Date()
     let client = DSClient()
@@ -375,7 +799,10 @@ func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
         snap.control.estop = i.estop
         return snap
     }
-    client.updateConfig { $0.manualIP = "127.0.0.1" }
+    client.updateConfig {
+        $0.manualIP = "127.0.0.1"
+        $0.protocolKind = protocolKind
+    }
     client.start()
     for action in actions {
         let wait = action.at - Date().timeIntervalSince(boot)
@@ -601,6 +1028,26 @@ func recorderTests() {
 
 // MARK: 注册
 
+// MARK: Phase 3 场景：MRC 模式 DS ↔ SystemCore 应答器（正向全链路）
+
+func mrcClientScenario() {
+    let server = MRCResponder()
+    server.start()
+    Thread.sleep(forTimeInterval: 0.05)
+    let sink = runScenarioClient(
+        heartbeatStale: { _ in false },
+        intent: { t in (enabled: t > 0.5, estop: false) },
+        duration: 2.5,
+        protocolKind: .mrc
+    )
+    server.stop()
+    sink.lock.lock(); defer { sink.lock.unlock() }
+    check(sink.connectedCount >= 1, "MRC 正向：连接建立")
+    check(sink.responses >= 30, "MRC 正向：应答 ≥30（\(sink.responses)）")
+    check(sink.batteryOK, "MRC 正向：电池解码")
+    check(server.sawEnabled, "MRC 正向：使能指令到达")
+}
+
 func runAllPhase2Tests() {
     runTest("safetyGateTests", safetyGateTests)
     runTest("practiceSequencerTests", practiceSequencerTests)
@@ -615,4 +1062,14 @@ func runAllPhase2Tests() {
     runTest("settingsStoreTests", settingsStoreTests)
     runTest("radioProbeTests", radioProbeTests)
     runTest("tcpBackoffScenario", tcpBackoffScenario)
+    runTest("wpilogTests", wpilogTests)
+    runTest("crc32cTests", crc32cTests)
+    runTest("mrcGoldenPacketTests", mrcGoldenPacketTests)
+    runTest("mrcControlRoundTrip", mrcControlRoundTrip)
+    runTest("mrcOpModesTests", mrcOpModesTests)
+    runTest("mrcLoopbackScenario", mrcLoopbackScenario)
+    runTest("mrcClientScenario", mrcClientScenario)
+    runTest("msgPackTests", msgPackTests)
+    runTest("protobufLiteTests", protobufLiteTests)
+    runTest("nt4ServerTests", nt4ServerTests)
 }

@@ -28,6 +28,14 @@ struct GHDSApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {} // 去掉无意义的「新建」
         }
+
+        // 迷你视图（Phase 4：Docked/迷你显示，报告 §2.2）
+        WindowGroup(id: "mini", for: String.self) { _ in
+            MiniView(model: model)
+                .frame(minWidth: 320, minHeight: 130)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -36,9 +44,10 @@ struct GHDSApp: App {
 struct RootView: View {
     let model: DSModel
     @State private var selection: Page = .operation
+    @Environment(\.openWindow) private var openWindow
 
     enum Page: String, Hashable {
-        case operation, diagnostics, usb, charts, messages, setup
+        case operation, diagnostics, usb, charts, messages, setup, permissions
 
         var title: String {
             switch self {
@@ -48,6 +57,7 @@ struct RootView: View {
             case .charts: return "Charts"
             case .messages: return "Messages"
             case .setup: return "Setup"
+            case .permissions: return "权限"
             }
         }
 
@@ -59,6 +69,7 @@ struct RootView: View {
             case .charts: return "chart.xyaxis.line"
             case .messages: return "text.bubble"
             case .setup: return "gearshape"
+            case .permissions: return "lock.shield"
             }
         }
     }
@@ -67,6 +78,16 @@ struct RootView: View {
         VStack(spacing: 0) {
             DSStatusBar(model: model)
             Divider()
+            HStack {
+                Spacer()
+                Button {
+                    openWindow(id: "mini")
+                } label: {
+                    Label("迷你视图", systemImage: "rectangle.compress.vertical")
+                }
+                .padding(.vertical, 4)
+            }
+            .padding(.horizontal, 10)
             NavigationSplitView {
                 List(selection: $selection) {
                     Section("操作") {
@@ -80,6 +101,7 @@ struct RootView: View {
                     }
                     Section("配置") {
                         row(.setup)
+                        row(.permissions)
                     }
                 }
                 .listStyle(.sidebar)
@@ -92,6 +114,7 @@ struct RootView: View {
                 case .charts: ChartsView(model: model)
                 case .messages: MessagesView(model: model)
                 case .setup: SetupView(model: model)
+                case .permissions: PermissionsView(model: model)
                 }
             }
         }

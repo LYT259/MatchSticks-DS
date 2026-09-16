@@ -281,6 +281,8 @@ public enum NICodec {
         public var ramUsedBytes: UInt32 = 0
         public var ramTotalBytes: UInt32 = 0
         public var can = CANMetrics()
+        /// NI 协议无此概念（恒 true）；MRC 应答 bit0（连续 5 包缺失 → DS 显示 Watchdog Not Fed）
+        public var watchdogFed = true
     }
 
     public static func decodeResponse(_ data: Data) -> ResponsePacket? {

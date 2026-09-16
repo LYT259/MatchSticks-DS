@@ -16,7 +16,9 @@
 - **图表**：电池电压曲线、每核 CPU、UDP 链路质量（Swift Charts 原生）
 - **消息**：robot stdout 控制台、错误消息（TCP 0x0B）、DS 事件流
 - **抓包录制/回放**：Setup 页一键录制收发包为 `.dsrec`（金样本回归基线）；模拟器 `--replay` 按录制的真机字节应答
-- **会话日志**：连接期间 1Hz 自动记录 `.dslog`（NI DS 格式，AdvantageScope 可直接打开复盘）
+- **SystemCore（MRC V2 · 实验性）**：Setup 页切换机器人类型；UDP V2 控制环（CRC32C 应答校验）+ NT4 server（6767，OpMode 选择经 ControlData.CurrentOpMode 下发）+ TCP 0x13 OpMode 列表
+- **会话日志**：连接期间 1Hz 自动记录 `.dslog`（NI DS 格式）与 `.wpilog`（WPILib DataLog 2027 VarInt 格式）双文件，AdvantageScope 可直接打开复盘
+- **本机状态**：DS 电脑电池/交流供电、系统 CPU、进程内存、本机网络指示（WiFi/有线）
 - **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能，`SafetyGate` 纯逻辑单测覆盖）
 - **快捷键**：`Space` = E-Stop · `Enter` = Disable · `[ + ] + \` = Enable · `Esc + I` = E-Stop 复位 · `F1` = 重扫手柄（应用前台；全局后台键属 Phase 4 + Input Monitoring 权限）
 
@@ -29,7 +31,12 @@
 .build/debug/GHDSSim
 # 终端 B（GHDS_AUTO_SIM=1 自动连接 127.0.0.1）
 GHDS_AUTO_SIM=1 .build/debug/GHDS
+# SystemCore（MRC V2）模式
+.build/debug/GHDSSim --mrc
+GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 ```
+
+第三方异构联测：Compatibility Proxy 的 `robot_sim.py`（独立 Python 实现）可直接对接本 DS——实测 UDP V2 控制流、TCP 0x13 OpMode、NT4 26 主题发布/订阅与 45Hz ControlData 下发全部互通。
 
 或在应用内：Setup → 「启动 roboRIO 模拟器」（自动切换手动 IP 并连接）。
 
@@ -92,8 +99,8 @@ scripts/             图标生成 + 打包脚本
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | Phase 1 | NI 协议栈 + Apple 风格核心 UI（roboRIO 1/2 可用 MVP） | ✅ 本版本 |
-| Phase 2 | NI 全功能：Practice 完善 ✅、dslog ✅、Charts 补全 ✅、Dashboard 启动 ✅（WPILog 与 XInput 震动待硬件） | 🔶 大部分完成 |
-| Phase 3 | MRCCOMM 协议 + NT4 server + OpMode/Alerts（SystemCore） | ⏳ |
+| Phase 2 | NI 全功能：Practice ✅、dslog + WPILog ✅、Charts ✅、Dashboard 启动 ✅、DS 自身监控 ✅（XInput 震动待硬件：GCDeviceHaptics 引擎链路 + 实物手柄） | ✅ 基本完成 |
+| Phase 3 | MRCCOMM V2 协议栈 ✅（金样本验证）+ NT4 server（6767，异构联测通过）+ OpMode 选择 ✅（Alerts/Display 待真机核对） | ✅ 协议层完成 |
 | Phase 4 | 全局快捷键（CGEventTap）、应用内更新（Sparkle）、迷你视图 | ⏳ |
 
 ## 许可与合规

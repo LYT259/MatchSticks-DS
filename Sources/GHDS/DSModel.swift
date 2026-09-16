@@ -53,6 +53,25 @@ final class DSModel {
         }
     }
     var radioReachable = false
+    var opModes: [MRCOpModeInfo] = []
+    var selectedOpModeHash: UInt64 = 0
+    var protocolKind: DSClient.ProtocolKind = .ni {
+        didSet {
+            settings.set("protocolKind", protocolKind.rawValue)
+            syncClientConfig()
+            if protocolKind == .mrc, started {
+                nt4Server.start()
+                nt4Server.publish(name: "/Dscomm/Control/ControlData", type: "proto:mrc.proto.ProtobufControlData")
+            }
+        }
+    }
+    private var started = false
+    private(set) var watchdogNotFed = false
+    private var watchdogMissCount = 0
+    var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
+    var localNetworkSummary = "检测中…"
+    private let networkMonitor = NetworkPathMonitor()
+    private var wpilogWriter: WPILogWriter?
     var commState: DSClient.CommState = .idle
     var watchdogHealthy = true
 
@@ -159,6 +178,8 @@ final class DSModel {
     private let settings = SettingsStore()
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
+    private let nt4Server = NT4Server(port: 6767)
+    private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
@@ -179,11 +200,15 @@ final class DSModel {
         if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
         if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
         if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
+        if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
+            protocolKind = kind
+        }
     }
 
     func start() {
         loadPersistedSettings()
         installTimers()
+        networkMonitor.start()
         HIDInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
         }
@@ -191,6 +216,7 @@ final class DSModel {
         rescanJoysticks()
 
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
+        syncClientConfig()
         client.heartbeatAge = { [heartbeatBox] in heartbeatBox.ageSeconds() }
         client.recordSink = { [recorderBox] dir, data in recorderBox.record(dir, data) }
         client.eventHandler = { [weak self] event in
@@ -215,6 +241,45 @@ final class DSModel {
         probe.start()
         radioProbe = probe
 
+        started = true
+        // MRC：NT4 server（6767）随协议启动；ControlData 经 20ms tick 下发
+        if protocolKind == .mrc {
+            nt4Server.start()
+            nt4Server.publish(name: "/Dscomm/Control/ControlData", type: "proto:mrc.proto.ProtobufControlData")
+            var nt4ValueCount = 0
+            nt4Server.onValue = { [weak self] name, value in
+                Task { @MainActor in
+                    guard let self else { return }
+                    nt4ValueCount += 1
+                    if nt4ValueCount == 1 {
+                        self.log("NT4 首个机器人写入：\(name)")
+                    }
+                }
+            }
+            client.tickHook = { [snapshotBox, opModeHashBox, nt4Server] in
+                let snap = snapshotBox.get()
+                var cw: UInt32 = 0
+                if snap.control.enabled { cw |= 1 }
+                if snap.control.mode == .autonomous { cw |= 2 }
+                if snap.control.mode == .test { cw |= 4 }
+                if snap.control.fmsAttached { cw |= 8 }
+                if snap.control.estop { cw |= 128 }
+                let joysticks = snap.joysticks.map {
+                    ProtobufLite.JoystickWire(buttons: $0.buttons, buttonCount: $0.buttonCount,
+                                              axes: $0.axes,
+                                              povsPacked: Self.packPOVs($0.povs))
+                }
+                let data = ProtobufLite.mrcControlData(
+                    controlWord: cw,
+                    matchTimeSec: Int32(snap.matchTime ?? 0),
+                    joysticks: joysticks,
+                    currentOpMode: snap.control.enabled ? opModeHashBox.get() : 0,
+                    gameData: snap.gameData ?? ""
+                )
+                nt4Server.set(name: "/Dscomm/Control/ControlData", .raw(data))
+            }
+        }
+
         client.start()
         log("GH DS 控制环已启动（20ms）")
 
@@ -222,12 +287,17 @@ final class DSModel {
             manualIP = "127.0.0.1"
             log("GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1")
         }
+        if ProcessInfo.processInfo.environment["GHDS_AUTO_MRC"] == "1" {
+            protocolKind = .mrc
+            log("GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）")
+        }
     }
 
     private func syncClientConfig() {
         client.updateConfig { cfg in
             cfg.teamNumber = self.teamNumber
             cfg.manualIP = self.manualIP.isEmpty ? nil : self.manualIP
+            cfg.protocolKind = self.protocolKind
         }
     }
 
@@ -363,6 +433,19 @@ final class DSModel {
         mode = m
     }
 
+    static func packPOVs(_ povs: [Int16]) -> UInt32 {
+        // u32 打包前两个 POV（低 16 位 = POV0），未按 = 0xFFFF
+        let p0 = povs.first.map { UInt32(UInt16(bitPattern: $0)) } ?? 0xFFFF
+        let p1 = povs.dropFirst().first.map { UInt32(UInt16(bitPattern: $0)) } ?? 0xFFFF
+        return p0 | (p1 << 16)
+    }
+
+    func selectOpMode(_ op: MRCOpModeInfo) {
+        selectedOpModeHash = op.hash
+        opModeHashBox.set(op.hash)
+        log("OpMode 选择：\(op.name)（hash 0x\(String(op.hash, radix: 16))）")
+    }
+
     // MARK: Practice 时序
 
     func startPractice() {
@@ -449,8 +532,24 @@ final class DSModel {
             diskFree = p.diskFreeBytes
             can = p.can
             if !p.joystickOutputs.isEmpty { joystickOutputs = p.joystickOutputs }
+            // MRC：WatchdogFed 连续缺失 ≥5 → 「Watchdog Not Fed」告警（First DS 语义）
+            if p.watchdogFed {
+                watchdogMissCount = 0
+                if watchdogNotFed { watchdogNotFed = false; log("Watchdog 恢复喂狗") }
+            } else {
+                watchdogMissCount += 1
+                if watchdogMissCount == 5 {
+                    watchdogNotFed = true
+                    log("⚠️ Watchdog Not Fed（连续 5 应答未喂狗）")
+                }
+            }
         case .tcpEvent(let e):
             handleTCP(e)
+        case .opModes(let list):
+            if list != opModes {
+                opModes = list
+                log("收到 OpMode 列表（\(list.count) 项）")
+            }
         case .stats(let loss, _, let tx, let rx):
             lossPercent = loss
             txCount = tx
@@ -558,22 +657,27 @@ final class DSModel {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy_MM_dd HH_mm_ss"
-            let url = dir.appendingPathComponent(formatter.string(from: Date()).appending(".dslog"))
+            let base = formatter.string(from: Date())
             do {
-                dslogWriter = try DSLogWriter(fileURL: url)
-                log("dslog 记录开始：\(url.lastPathComponent)")
+                dslogWriter = try DSLogWriter(fileURL: dir.appendingPathComponent(base + ".dslog"))
+                wpilogWriter = try WPILogWriter(fileURL: dir.appendingPathComponent(base + ".wpilog"))
+                startWPILogEntries()
+                log("会话日志记录开始（.dslog + .wpilog）")
             } catch {
-                log("dslog 启动失败：\(error.localizedDescription)")
+                log("日志启动失败：\(error.localizedDescription)")
                 dslogEnabled = false
             }
-        } else if let w = dslogWriter {
-            w.close()
-            dslogWriter = nil
-            log("dslog 记录停止")
+        } else {
+            dslogWriter?.close(); dslogWriter = nil
+            finishWPILogEntries()
+            wpilogWriter?.close(); wpilogWriter = nil
         }
     }
 
     private func appendDSLogEntry() {
+        macStatus = MacStatusMonitor.snapshot()
+        localNetworkSummary = networkMonitor.summary
+        appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }
         var entry = DSLogEntry()
         entry.packetLossPercent = lossPercent
@@ -588,6 +692,41 @@ final class DSModel {
         entry.robotDisabled = robotTrace.disabled
         entry.canPercent = can.utilizationPercent
         w.append(entry)
+    }
+
+    // MARK: WPILog 条目
+
+    private var wpilogIDs: (battery: UInt32, loss: UInt32, cpu: UInt32, can: UInt32, enabled: UInt32, mode: UInt32, radio: UInt32)?
+
+    private func startWPILogEntries() {
+        guard let w = wpilogWriter else { return }
+        wpilogIDs = (
+            w.startEntry(name: "/DS/Battery", type: "double"),
+            w.startEntry(name: "/DS/Loss", type: "double"),
+            w.startEntry(name: "/DS/RoboRIO CPU", type: "double"),
+            w.startEntry(name: "/DS/CAN Util", type: "double"),
+            w.startEntry(name: "/DS/Enabled", type: "boolean"),
+            w.startEntry(name: "/DS/Mode", type: "string"),
+            w.startEntry(name: "/DS/Radio Reachable", type: "boolean")
+        )
+    }
+
+    private func appendWPILogSamples() {
+        guard let w = wpilogWriter, let ids = wpilogIDs else { return }
+        w.appendDouble(ids.battery, Double(batteryVolts))
+        w.appendDouble(ids.loss, lossPercent)
+        w.appendDouble(ids.cpu, Double(cpuCores.map { $0.reduce(0, +) }.max() ?? 0))
+        w.appendDouble(ids.can, Double(can.utilizationPercent))
+        w.appendBoolean(ids.enabled, enabled)
+        w.appendString(ids.mode, mode.displayName)
+        w.appendBoolean(ids.radio, radioReachable)
+    }
+
+    private func finishWPILogEntries() {
+        guard let ids = wpilogIDs, let w = wpilogWriter else { return }
+        w.finishEntry(ids.battery); w.finishEntry(ids.loss); w.finishEntry(ids.cpu)
+        w.finishEntry(ids.can); w.finishEntry(ids.enabled); w.finishEntry(ids.mode)
+        w.finishEntry(ids.radio)
     }
 
     // MARK: 日志
@@ -660,6 +799,15 @@ struct JoystickSlot: Identifiable {
         povs = device.povs
         name = device.name
     }
+}
+
+// MARK: OpMode hash 盒（主线程写、控制环读）
+
+final class OpModeHashBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+    func set(_ v: UInt64) { lock.lock(); value = v; lock.unlock() }
+    func get() -> UInt64 { lock.lock(); defer { lock.unlock() }; return value }
 }
 
 // MARK: - 录制开关（线程安全）

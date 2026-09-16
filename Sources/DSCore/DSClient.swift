@@ -43,6 +43,7 @@ public final class DSClient {
         case commState(CommState)
         case response(NICodec.ResponsePacket)
         case tcpEvent(NICodec.TCPEvent)
+        case opModes([MRCOpModeInfo])
         case stats(lossPercent: Double, rttMillis: Double?, txCount: UInt64, rxCount: UInt64)
         case watchdogTripped(frozenSeconds: Double)
         case watchdogRecovered
@@ -50,9 +51,15 @@ public final class DSClient {
         case log(String)
     }
 
+    public enum ProtocolKind: String, Sendable, CaseIterable {
+        case ni      // roboRIO 1.0/2.0（comm version 0x01）
+        case mrc     // SystemCore / MrcComm（comm version 0x02，CRC32C 应答）
+    }
+
     public struct Configuration: Sendable {
         public var teamNumber = 0
         public var manualIP: String?
+        public var protocolKind: ProtocolKind = .ni
         /// 控制周期，秒（协议 20ms）
         public var controlPeriod = 0.02
         /// 心跳停滞判定阈值（报告 §6：200ms）
@@ -70,6 +77,8 @@ public final class DSClient {
     public var heartbeatAge: () -> Double = { 0 }
     /// 抓包录制 sink（报告 §6 决策 3「录制即测试」；loop queue 上调用，须自行保证线程安全）
     public var recordSink: ((RecordedDirection, Data) -> Void)?
+    /// 每 20ms tick 回调（MRC 模式下发 NT4 ControlData 用；loop queue）
+    public var tickHook: (() -> Void)?
     /// 首连日期 tag 的来源
     public var dateProvider: () -> Date = { Date() }
     public var timeZoneProvider: () -> String = { TimeZone.current.identifier }
@@ -247,7 +256,48 @@ public final class DSClient {
             let srcIP = Self.ipString(from: src)
             // 已连接：严格只收当前目标；搜索中：接受任何能解出合法应答的来源（LAN 上即机器人）
             if case .connected(let host) = commState, srcIP != host { continue }
-            guard let packet = NICodec.decodeResponse(Data(buffer[0 ..< n])) else {
+            let decoded: NICodec.ResponsePacket?
+            switch config.protocolKind {
+            case .ni:
+                decoded = NICodec.decodeResponse(Data(buffer[0 ..< n]))
+            case .mrc:
+                if let errorCode = MRCPackets.decodeErrorPacket(Data(buffer[0..<n])) {
+                    emit(.log("MRC 错误包：code \(errorCode)（版本不匹配？）"))
+                    continue
+                }
+                decoded = MRCPackets.decodeReply(Data(buffer[0..<n])).map { reply in
+                    var np = NICodec.ResponsePacket()
+                    np.seq = reply.seq
+                    np.status.estop = reply.estop
+                    np.status.enabled = reply.enabled
+                    switch reply.mode {
+                    case .autonomous: np.status.mode = .autonomous
+                    case .test: np.status.mode = .test
+                    case .teleoperated, .unknown: np.status.mode = .teleoperated
+                    }
+                    np.status.codeStarting = !(reply.hasCode || reply.hasUserCode)
+                    np.trace.hasRobotCode = reply.hasCode || reply.hasUserCode
+                    np.trace.isRoboRIO = true // SystemCore 等价指示
+                    np.trace.teleopMode = reply.mode == .teleoperated
+                    np.trace.autonomousMode = reply.mode == .autonomous
+                    np.trace.testMode = reply.mode == .test
+                    np.trace.disabled = !reply.enabled
+                    np.batteryVoltage = reply.batteryVoltage
+                    np.watchdogFed = reply.watchdogFed
+                    np.joystickOutputs = reply.slotOutputs.map { slot in
+                        var j = JoystickOutput()
+                        j.leftRumble = slot.leftRumble
+                        j.rightRumble = slot.rightRumble
+                        return j
+                    }
+                    return np
+                }
+            }
+            guard let packet = decoded else {
+                if isConnectedLocked {
+                    emit(.log("malformed response packet from \(srcIP), dropped"))
+                }
+                continue // 搜索期静默丢弃异协议应答（避免 NI/MRC 混布误判）
                 emit(.log("malformed response packet from \(srcIP), dropped"))
                 continue
             }
@@ -333,11 +383,27 @@ public final class DSClient {
             sentDateTag = true
         }
 
-        let packet = NICodec.controlPacket(
-            seq: txSeq, control: control, request: request, alliance: snapshot.alliance,
-            joysticks: snapshot.joysticks, matchTime: snapshot.matchTime,
-            date: date, timeZone: timeZone
-        )
+        let packet: Data
+        switch config.protocolKind {
+        case .ni:
+            packet = NICodec.controlPacket(
+                seq: txSeq, control: control, request: request, alliance: snapshot.alliance,
+                joysticks: snapshot.joysticks, matchTime: snapshot.matchTime,
+                date: date, timeZone: timeZone
+            )
+        case .mrc:
+            // NI 抽象控制字 → MRC 独立位（request 仅 RequestNormal；重启/重启代码走 NT4，Phase 3 后续）
+            var mrcControl = MRCControlWord()
+            mrcControl.test = control.mode == .test
+            mrcControl.autonomous = control.mode == .autonomous
+            mrcControl.enabled = control.enabled
+            mrcControl.fmsAttached = control.fmsAttached
+            mrcControl.estop = control.estop
+            packet = MRCPackets.controlPacket(
+                seq: txSeq, control: mrcControl, alliance: snapshot.alliance,
+                joysticks: snapshot.joysticks, matchTime: snapshot.matchTime
+            )
+        }
 
         let sent = withUnsafePointer(to: addr) { addrPtr in
             addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
@@ -478,6 +544,11 @@ public final class DSClient {
         tcpBuffer = remainder
         for frame in frames where frame.id != 0 {
             recordSink?(.tcpIn, NICodec.tcpFrame(id: frame.id, payload: frame.payload))
+            // MRC：0x13 = OpMode 列表（自定义大端二进制）
+            if config.protocolKind == .mrc, frame.id == 0x13 {
+                emit(.opModes(MRCPackets.decodeOpModes(frame.payload)))
+                continue
+            }
             if let event = NICodec.decodeTCPEvent(id: frame.id, payload: frame.payload) {
                 emit(.tcpEvent(event))
             }
@@ -536,6 +607,7 @@ public final class DSClient {
         drainUDPLocked(now: now)
         sendControlPacketLocked(now: now)
         ensureTCPLocked(now: now)
+        tickHook?()
 
         // 每秒发一次统计；窗口起点未连接（含连接瞬间的半窗）不计，
         // 否则连接初期会出现 100% 丢包伪影
