@@ -53,6 +53,14 @@ final class DSModel {
         }
     }
     var radioReachable = false
+    var protocolKind: DSClient.ProtocolKind = .ni {
+        didSet {
+            settings.set("protocolKind", protocolKind.rawValue)
+            syncClientConfig()
+        }
+    }
+    private(set) var watchdogNotFed = false
+    private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
     var localNetworkSummary = "检测中…"
     private let networkMonitor = NetworkPathMonitor()
@@ -183,6 +191,9 @@ final class DSModel {
         if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
         if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
         if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
+        if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
+            protocolKind = kind
+        }
     }
 
     func start() {
@@ -196,6 +207,7 @@ final class DSModel {
         rescanJoysticks()
 
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
+        syncClientConfig()
         client.heartbeatAge = { [heartbeatBox] in heartbeatBox.ageSeconds() }
         client.recordSink = { [recorderBox] dir, data in recorderBox.record(dir, data) }
         client.eventHandler = { [weak self] event in
@@ -227,12 +239,17 @@ final class DSModel {
             manualIP = "127.0.0.1"
             log("GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1")
         }
+        if ProcessInfo.processInfo.environment["GHDS_AUTO_MRC"] == "1" {
+            protocolKind = .mrc
+            log("GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）")
+        }
     }
 
     private func syncClientConfig() {
         client.updateConfig { cfg in
             cfg.teamNumber = self.teamNumber
             cfg.manualIP = self.manualIP.isEmpty ? nil : self.manualIP
+            cfg.protocolKind = self.protocolKind
         }
     }
 
@@ -454,6 +471,17 @@ final class DSModel {
             diskFree = p.diskFreeBytes
             can = p.can
             if !p.joystickOutputs.isEmpty { joystickOutputs = p.joystickOutputs }
+            // MRC：WatchdogFed 连续缺失 ≥5 → 「Watchdog Not Fed」告警（First DS 语义）
+            if p.watchdogFed {
+                watchdogMissCount = 0
+                if watchdogNotFed { watchdogNotFed = false; log("Watchdog 恢复喂狗") }
+            } else {
+                watchdogMissCount += 1
+                if watchdogMissCount == 5 {
+                    watchdogNotFed = true
+                    log("⚠️ Watchdog Not Fed（连续 5 应答未喂狗）")
+                }
+            }
         case .tcpEvent(let e):
             handleTCP(e)
         case .stats(let loss, _, let tx, let rx):

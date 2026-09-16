@@ -50,9 +50,15 @@ public final class DSClient {
         case log(String)
     }
 
+    public enum ProtocolKind: String, Sendable, CaseIterable {
+        case ni      // roboRIO 1.0/2.0（comm version 0x01）
+        case mrc     // SystemCore / MrcComm（comm version 0x02，CRC32C 应答）
+    }
+
     public struct Configuration: Sendable {
         public var teamNumber = 0
         public var manualIP: String?
+        public var protocolKind: ProtocolKind = .ni
         /// 控制周期，秒（协议 20ms）
         public var controlPeriod = 0.02
         /// 心跳停滞判定阈值（报告 §6：200ms）
@@ -247,7 +253,48 @@ public final class DSClient {
             let srcIP = Self.ipString(from: src)
             // 已连接：严格只收当前目标；搜索中：接受任何能解出合法应答的来源（LAN 上即机器人）
             if case .connected(let host) = commState, srcIP != host { continue }
-            guard let packet = NICodec.decodeResponse(Data(buffer[0 ..< n])) else {
+            let decoded: NICodec.ResponsePacket?
+            switch config.protocolKind {
+            case .ni:
+                decoded = NICodec.decodeResponse(Data(buffer[0 ..< n]))
+            case .mrc:
+                if let errorCode = MRCPackets.decodeErrorPacket(Data(buffer[0..<n])) {
+                    emit(.log("MRC 错误包：code \(errorCode)（版本不匹配？）"))
+                    continue
+                }
+                decoded = MRCPackets.decodeReply(Data(buffer[0..<n])).map { reply in
+                    var np = NICodec.ResponsePacket()
+                    np.seq = reply.seq
+                    np.status.estop = reply.estop
+                    np.status.enabled = reply.enabled
+                    switch reply.mode {
+                    case .autonomous: np.status.mode = .autonomous
+                    case .test: np.status.mode = .test
+                    case .teleoperated, .unknown: np.status.mode = .teleoperated
+                    }
+                    np.status.codeStarting = !(reply.hasCode || reply.hasUserCode)
+                    np.trace.hasRobotCode = reply.hasCode || reply.hasUserCode
+                    np.trace.isRoboRIO = true // SystemCore 等价指示
+                    np.trace.teleopMode = reply.mode == .teleoperated
+                    np.trace.autonomousMode = reply.mode == .autonomous
+                    np.trace.testMode = reply.mode == .test
+                    np.trace.disabled = !reply.enabled
+                    np.batteryVoltage = reply.batteryVoltage
+                    np.watchdogFed = reply.watchdogFed
+                    np.joystickOutputs = reply.slotOutputs.map { slot in
+                        var j = JoystickOutput()
+                        j.leftRumble = slot.leftRumble
+                        j.rightRumble = slot.rightRumble
+                        return j
+                    }
+                    return np
+                }
+            }
+            guard let packet = decoded else {
+                if isConnectedLocked {
+                    emit(.log("malformed response packet from \(srcIP), dropped"))
+                }
+                continue // 搜索期静默丢弃异协议应答（避免 NI/MRC 混布误判）
                 emit(.log("malformed response packet from \(srcIP), dropped"))
                 continue
             }
@@ -333,11 +380,27 @@ public final class DSClient {
             sentDateTag = true
         }
 
-        let packet = NICodec.controlPacket(
-            seq: txSeq, control: control, request: request, alliance: snapshot.alliance,
-            joysticks: snapshot.joysticks, matchTime: snapshot.matchTime,
-            date: date, timeZone: timeZone
-        )
+        let packet: Data
+        switch config.protocolKind {
+        case .ni:
+            packet = NICodec.controlPacket(
+                seq: txSeq, control: control, request: request, alliance: snapshot.alliance,
+                joysticks: snapshot.joysticks, matchTime: snapshot.matchTime,
+                date: date, timeZone: timeZone
+            )
+        case .mrc:
+            // NI 抽象控制字 → MRC 独立位（request 仅 RequestNormal；重启/重启代码走 NT4，Phase 3 后续）
+            var mrcControl = MRCControlWord()
+            mrcControl.test = control.mode == .test
+            mrcControl.autonomous = control.mode == .autonomous
+            mrcControl.enabled = control.enabled
+            mrcControl.fmsAttached = control.fmsAttached
+            mrcControl.estop = control.estop
+            packet = MRCPackets.controlPacket(
+                seq: txSeq, control: mrcControl, alliance: snapshot.alliance,
+                joysticks: snapshot.joysticks, matchTime: snapshot.matchTime
+            )
+        }
 
         let sent = withUnsafePointer(to: addr) { addrPtr in
             addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in

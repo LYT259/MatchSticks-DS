@@ -19,6 +19,7 @@ struct Args {
     var quiet = false
     var replayPath: String? = nil     // --replay <file.dsrec>：按录制应答回放
     var radioPort: UInt16 = 0         // --radio-port <n>：模拟 radio 可达性端口
+    var mrc = false                   // --mrc：扮演 SystemCore（MrcComm V2 协议）
 }
 
 let args: Args = {
@@ -33,6 +34,7 @@ let args: Args = {
         case "--stdout-interval": if let v = value(), let d = Double(v) { a.stdoutInterval = d }
         case "--replay": a.replayPath = value()
         case "--radio-port": if let v = value(), let p = UInt16(v) { a.radioPort = p }
+        case "--mrc": a.mrc = true
         case "--quiet": a.quiet = true
         default: break
         }
@@ -232,6 +234,34 @@ final class SimRobot: @unchecked Sendable {
     }
 }
 
+// MARK: MRC 模拟状态（SystemCore）
+
+final class MrcSimRobot: @unchecked Sendable {
+    private let lock = NSLock()
+    private var estopLatched = false
+    private var lastEnabled: Bool?
+    private(set) var packets = 0
+
+    /// 处理控制包，返回当前使能态
+    func handle(_ packet: MRCPackets.ControlPacket) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        packets += 1
+        if packet.control.estop, !estopLatched {
+            estopLatched = true
+            simLog("🛑 SystemCore E-STOP（DS 位）")
+        }
+        // RequestNormal 清零 = robot 停机（MRC 语义）
+        let enabled = packet.control.enabled && !estopLatched && packet.request.normal
+        if lastEnabled != enabled {
+            lastEnabled = enabled
+            simLog(enabled ? "▶ SystemCore ENABLED" : "■ SystemCore disabled")
+        }
+        return enabled
+    }
+}
+
+let mrcRobot = MrcSimRobot()
+
 // MARK: UDP
 
 let robot = SimRobot()
@@ -278,6 +308,35 @@ func runUDP(_ a: Args) {
                 simLog("⚠️  malformed control packet (\(n)B), dropped")
                 continue
             }
+            // MRC 模式：SystemCore 协议（0x02 / 24B 头 + CRC32C ×2 / 0x2E 输出 tag）
+            if args.mrc {
+                guard let packet = MRCPackets.decodeControl(Data(buffer[0 ..< n])) else {
+                    simLog("⚠️  非 V2 控制包被拒（版本不符或损坏）")
+                    continue
+                }
+                let stateEnabled = mrcRobot.handle(packet)
+                var payload = ByteWriter()
+                payload.u8(0x43); payload.u8(0x2E) // tag len(67) + id 0x2E
+                for _ in 0..<6 {
+                    payload.u8(0); payload.u8(0); payload.u8(0)
+                    payload.u16be(0); payload.u16be(0); payload.u16be(0); payload.u16be(0)
+                }
+                let mode: MRCMode = packet.control.autonomous && !packet.control.test ? .autonomous : (packet.control.test ? .test : .teleoperated)
+                let reply = MRCPackets.replyPacket(seq: packet.seq, mode: mode,
+                                                   enabled: stateEnabled, estop: packet.control.estop,
+                                                   hasCode: true, batteryVolts: 12.02,
+                                                   payload: Data(payload.data))
+                var dst = src
+                withUnsafePointer(to: &dst) { dstPtr in
+                    dstPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                        reply.withUnsafeBytes { raw in
+                            _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                        }
+                    }
+                }
+                continue
+            }
+
             let shouldReply = robot.handleControl(packet)
             guard shouldReply else { continue }
             var dst = src
@@ -364,6 +423,29 @@ func handleTCPClient(_ fd: Int32) {
             data.withUnsafeBytes { raw in
                 _ = send(fd, raw.baseAddress, raw.count, 0)
             }
+        }
+
+        // MRC 模式：连接即下发 OpMode 列表（0x13 自定义大端二进制），随后仅维持接收
+        if args.mrc {
+            let ops = [
+                MRCOpModeInfo(name: "Vision Auto", group: "Auto", description: "AprilTag aligned auto",
+                              hash: (1 << 56) | 0x000000004444),
+                MRCOpModeInfo(name: "Teleop Main", group: "Teleop", description: "driver control",
+                              hash: (2 << 56) | (1 << 58) | 0x000000005555),
+                MRCOpModeInfo(name: "Self Test", group: "Utility", description: "subsystem check",
+                              hash: (3 << 56) | 0x000000006666),
+            ]
+            sendFrame(MRCPackets.opModesTag(ops))
+            var buf2 = [UInt8](repeating: 0, count: 4096)
+            while !robot.isRebooting {
+                let n = recv(fd, &buf2, buf2.count, 0)
+                if n == 0 { break }
+                if n < 0 && errno != EAGAIN && errno != EWOULDBLOCK { break }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            close(fd)
+            simLog("🔌 tcp client disconnected")
+            return
         }
 
         // 版本信息（0x0A）+ 终止符
@@ -470,6 +552,7 @@ print("""
 ┌─────────────────────────────────────────────────────┐
 │  GHDSSim v\(version) — roboRIO 模拟器（GH Driver Station）  │
 └─────────────────────────────────────────────────────┘
+  协议模式     : \(args.mrc ? "MRC V2（SystemCore）" : "NI（roboRIO 1.0/2.0）")
   UDP 控制通道 : 0.0.0.0:\(args.udpPort) → 应答源端口 1150
   TCP 慢速通道 : 0.0.0.0:\(args.tcpPort)
   等待 Driver Station 连接…（DS 侧 team 模式或手动 IP 127.0.0.1）

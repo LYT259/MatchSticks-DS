@@ -10,6 +10,11 @@ struct SetupView: View {
     var body: some View {
         Form {
             Section("队伍与连接") {
+                Picker("机器人类型", selection: $model.protocolKind) {
+                    Text("roboRIO 1.0 / 2.0（NI）").tag(DSClient.ProtocolKind.ni)
+                    Text("SystemCore（MRC · 实验性）").tag(DSClient.ProtocolKind.mrc)
+                }
+                .pickerStyle(.segmented)
                 HStack {
                     TextField("队伍号", value: $model.teamNumber, format: .number.grouping(.never))
                         .frame(maxWidth: 120)

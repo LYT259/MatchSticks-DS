@@ -94,7 +94,7 @@ scripts/             图标生成 + 打包脚本
 |---|---|---|
 | Phase 1 | NI 协议栈 + Apple 风格核心 UI（roboRIO 1/2 可用 MVP） | ✅ 本版本 |
 | Phase 2 | NI 全功能：Practice ✅、dslog + WPILog ✅、Charts ✅、Dashboard 启动 ✅、DS 自身监控 ✅（XInput 震动待硬件：GCDeviceHaptics 引擎链路 + 实物手柄） | ✅ 基本完成 |
-| Phase 3 | MRCCOMM 协议 + NT4 server + OpMode/Alerts（SystemCore） | ⏳ |
+| Phase 3 | MRCCOMM V2 协议栈 ✅（金样本验证）+ 协议双栈选择器 ✅；NT4 server + OpMode/Alerts/Display 🔶 进行中 | 🔶 进行中 |
 | Phase 4 | 全局快捷键（CGEventTap）、应用内更新（Sparkle）、迷你视图 | ⏳ |
 
 ## 许可与合规

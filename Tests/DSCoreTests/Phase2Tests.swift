@@ -1,4 +1,131 @@
 
+// MARK: Phase 3：CRC32C + MRC V2 协议（金样本 = Compatibility Proxy 文档 §8 实测包）
+
+func crc32cTests() {
+    check(CRC32C.checksum(Array("123456789".utf8)) == 0xE3069283, "CRC32C 标准向量")
+    check(CRC32C.checksum([]) == 0x00000000, "CRC32C 空输入")
+}
+
+func mrcGoldenPacketTests() {
+    // 文档 §8：robot_sim.py 对 seq=0x0123、有代码、失能状态的真实应答包
+    var payload = Data([0x43, 0x2E]) + Data(repeating: 0, count: 66)
+    _ = payload
+    let golden = Data([
+        0x01, 0x23,                                     // seq
+        0x02,                                           // comm version
+        0x20,                                           // ctrl: HasCode, disabled, mode=Unknown
+        0x61,                                           // status: WatchdogFed | HasUserCodeReady | HasUserCode
+        0x0C, 0x00,                                     // battery 12.0V
+        0x00,                                           // flags
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // reserved
+        0xA7, 0x26, 0xDC, 0xC3,                         // payload CRC32C LE
+        0x96, 0xCF, 0x7C, 0x5D,                         // header CRC32C LE
+        0x43, 0x2E,                                     // tag: len 0x43, id 0x2E
+    ] + Array(repeating: 0, count: 66))
+    let decoded = MRCPackets.decodeReply(golden)
+    check(decoded != nil, "金样本包 CRC 校验通过")
+    check(decoded?.seq == 0x0123, "seq 回显")
+    check(decoded?.mode == .unknown, "mode Unknown")
+    check(decoded?.enabled == false, "失能")
+    check(decoded?.hasCode == true, "HasCode")
+    check(decoded?.watchdogFed == true, "WatchdogFed")
+    check(decoded?.hasUserCode == true && decoded?.hasUserCodeReady == true, "用户代码就绪位")
+    check(abs((decoded?.batteryVoltage ?? 0) - 12.0) < 0.001, "电池 12.0V")
+    check(decoded?.slotOutputs.count == 6, "6 手柄槽位输出（" + String(decoded?.slotOutputs.count ?? 0) + "）")
+
+    // 编码器应产出逐字节相同的包
+    let slots = (0..<6).map { _ in MRCSlotOutput() }
+    var payloadData = Data([0x43, 0x2E])
+    for slot in slots {
+        var w = ByteWriter()
+        w.u8(slot.ledR); w.u8(slot.ledG); w.u8(slot.ledB)
+        w.u16be(slot.leftRumble); w.u16be(slot.rightRumble)
+        w.u16be(slot.leftTriggerRumble); w.u16be(slot.rightTriggerRumble)
+        payloadData.append(Data(w.data))
+    }
+    let encoded = MRCPackets.replyPacket(seq: 0x0123, mode: .unknown, enabled: false,
+                                         hasCode: true, batteryVolts: 12.0, payload: payloadData)
+    check(encoded == golden, "编码器复现金样本（\(Array(encoded.prefix(24)).map { String(format: "%02X", $0) }.joined())）")
+
+    // 单字节翻转 → CRC 拒绝
+    var corrupted = golden
+    corrupted[30] ^= 0xFF
+    check(MRCPackets.decodeReply(corrupted) == nil, "坏 CRC 拒绝")
+
+    // 错误包
+    check(MRCPackets.decodeErrorPacket(Data([0x01, 0x23, 0xFF, 0x65, 0, 0, 0, 0])) == 101, "0xFF 错误包错误码 101")
+}
+
+func mrcControlRoundTrip() {
+    var control = MRCControlWord()
+    control.enabled = true
+    control.autonomous = true
+    var js = JoystickData(axes: [-1.0, 0.5], buttonCount: 9, buttons: 0b101, povs: [270])
+    js.buttonCount = 9
+    let packet = MRCPackets.controlPacket(seq: 77, control: control, alliance: .blue2,
+                                          joysticks: [js], matchTime: 15.5)
+    let decoded = MRCPackets.decodeControl(packet)
+    check(decoded != nil, "MRC 控制包解码")
+    check(decoded?.seq == 77, "seq")
+    check(decoded?.control.enabled == true && decoded?.control.autonomous == true, "控制位")
+    check(decoded?.control.test == false, "test 位未误置")
+    check(decoded?.request.normal == true, "RequestNormal 默认置位")
+    check(decoded?.alliance == .blue2, "alliance")
+    check(decoded?.joysticks.count == 1, "手柄数")
+    check(decoded?.joysticks.first?.buttons == 0b101, "按钮位")
+    check(decoded?.joysticks.first?.povs == [270], "POV")
+    check((decoded?.matchTime.map { abs($0 - 15.5) < 0.01 }) == true, "match time")
+}
+
+func mrcOpModesTests() {
+    let ops = [
+        MRCOpModeInfo(name: "TensorFlow Detect", group: "Auto", description: "vision auto",
+                      hash: (1 << 56) | 0x1234),
+        MRCOpModeInfo(name: "Teleop Main", group: "Teleop", description: "main teleop",
+                      hash: (2 << 56) | (1 << 58) | 0x5678),
+    ]
+    let tag = MRCPackets.opModesTag(ops)
+    let (frames, _) = NICodec.extractTCPFrames(from: tag)
+    check(frames.count == 1 && frames[0].id == 0x13, "0x13 帧")
+    let decoded = MRCPackets.decodeOpModes(frames[0].payload)
+    check(decoded == ops, "OpMode 列表往返")
+    // 空字符串元素应被拒（DS 语义：任一字符串为空即弃整个列表）
+    let bad = MRCPackets.decodeOpModes(Data([1, 0, 5]) + Data("Group".utf8) + Data([5]) + Data("Descr".utf8) + Data(repeating: 0, count: 12))
+    check(bad.isEmpty, "空 name 元素被拒")
+}
+
+func mrcLoopbackScenario() {
+
+    let server = MRCResponder()
+    server.start()
+    Thread.sleep(forTimeInterval: 0.05)
+
+    // 简化：直接用 client 层（protocolKind .mrc）——需 DSClient 支持，此处先用 codec 对打验证
+    // 起一个 NI DSClient 会拿到 MRC 应答（版本字节 0x02）→ NI 解码失败 → 不会误判连接
+    let sink = ClientSink()
+    let boot = Date()
+    let client = DSClient()
+    client.eventHandler = { sink.observe($0) }
+    client.updateConfig { $0.manualIP = "127.0.0.1" }
+    client.snapshotProvider = {
+        var snap = DSClient.Snapshot()
+        snap.control.enabled = Date().timeIntervalSince(boot) > 0.5
+        snap.control.mode = .autonomous
+        return snap
+    }
+    client.start()
+    Thread.sleep(forTimeInterval: 2.0)
+    client.stop()
+    server.stop()
+
+    sink.lock.lock(); defer { sink.lock.unlock() }
+    check(server.rawPackets >= 60, "MRC 场景：NI 模式 DS 持续发控制包（线缆 \(server.rawPackets)）")
+    check(server.packets == 0, "MRC 场景：NI 格式包被 MRC 解码器全部拒绝（\(server.packets)）")
+    // NI 解码器读 MRC 应答（0x02 版本）应拒绝 → 不误建链（避免误驱动 SystemCore）
+    check(sink.connectedCount == 0, "MRC 场景：NI 解码器不认 MRC 应答（正确行为）")
+}
+
+
 // MARK: WPILog 编码/读取 单测（2027 VarInt 布局，依据 allwpilib datalog 模块核查）
 
 func wpilogTests() {
@@ -269,6 +396,79 @@ import DSCore
 // 场景覆盖（红线 3 的验证证据链）：E-Stop 锁存与复位 / roboRIO 重启断联与恢复 /
 // UI 冻结看门狗冻结使能 / brownout 解码 / 30s 长跑稳定性。
 
+final class MRCResponder {
+    var rxSock: Int32 = -1
+    var txSock: Int32 = -1
+    private(set) var packets = 0        // 通过 MRC 解码的包
+    private(set) var rawPackets = 0     // 线缆上收到的包（含被拒的）
+    private(set) var sawEnabled = false
+    private(set) var sawAuto = false
+    private var stopFlag = false
+    private var seq: UInt16 = 0
+
+    func start() {
+        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
+        txSock = socket(AF_INET, SOCK_DGRAM, 0)
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = NICodec.udpControlPort.bigEndian
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        _ = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(rxSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        var txAddr = addr
+        txAddr.sin_port = NICodec.udpResponsePort.bigEndian
+        _ = withUnsafePointer(to: &txAddr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(txSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        Thread.detachNewThread { [weak self] in self?.loop() }
+    }
+
+    private func loop() {
+        var buf = [UInt8](repeating: 0, count: 2048)
+        while !stopFlag {
+            var src = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let n = withUnsafeMutablePointer(to: &src) { p in
+                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
+                }
+            }
+            guard n > 0 else { continue }
+            rawPackets += 1
+            guard let packet = MRCPackets.decodeControl(Data(buf[0..<n])) else { continue }
+            packets += 1
+            if packet.control.enabled { sawEnabled = true }
+            if packet.control.autonomous { sawAuto = true }
+
+            seq &+= 1
+            var payload = ByteWriter()
+            payload.u8(0x43); payload.u8(0x2E)
+            for _ in 0..<6 {
+                payload.u8(0); payload.u8(0); payload.u8(0)
+                payload.u16be(0); payload.u16be(0); payload.u16be(0); payload.u16be(0)
+            }
+            let reply = MRCPackets.replyPacket(seq: packet.seq, mode: packet.control.autonomous ? .autonomous : .teleoperated,
+                                               enabled: packet.control.enabled && !packet.control.estop,
+                                               batteryVolts: 12.1,
+                                               payload: Data(payload.data))
+            withUnsafePointer(to: &src) { dst in
+                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    reply.withUnsafeBytes { raw in
+                        _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        stopFlag = true
+        if rxSock >= 0 { close(rxSock) }
+        if txSock >= 0 { close(txSock) }
+    }
+}
+
 // MARK: ScenarioServer：可编程 roboRIO 应答器（每个场景独立实例，端口 1110/1150）
 
 final class ScenarioServer {
@@ -389,6 +589,7 @@ final class ClientSink: @unchecked Sendable {
     var sawEstopStatus = false
     var estopClearedAfterLatch = false
     var estopStatusHistory: [Bool] = []
+    var batteryOK = false
 
     func observe(_ event: DSClient.Event) {
         lock.lock(); defer { lock.unlock() }
@@ -400,6 +601,7 @@ final class ClientSink: @unchecked Sendable {
         case .watchdogRecovered: watchdogRecovered += 1
         case .response(let p):
             responses += 1
+            if p.batteryVoltage > 3.0 { batteryOK = true }
             if p.status.brownout { sawBrownout = true }
             estopStatusHistory.append(p.status.estop)
             if p.status.estop { sawEstopStatus = true }
@@ -414,7 +616,8 @@ func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
                        intent: @escaping (Double) -> (enabled: Bool, estop: Bool),
                        actions: [(at: Double, run: (DSClient) -> Void)] = [],
                        duration: Double,
-                       onClient: ((DSClient) -> Void)? = nil) -> ClientSink {
+                       onClient: ((DSClient) -> Void)? = nil,
+                       protocolKind: DSClient.ProtocolKind = .ni) -> ClientSink {
     let sink = ClientSink()
     let boot = Date()
     let client = DSClient()
@@ -428,7 +631,10 @@ func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
         snap.control.estop = i.estop
         return snap
     }
-    client.updateConfig { $0.manualIP = "127.0.0.1" }
+    client.updateConfig {
+        $0.manualIP = "127.0.0.1"
+        $0.protocolKind = protocolKind
+    }
     client.start()
     for action in actions {
         let wait = action.at - Date().timeIntervalSince(boot)
@@ -654,6 +860,26 @@ func recorderTests() {
 
 // MARK: 注册
 
+// MARK: Phase 3 场景：MRC 模式 DS ↔ SystemCore 应答器（正向全链路）
+
+func mrcClientScenario() {
+    let server = MRCResponder()
+    server.start()
+    Thread.sleep(forTimeInterval: 0.05)
+    let sink = runScenarioClient(
+        heartbeatStale: { _ in false },
+        intent: { t in (enabled: t > 0.5, estop: false) },
+        duration: 2.5,
+        protocolKind: .mrc
+    )
+    server.stop()
+    sink.lock.lock(); defer { sink.lock.unlock() }
+    check(sink.connectedCount >= 1, "MRC 正向：连接建立")
+    check(sink.responses >= 30, "MRC 正向：应答 ≥30（\(sink.responses)）")
+    check(sink.batteryOK, "MRC 正向：电池解码")
+    check(server.sawEnabled, "MRC 正向：使能指令到达")
+}
+
 func runAllPhase2Tests() {
     runTest("safetyGateTests", safetyGateTests)
     runTest("practiceSequencerTests", practiceSequencerTests)
@@ -669,4 +895,10 @@ func runAllPhase2Tests() {
     runTest("radioProbeTests", radioProbeTests)
     runTest("tcpBackoffScenario", tcpBackoffScenario)
     runTest("wpilogTests", wpilogTests)
+    runTest("crc32cTests", crc32cTests)
+    runTest("mrcGoldenPacketTests", mrcGoldenPacketTests)
+    runTest("mrcControlRoundTrip", mrcControlRoundTrip)
+    runTest("mrcOpModesTests", mrcOpModesTests)
+    runTest("mrcLoopbackScenario", mrcLoopbackScenario)
+    runTest("mrcClientScenario", mrcClientScenario)
 }
