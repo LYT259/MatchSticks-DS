@@ -5,8 +5,10 @@ import DSCore
 
 struct OperationView: View {
     let model: DSModel
+    @State private var selectedHash: UInt64 = 0
     @State private var confirmReboot = false
     @State private var confirmRestart = false
+    private var protocolKind: DSClient.ProtocolKind { model.protocolKind }
 
     var body: some View {
         Form {
@@ -72,6 +74,23 @@ struct OperationView: View {
                 }
             }
 
+            Section("OpMode（SystemCore）") {
+                if model.opModes.isEmpty {
+                    Text(protocolKind == .mrc ? "等待 TCP 0x13 OpMode 列表…" : "仅 SystemCore（MRC）模式可用")
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                } else {
+                    Picker("OpMode", selection: $selectedHash) {
+                        ForEach(model.opModes, id: \.hash) { op in
+                            Text("\(op.group) · \(op.name)").tag(op.hash)
+                        }
+                    }
+                    .frame(maxWidth: 380)
+                    Text("经 NT4 /Dscomm/Control/ControlData.CurrentOpMode 下发（使能时生效）")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
             Section("联盟站位") {
                 Picker("Alliance Station", selection: Binding(
                     get: { model.alliance },
@@ -103,6 +122,11 @@ struct OperationView: View {
                 }
                 Text("机器人处于使能状态时重启会造成控制中断（看门狗全停）。仅在确认失能后操作。")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: selectedHash) { _, newHash in
+            if let op = model.opModes.first(where: { $0.hash == newHash }) {
+                model.selectOpMode(op)
             }
         }
         .formStyle(.grouped)

@@ -53,12 +53,19 @@ final class DSModel {
         }
     }
     var radioReachable = false
+    var opModes: [MRCOpModeInfo] = []
+    var selectedOpModeHash: UInt64 = 0
     var protocolKind: DSClient.ProtocolKind = .ni {
         didSet {
             settings.set("protocolKind", protocolKind.rawValue)
             syncClientConfig()
+            if protocolKind == .mrc, started {
+                nt4Server.start()
+                nt4Server.publish(name: "/Dscomm/Control/ControlData", type: "proto:mrc.proto.ProtobufControlData")
+            }
         }
     }
+    private var started = false
     private(set) var watchdogNotFed = false
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
@@ -171,6 +178,8 @@ final class DSModel {
     private let settings = SettingsStore()
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
+    private let nt4Server = NT4Server(port: 6767)
+    private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
@@ -231,6 +240,45 @@ final class DSModel {
         }
         probe.start()
         radioProbe = probe
+
+        started = true
+        // MRC：NT4 server（6767）随协议启动；ControlData 经 20ms tick 下发
+        if protocolKind == .mrc {
+            nt4Server.start()
+            nt4Server.publish(name: "/Dscomm/Control/ControlData", type: "proto:mrc.proto.ProtobufControlData")
+            var nt4ValueCount = 0
+            nt4Server.onValue = { [weak self] name, value in
+                Task { @MainActor in
+                    guard let self else { return }
+                    nt4ValueCount += 1
+                    if nt4ValueCount == 1 {
+                        self.log("NT4 首个机器人写入：\(name)")
+                    }
+                }
+            }
+            client.tickHook = { [snapshotBox, opModeHashBox, nt4Server] in
+                let snap = snapshotBox.get()
+                var cw: UInt32 = 0
+                if snap.control.enabled { cw |= 1 }
+                if snap.control.mode == .autonomous { cw |= 2 }
+                if snap.control.mode == .test { cw |= 4 }
+                if snap.control.fmsAttached { cw |= 8 }
+                if snap.control.estop { cw |= 128 }
+                let joysticks = snap.joysticks.map {
+                    ProtobufLite.JoystickWire(buttons: $0.buttons, buttonCount: $0.buttonCount,
+                                              axes: $0.axes,
+                                              povsPacked: Self.packPOVs($0.povs))
+                }
+                let data = ProtobufLite.mrcControlData(
+                    controlWord: cw,
+                    matchTimeSec: Int32(snap.matchTime ?? 0),
+                    joysticks: joysticks,
+                    currentOpMode: snap.control.enabled ? opModeHashBox.get() : 0,
+                    gameData: snap.gameData ?? ""
+                )
+                nt4Server.set(name: "/Dscomm/Control/ControlData", .raw(data))
+            }
+        }
 
         client.start()
         log("GH DS 控制环已启动（20ms）")
@@ -385,6 +433,19 @@ final class DSModel {
         mode = m
     }
 
+    static func packPOVs(_ povs: [Int16]) -> UInt32 {
+        // u32 打包前两个 POV（低 16 位 = POV0），未按 = 0xFFFF
+        let p0 = povs.first.map { UInt32(UInt16(bitPattern: $0)) } ?? 0xFFFF
+        let p1 = povs.dropFirst().first.map { UInt32(UInt16(bitPattern: $0)) } ?? 0xFFFF
+        return p0 | (p1 << 16)
+    }
+
+    func selectOpMode(_ op: MRCOpModeInfo) {
+        selectedOpModeHash = op.hash
+        opModeHashBox.set(op.hash)
+        log("OpMode 选择：\(op.name)（hash 0x\(String(op.hash, radix: 16))）")
+    }
+
     // MARK: Practice 时序
 
     func startPractice() {
@@ -484,6 +545,11 @@ final class DSModel {
             }
         case .tcpEvent(let e):
             handleTCP(e)
+        case .opModes(let list):
+            if list != opModes {
+                opModes = list
+                log("收到 OpMode 列表（\(list.count) 项）")
+            }
         case .stats(let loss, _, let tx, let rx):
             lossPercent = loss
             txCount = tx
@@ -733,6 +799,15 @@ struct JoystickSlot: Identifiable {
         povs = device.povs
         name = device.name
     }
+}
+
+// MARK: OpMode hash 盒（主线程写、控制环读）
+
+final class OpModeHashBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+    func set(_ v: UInt64) { lock.lock(); value = v; lock.unlock() }
+    func get() -> UInt64 { lock.lock(); defer { lock.unlock() }; return value }
 }
 
 // MARK: - 录制开关（线程安全）

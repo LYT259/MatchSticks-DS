@@ -1,4 +1,172 @@
 
+// MARK: Phase 3/4：msgpack + protobuf-lite + NT4 server 往返
+
+import Network
+
+func msgPackTests() {
+    // 正负整数 / bool / double / string / bin / 数组 的 pack→unpack 往返
+    let packed = MsgPack.pack([Int64(1), Int64(300), Int64(-5), true, 12.5, "hello", Data([0xAB, 0xCD])] as [Any])
+    print("  [dbg] packed=" + [UInt8](packed).map { String(format: "%02X", $0) }.joined(separator: " ") + " count=" + String(packed.count))
+    let unpacked: [Any]
+    do { unpacked = try MsgPack.unpackAll(packed) }
+    catch { print("  [dbg] UNPACK THROWN: \(error)"); unpacked = [] }
+    check(unpacked.count == 1, "顶层单数组（\(unpacked.count)）")
+    guard let arr = unpacked.first as? [Any] else { check(false, "顶层数组"); return }
+    check(arr.count == 7, "msgpack 元素数（\(arr.count)）")
+    check((arr[0] as? Int64) == 1, "小整数（fixint）")
+    check((arr[1] as? Int64) == 300, "uint16 整数")
+    check((arr[2] as? Int64) == -5, "负整数")
+    check((arr[3] as? Bool) == true, "布尔")
+    check((arr[4] as? Double) == 12.5, "float64")
+    check((arr[5] as? String) == "hello", "字符串")
+    check((arr[6] as? Data) == Data([0xAB, 0xCD]), "bin")
+
+    // NT4 值帧形态：[id, ts_us, type_id, value]（大整数时间戳）
+    let frame = MsgPack.pack([Int64(3), Int64(1_700_000_000_123_456), Int(5), Data([1, 2, 3])] as [Any])
+    let frames = (try? MsgPack.unpackAll(frame)) as? [[Any]]
+    check(frames?.count == 1, "值帧单条")
+    check((frames?.first?.count) == 4, "值帧四元组")
+}
+
+func protobufLiteTests() {
+    // 手工推演金样本：MatchTime=0 / 无手柄 / CurrentOpMode=1 / ControlWord=5 / GameData=""
+    let data = ProtobufLite.mrcControlData(controlWord: 5, matchTimeSec: 0,
+                                           joysticks: [], currentOpMode: 1, gameData: "")
+    check([UInt8](data) == [
+        0x10, 0x00,                                              // field2 varint 0
+        0x21, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,    // field4 fixed64 1
+        0x28, 0x05,                                              // field5 varint 5
+        0x32, 0x00,                                              // field6 空串
+    ], "ControlData 金样本（" + [UInt8](data).map { String(format: "%02X", $0) }.joined() + "）")
+
+    // JoystickData 子消息非空
+    let js = ProtobufLite.JoystickWire(buttons: 0b101, buttonCount: 3,
+                                       axes: [0.0], povsPacked: 0xFFFF)
+    let jd = ProtobufLite.mrcJoystickData(js)
+    check(jd.contains(0x10), "JoystickData AvailableButtons varint 字段（field2 uint64 走 varint，key 0x10）")
+}
+
+func nt4ServerTests() {
+    final class Box: @unchecked Sendable {
+        var announced = false
+        var gotValue: (name: String, value: NT4Server.NT4Value)? = nil
+        var gotBinary: Data? = nil
+        var lock = NSLock()
+    }
+    let box = Box()
+
+    let server = NT4Server(port: 18_767)
+    server.onValue = { name, value in
+        box.lock.lock(); box.gotValue = (name, value); box.lock.unlock()
+    }
+    server.start()
+    Thread.sleep(forTimeInterval: 0.3)
+
+    // 裸 WebSocket 客户端（RFC6455；服务器要求 Upgrade 握手）
+    let sock = socket(AF_INET, SOCK_STREAM, 0)
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = UInt16(18_767).bigEndian
+    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let connected = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    check(connected == 0, "NT4：TCP 连接")
+    var tv = timeval(tv_sec: 3, tv_usec: 0)
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+    let handshake = "GET /nt/test HTTP/1.1\r\nHost: 127.0.0.1:18767\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+        + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    let handshakeData = Data(handshake.utf8)
+    _ = handshakeData.withUnsafeBytes { raw in send(sock, raw.baseAddress, raw.count, 0) }
+    // 读握手响应头（至 \r\n\r\n）
+    var headerData = Data()
+    var byte: UInt8 = 0
+    while headerData.count < 4096 {
+        let n = recv(sock, &byte, 1, 0)
+        guard n == 1 else { break }
+        headerData.append(byte)
+        if [UInt8](headerData.suffix(4)) == [0x0D, 0x0A, 0x0D, 0x0A] { break }
+    }
+    let headerText = String(decoding: headerData, as: UTF8.self)
+    check(headerText.contains("101"), "握手 101（" + headerText.prefix(40) + "）")
+    check(headerText.contains("v4.1.networktables.first.wpi.edu"), "子协议回显")
+
+    func sendClientFrame(opcode: UInt8, payload: Data) {
+        var frame = Data([0x80 | opcode])
+        // 客户端帧按 RFC 必须掩码；服务器实现兼容带/不带掩码
+        let mask: [UInt8] = [0x11, 0x22, 0x33, 0x44]
+        if payload.count < 126 {
+            frame.append(UInt8(0x80 | payload.count))
+        } else {
+            frame.append(UInt8(0x80 | 126))
+            frame.append(UInt8(payload.count >> 8)); frame.append(UInt8(payload.count & 0xFF))
+        }
+        frame.append(contentsOf: mask)
+        var masked = [UInt8](payload)
+        for i in 0..<masked.count { masked[i] ^= mask[i % 4] }
+        frame.append(contentsOf: masked)
+        frame.withUnsafeBytes { raw in _ = send(sock, raw.baseAddress, raw.count, 0) }
+    }
+
+    func recvServerFrame() -> (opcode: UInt8, payload: Data)? {
+        // 用与服务器同款的读帧逻辑（无掩码）
+        return NT4Server.readTestFrame(sock)
+    }
+
+    // ① publish → announce
+    sendClientFrame(opcode: 0x1, payload: Data("[{\"method\":\"publish\",\"params\":{\"name\":\"/Netcomm/Status/HasUserCode\",\"pubuid\":1,\"type\":\"boolean\",\"properties\":{}}}]".utf8))
+    if let (op, payload) = recvServerFrame() {
+        check(op == 0x1, "announce 为文本帧")
+        let text = String(decoding: payload, as: UTF8.self)
+        check(text.contains("announce") && text.contains("HasUserCode"), "announce 内容（\(text.prefix(80))）")
+    } else { check(false, "announce 帧未收到") }
+
+    // ② 服务端发布 + 客户端订阅 + 服务端 set → 客户端收值帧
+    server.publish(name: "/Dscomm/Control/ControlData", type: "proto:mrc.proto.ProtobufControlData")
+    sendClientFrame(opcode: 0x1, payload: Data("[{\"method\":\"subscribe\",\"params\":{\"topics\":[\"/Dscomm/Control/\"],\"subuid\":7,\"options\":{\"prefix\":true,\"all\":true}}}]".utf8))
+    Thread.sleep(forTimeInterval: 0.3) // 订阅处理
+    server.set(name: "/Dscomm/Control/ControlData", .raw(Data([1, 2, 3])))
+    var gotBinary: Data?
+    for _ in 0..<3 {
+        if let (op, payload) = recvServerFrame(), op == 0x2 {
+            gotBinary = payload
+            break
+        }
+    }
+    check(gotBinary != nil, "server.set → 值帧下发")
+    if let payload = gotBinary {
+        let arr = (try? MsgPack.unpackAll(payload)) as? [[Any]]
+        check(arr?.count == 1 && arr?[0].count == 4, "值帧四元组")
+        check((arr?[0][2] as? Int64) == 5, "raw type_id=5")
+        check((arr?[0][3] as? Data) == Data([1, 2, 3]), "raw payload 往返")
+    }
+
+    // ③ 客户端发值 → server.onValue
+    let valueFrame = MsgPack.pack([Int64(1), Int64(123_456), Int(0), true] as [Any])
+    sendClientFrame(opcode: 0x2, payload: valueFrame)
+    for _ in 0..<20 {
+        box.lock.lock()
+        let got = box.gotValue
+        box.lock.unlock()
+        if let g = got {
+            check(g.name == "/Netcomm/Status/HasUserCode", "客户端值 topic（\(g.name)）")
+            if case .boolean(let b) = g.value { check(b == true, "布尔值") } else { check(false, "布尔值类型") }
+            break
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+    close(sock)
+    server.stop()
+}
+
+
+func runAllPhase3Tests() {
+    runTest("msgPackTests", msgPackTests)
+    runTest("protobufLiteTests", protobufLiteTests)
+    runTest("nt4ServerTests", nt4ServerTests)
+}
+
+
 // MARK: Phase 3：CRC32C + MRC V2 协议（金样本 = Compatibility Proxy 文档 §8 实测包）
 
 func crc32cTests() {
@@ -901,4 +1069,7 @@ func runAllPhase2Tests() {
     runTest("mrcOpModesTests", mrcOpModesTests)
     runTest("mrcLoopbackScenario", mrcLoopbackScenario)
     runTest("mrcClientScenario", mrcClientScenario)
+    runTest("msgPackTests", msgPackTests)
+    runTest("protobufLiteTests", protobufLiteTests)
+    runTest("nt4ServerTests", nt4ServerTests)
 }

@@ -261,6 +261,8 @@ final class MrcSimRobot: @unchecked Sendable {
 }
 
 let mrcRobot = MrcSimRobot()
+nonisolated(unsafe) var mrcPackets = 0
+nonisolated(unsafe) let mrcStart = Date()
 
 // MARK: UDP
 
@@ -304,26 +306,27 @@ func runUDP(_ a: Args) {
                 }
             }
             guard n > 0 else { continue }
-            guard let packet = NICodec.decodeControl(Data(buffer[0 ..< n])) else {
-                simLog("⚠️  malformed control packet (\(n)B), dropped")
-                continue
-            }
-            // MRC 模式：SystemCore 协议（0x02 / 24B 头 + CRC32C ×2 / 0x2E 输出 tag）
+
+            // MRC 模式优先：SystemCore 协议（0x02 / 24B 头 + CRC32C ×2 / 0x2E 输出 tag）
             if args.mrc {
-                guard let packet = MRCPackets.decodeControl(Data(buffer[0 ..< n])) else {
-                    simLog("⚠️  非 V2 控制包被拒（版本不符或损坏）")
+                guard let mrcPacket = MRCPackets.decodeControl(Data(buffer[0 ..< n])) else {
+                    simLog("⚠️  非 V2 控制包被拒（\(n)B）")
                     continue
                 }
-                let stateEnabled = mrcRobot.handle(packet)
+                mrcPackets += 1
+                if mrcPackets % 25 == 0 {
+                    simLog("MRC 已收 " + String(mrcPackets) + " 包（" + String(format: "%.1f", Date().timeIntervalSince(mrcStart)) + "s）")
+                }
+                let stateEnabled = mrcRobot.handle(mrcPacket)
                 var payload = ByteWriter()
-                payload.u8(0x43); payload.u8(0x2E) // tag len(67) + id 0x2E
+                payload.u8(0x43); payload.u8(0x2E)
                 for _ in 0..<6 {
                     payload.u8(0); payload.u8(0); payload.u8(0)
                     payload.u16be(0); payload.u16be(0); payload.u16be(0); payload.u16be(0)
                 }
-                let mode: MRCMode = packet.control.autonomous && !packet.control.test ? .autonomous : (packet.control.test ? .test : .teleoperated)
-                let reply = MRCPackets.replyPacket(seq: packet.seq, mode: mode,
-                                                   enabled: stateEnabled, estop: packet.control.estop,
+                let mode: MRCMode = mrcPacket.control.autonomous && !mrcPacket.control.test ? .autonomous : (mrcPacket.control.test ? .test : .teleoperated)
+                let reply = MRCPackets.replyPacket(seq: mrcPacket.seq, mode: mode,
+                                                   enabled: stateEnabled, estop: mrcPacket.control.estop,
                                                    hasCode: true, batteryVolts: 12.02,
                                                    payload: Data(payload.data))
                 var dst = src
@@ -337,6 +340,10 @@ func runUDP(_ a: Args) {
                 continue
             }
 
+            guard let packet = NICodec.decodeControl(Data(buffer[0 ..< n])) else {
+                simLog("⚠️  malformed control packet (\(n)B), dropped")
+                continue
+            }
             let shouldReply = robot.handleControl(packet)
             guard shouldReply else { continue }
             var dst = src

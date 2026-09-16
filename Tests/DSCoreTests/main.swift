@@ -365,6 +365,7 @@ func axisEncodingSaturation() {
 
 // MARK: runner
 
+setvbuf(stdout, nil, _IOLBF, 0) // 行缓冲：崩溃前也能看到进度
 print("DSCore 协议回归测试")
 runTest("controlPacketGoldenMin", controlPacketGoldenMin)
 runTest("controlPacketGoldenJoystick", controlPacketGoldenJoystick)

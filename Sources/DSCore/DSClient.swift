@@ -43,6 +43,7 @@ public final class DSClient {
         case commState(CommState)
         case response(NICodec.ResponsePacket)
         case tcpEvent(NICodec.TCPEvent)
+        case opModes([MRCOpModeInfo])
         case stats(lossPercent: Double, rttMillis: Double?, txCount: UInt64, rxCount: UInt64)
         case watchdogTripped(frozenSeconds: Double)
         case watchdogRecovered
@@ -76,6 +77,8 @@ public final class DSClient {
     public var heartbeatAge: () -> Double = { 0 }
     /// 抓包录制 sink（报告 §6 决策 3「录制即测试」；loop queue 上调用，须自行保证线程安全）
     public var recordSink: ((RecordedDirection, Data) -> Void)?
+    /// 每 20ms tick 回调（MRC 模式下发 NT4 ControlData 用；loop queue）
+    public var tickHook: (() -> Void)?
     /// 首连日期 tag 的来源
     public var dateProvider: () -> Date = { Date() }
     public var timeZoneProvider: () -> String = { TimeZone.current.identifier }
@@ -541,6 +544,11 @@ public final class DSClient {
         tcpBuffer = remainder
         for frame in frames where frame.id != 0 {
             recordSink?(.tcpIn, NICodec.tcpFrame(id: frame.id, payload: frame.payload))
+            // MRC：0x13 = OpMode 列表（自定义大端二进制）
+            if config.protocolKind == .mrc, frame.id == 0x13 {
+                emit(.opModes(MRCPackets.decodeOpModes(frame.payload)))
+                continue
+            }
             if let event = NICodec.decodeTCPEvent(id: frame.id, payload: frame.payload) {
                 emit(.tcpEvent(event))
             }
@@ -599,6 +607,7 @@ public final class DSClient {
         drainUDPLocked(now: now)
         sendControlPacketLocked(now: now)
         ensureTCPLocked(now: now)
+        tickHook?()
 
         // 每秒发一次统计；窗口起点未连接（含连接瞬间的半窗）不计，
         // 否则连接初期会出现 100% 丢包伪影
