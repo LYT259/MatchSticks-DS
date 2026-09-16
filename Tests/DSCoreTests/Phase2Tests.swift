@@ -287,7 +287,8 @@ func mrcLoopbackScenario() {
     server.stop()
 
     sink.lock.lock(); defer { sink.lock.unlock() }
-    check(server.rawPackets >= 60, "MRC 场景：NI 模式 DS 持续发控制包（线缆 \(server.rawPackets)）")
+    // 下限 8Hz × 2s（CI VM GCD 定时器 ~15Hz，见长跑注）
+    check(server.rawPackets >= 16, "MRC 场景：NI 模式 DS 持续发控制包（线缆 \(server.rawPackets)）")
     check(server.packets == 0, "MRC 场景：NI 格式包被 MRC 解码器全部拒绝（\(server.packets)）")
     // NI 解码器读 MRC 应答（0x02 版本）应拒绝 → 不误建链（避免误驱动 SystemCore）
     check(sink.connectedCount == 0, "MRC 场景：NI 解码器不认 MRC 应答（正确行为）")
