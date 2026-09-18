@@ -79,6 +79,8 @@ robot → DS：
 
 - **E-Stop 锁存**：沿 First DS 语义——E-Stop 后由「重启 robot code」解锁（Request bit2），不要求 roboRIO 断电（NI DS 旧体验的升级）；模拟器按此实现
 - 失联判定 >1.25s；UI 心跳看门狗 >200ms 冻结使能（OpenDS 模式，报告 §6 决策 2）
+- **Request 字节（0x08 重启 roboRIO / 0x04 重启代码）**：2026-09-18 二次核对 frcnetworking 原文（`....x...` = Reboot RoboRIO、`.....x..` = Restart Code），与本档案一致；可行性研究报告 v1.1 §3.1 曾误写「bit4 重启代码」，已在 v1.2 更正（代码实现自始按 0x04 落地，无行为变更）
+- **手柄按钮元素取值约定**：只接受 usage page = Button(0x09) 或 GenericDesktop(0x01) 且编号 1…64 的输入按钮；Consumer 页（0x0C，音量/媒体键）的 usage 是千位级功能码，若当按钮号使用会使 0x0C tag 声明的按键数（按 64 位截断）与实际字节数（按原值 ⌈n/8⌉ 计算）不一致——真机核对该约定对 Logitech Attack3 / Extreme 3D Pro 的实际影响（见下「待实测（手柄）」）
 
 ## MRC（SystemCore / MrcCommDaemon，Comm Version 2）— 已核查（编码器已实现）
 
@@ -90,11 +92,11 @@ robot → DS：
 - 手柄输出 tag **0x2E**（UDP 或 TCP）：6 槽 × 11B = RGB LED + 左/右/左扳机/右扳机 rumble u16 BE
 - TCP 1740 同帧格式；robot→DS **0x13 OpMode 列表**（自定义大端二进制非 protobuf：count + 每项 u8 前缀 name/group/desc（≤64B，任一为空整表拒绝）+ u64 BE hash（bit56-57 模式、bit58 enabled）+ u32 BE 文字色/背景色）；DS 忽略 /Dscomm/* 的远程 NT4 写入——OpMode 列表必须走 TCP
 - **金样本**：文档 §8 实测包（seq 0x0123/有码/失能/12.0V/0x2E 全零 tag，92B）——本仓编码器已逐字节复现（DSCoreTests mrcGoldenPacketTests）
-- **NT4 平面（6767，DS 侧 server，MrcComm 反连）**：OpMode 选择/告警/显示走此通道——**下一批实现**
+- **NT4 平面（6767，DS 侧 server，MrcComm 反连）**：OpMode 选择/告警/显示走此通道——**已实现**（`Sources/DSCore/NT4Server.swift`：BSD 套接字 + 手写 WebSocket，JSON 文本帧 publish/subscribe/announce + msgpack 二进制值帧 + ProtobufLite ControlData；20ms tick 下发控制字/手柄/OpMode hash/GameData，NT4 为 2027 权威控制面，优先级高于 UDP）。异构联测已通过：Compatibility Proxy `robot_sim.py` 侧实测 UDP V2 控制流、TCP 0x13 OpMode 下发、NT4 握手 + 26 主题 announce + 541 条 ControlData（≈45Hz）protobuf 解析全通（2026-09-16）
 
 ### 待实测（MRC/SystemCore）
 - [ ] 真机 SystemCore 抓包比对（现行依据为逆向文档 + robot_sim 语义）
-- [ ] NT4 6767 握手与 /Dscomm/OpModeSelection 写入路径（下一批实现后以 robot_sim.py 联测）
+- [x] NT4 6767 握手与 /Dscomm/Control/ControlData 写入路径——已实现并以 robot_sim.py 联测通过（2026-09-16）；**/Dscomm/OpModeSelection 等机器人侧回写主题的键位仍以真机为准**
 - [ ] console/error 的 TCP tag id（0x0B–0x19 范围内，具体值待核）
 - [ ] 0x2E rumble 值到物理手柄的映射（Phase 4 震动测试）
 
@@ -107,3 +109,12 @@ robot → DS：
 - [ ] CPU tag 核数 float 的实际值；PDP 0x08 布局（当前跳过）
 - [ ] FMS 1115 路径（季外赛 Cheesy Arena 扩展时核对）
 - [ ] roboRIO 1.0 与 2.0 在同一实现下行为一致性（报告 §3.1：协议层同构）
+
+## 待实测（手柄 HID → DS 报文）
+
+建档依据：2026-09-18 通读自查（`JoystickData.povAngle` 与按钮过滤的实现说明见上方「语义决策」）。
+
+- [ ] **hatswitch 角度次序**：本项目按「有效位从 1 起、顺时针 0° 起（1 = 正北，+45°/位）」直序映射；HID Usage Tables 的 8 位帽用法表次序为 NE,NW,SW,SE,N,W,S,E（1=NE），两者不同。中立态判定（0…8 与 1…8 描述器的 0 = 未按）已按声明逻辑范围实现并有单测（DSCoreTests povHatTests），**角度次序需实物设备矩阵核对后才改判**，不凭文档记忆
+- [ ] 每款手柄的 POV 上报值与 NI DS / First DS 显示一致性（Attack3 的 hat、Extreme 3D Pro 的 POV）
+- [ ] 按钮过滤约定（只取 Button/GenericDesktop 页 ≤64）在带媒体键的手柄上的实际按键编号连续性
+- [ ] 0x0C tag 的轴 usage 顺序（本项目按 usage 升序 X,Y,Z,Rx,Ry,Rz,Slider,Dial,Wheel）与 roboRIO 侧 `setAxis` 索引语义对应
