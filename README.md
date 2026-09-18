@@ -1,10 +1,10 @@
 # GH Driver Station
 
-**macOS 原生 FRC Driver Station** —— 同时支持 roboRIO 1.0 / roboRIO 2.0（NI 协议）与 SystemCore（MRCCOMM 协议，规划中）的驾驶台，严格遵循 Apple 设计语言（SwiftUI 原生）。
+**macOS 原生 FRC Driver Station** —— 同时支持 roboRIO 1.0 / roboRIO 2.0（NI 协议）与 SystemCore（MRCCOMM V2 协议，实验性）的驾驶台，严格遵循 Apple 设计语言（SwiftUI 原生）。
 
 > ⚠️ **Practice Only**：所有第三方 DS 均不得用于正式比赛（规则 R710/R901）。本项目定位为练习、调试与台架测试工具。
 >
-> 📦 当前状态：**Phase 1 MVP**（NI 协议栈 + Apple 风格核心 UI，本机可用模拟器端到端联调）。真机（roboRIO）联调待实体硬件验证。完整论证见 [可行性研究报告](可行性研究报告.md)。
+> 📦 当前状态：**Phase 1 + Phase 2 完成，Phase 3 协议层完成**（NI 全功能 + MRC V2 + NT4 server，模拟器与 `robot_sim.py` 异构联调通过；发布线 v0.1.0-alpha.4）。真机（roboRIO / SystemCore）联调待实体硬件。完整论证见 [可行性研究报告](可行性研究报告.md)。
 
 ## 功能（当前版本）
 
@@ -55,7 +55,7 @@ GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer  # 按本机 Xcode 路径调整
 swift build
-swift run DSCoreTests   # 回归测试：128 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放单测 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路 场景级集成测试）
+swift run DSCoreTests   # 回归测试：38 组 / 257 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放/POV 归一化单测 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/NT4 握手 场景级集成测试）
 swift run GHDS          # 运行驾驶台
 ```
 
@@ -98,13 +98,13 @@ scripts/             图标生成 + 打包脚本
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| Phase 1 | NI 协议栈 + Apple 风格核心 UI（roboRIO 1/2 可用 MVP） | ✅ 本版本 |
+| Phase 1 | NI 协议栈 + Apple 风格核心 UI（roboRIO 1/2 可用 MVP） | ✅ 完成 |
 | Phase 2 | NI 全功能：Practice ✅、dslog + WPILog ✅、Charts ✅、Dashboard 启动 ✅、DS 自身监控 ✅（XInput 震动待硬件：GCDeviceHaptics 引擎链路 + 实物手柄） | ✅ 基本完成 |
 | Phase 3 | MRCCOMM V2 协议栈 ✅（金样本验证）+ NT4 server（6767，异构联测通过）+ OpMode 选择 ✅（Alerts/Display 待真机核对） | ✅ 协议层完成 |
-| Phase 4 | 全局快捷键（CGEventTap）、应用内更新（Sparkle）、迷你视图 | ⏳ |
+| Phase 4 | 迷你视图 ✅、权限引导页 ✅；全局快捷键（CGEventTap + Input Monitoring）、应用内更新（Sparkle）、内置 Web UI、摄像头流 待做 | ⏳ 部分完成 |
 
 ## 许可与合规
 
 - 许可证：**Apache-2.0**（2026-09-15 定稿，见 [LICENSE](LICENSE)）；
-- Practice Only：不得用于正式 FRC 比赛；
-- 协议事实来源：[docs/protocol/ds-protocol-2026.md](docs/protocol/ds-protocol-2026.md)（本项目权威协议档案，已核查/待实测两级）与 [frcnetworking.readthedocs.io](https://frcnetworking.readthedocs.io/)（2026-09-15 核查）。
+- Practice Only：不得用于正式比赛（第三方 DS 一律不合法）；
+- 协议事实来源：[docs/protocol/ds-protocol-2026.md](docs/protocol/ds-protocol-2026.md)（本项目权威协议档案，已核查/待实测两级）与 [frcnetworking.readthedocs.io](https://frcnetworking.readthedocs.io/)（2026-09-15 核查、2026-09-18 二次核对 Request 字节）。
