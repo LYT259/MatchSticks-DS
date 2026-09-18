@@ -188,7 +188,7 @@ public struct DSLogFile {
             e.wifiDB = Int(r.u8() ?? 0) / 2
             e.wifiMb = Int(r.u8() ?? 0)
             _ = r.u16be()
-            e.pdpCurrents = Self.decodePDP(try r.bytes(21) ?? [])
+            e.pdpCurrents = Self.decodePDP(r.bytes(21) ?? [])
             _ = r.u8(); _ = r.u8()
             out.append(e)
         }
