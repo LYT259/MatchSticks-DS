@@ -6,10 +6,9 @@ import Network
 func msgPackTests() {
     // 正负整数 / bool / double / string / bin / 数组 的 pack→unpack 往返
     let packed = MsgPack.pack([Int64(1), Int64(300), Int64(-5), true, 12.5, "hello", Data([0xAB, 0xCD])] as [Any])
-    print("  [dbg] packed=" + [UInt8](packed).map { String(format: "%02X", $0) }.joined(separator: " ") + " count=" + String(packed.count))
     let unpacked: [Any]
     do { unpacked = try MsgPack.unpackAll(packed) }
-    catch { print("  [dbg] UNPACK THROWN: \(error)"); unpacked = [] }
+    catch { check(false, "msgpack 往返不应抛错（\(error)）"); unpacked = [] }
     check(unpacked.count == 1, "顶层单数组（\(unpacked.count)）")
     guard let arr = unpacked.first as? [Any] else { check(false, "顶层数组"); return }
     check(arr.count == 7, "msgpack 元素数（\(arr.count)）")
@@ -160,13 +159,6 @@ func nt4ServerTests() {
 }
 
 
-func runAllPhase3Tests() {
-    runTest("msgPackTests", msgPackTests)
-    runTest("protobufLiteTests", protobufLiteTests)
-    runTest("nt4ServerTests", nt4ServerTests)
-}
-
-
 // MARK: Phase 3：CRC32C + MRC V2 协议（金样本 = Compatibility Proxy 文档 §8 实测包）
 
 func crc32cTests() {
@@ -176,8 +168,6 @@ func crc32cTests() {
 
 func mrcGoldenPacketTests() {
     // 文档 §8：robot_sim.py 对 seq=0x0123、有代码、失能状态的真实应答包
-    var payload = Data([0x43, 0x2E]) + Data(repeating: 0, count: 66)
-    _ = payload
     let golden = Data([
         0x01, 0x23,                                     // seq
         0x02,                                           // comm version
@@ -858,9 +848,9 @@ func rebootOutageScenario() {
     server.stop()
     sink.lock.lock(); defer { sink.lock.unlock() }
     check(server.sawReboot, "reboot 场景：重启请求到达模拟器")
-    check(sink.autoDisabled >= 1, "reboot 场景：断联触发自动失能（\\(sink.autoDisabled) 次）")
+    check(sink.autoDisabled >= 1, "reboot 场景：断联触发自动失能（\(sink.autoDisabled) 次）")
     check(sink.disconnectedCount >= 1, "reboot 场景：通信状态转为搜索")
-    check(sink.connectedCount >= 2, "reboot 场景：恢复后重连（连接 \\(sink.connectedCount) 次）")
+    check(sink.connectedCount >= 2, "reboot 场景：恢复后重连（连接 \(sink.connectedCount) 次）")
 }
 
 // MARK: 场景 3：UI 冻结看门狗 → 冻结使能输出 → 恢复
@@ -948,6 +938,40 @@ func safetyGateTests() {
     s.currentlyEnabled = true
     s.estopEngaged = true // 即使 E-Stop，已使能状态评估为 allow（幂等路径；真实 E-Stop 由 triggerEstop 落地）
     check(SafetyGate.canEnable(s), "已使能时重复请求幂等放行")
+
+    // canEnableNow = UI 可用性（按钮该不该可点）：与 evaluateEnable 的「放行」语义不同
+    s.estopEngaged = false
+    check(!SafetyGate.canEnableNow(s), "已使能 → Enable 按钮不可点（防计时器复位）")
+    s.currentlyEnabled = false
+    check(SafetyGate.canEnableNow(s), "未使能 + 连通 + 健康 → 可点")
+    s.estopEngaged = true
+    check(!SafetyGate.canEnableNow(s), "E-Stop 锁存 → 不可点")
+    s.estopEngaged = false
+    s.commConnected = false
+    check(!SafetyGate.canEnableNow(s), "断联 → 不可点")
+}
+
+// MARK: hatswitch → POV 角度（三种 macOS 描述器实现）
+
+func povHatTests() {
+    // 0…7 无中立位：直序（旧行为保持，不回归）
+    check(JoystickData.povAngle(raw: 0, logicalMin: 0, logicalMax: 7) == 0, "0…7：0 → 0°")
+    check(JoystickData.povAngle(raw: 7, logicalMin: 0, logicalMax: 7) == 315, "0…7：7 → 315°")
+    check(JoystickData.povAngle(raw: 8, logicalMin: 0, logicalMax: 7) == -1, "0…7：越界 → 未按")
+    check(JoystickData.povAngle(raw: -1, logicalMin: 0, logicalMax: 7) == -1, "0…7：负值 → 未按")
+
+    // 0…8 含中立（HID「Not detected」= 0）：0 未按，1…8 → 0…315
+    check(JoystickData.povAngle(raw: 0, logicalMin: 0, logicalMax: 8) == -1, "0…8：归位 0 → 未按（旧实现误报 0°）")
+    check(JoystickData.povAngle(raw: 1, logicalMin: 0, logicalMax: 8) == 0, "0…8：1 → 0°")
+    check(JoystickData.povAngle(raw: 8, logicalMin: 0, logicalMax: 8) == 315, "0…8：8 → 315°（旧实现误报未按）")
+    check(JoystickData.povAngle(raw: 9, logicalMin: 0, logicalMax: 8) == -1, "0…8：越上界 → 未按")
+
+    // 1…8（0 为越界中立）
+    check(JoystickData.povAngle(raw: 0, logicalMin: 1, logicalMax: 8) == -1, "1…8：0 → 未按（旧实现误报 0°）")
+    check(JoystickData.povAngle(raw: 3, logicalMin: 1, logicalMax: 8) == 90, "1…8：3 → 90°（旧实现偏移 45°）")
+
+    // 畸形描述器（空范围）不得崩溃
+    check(JoystickData.povAngle(raw: 1, logicalMin: 5, logicalMax: 2) == -1, "倒置范围 → 未按")
 }
 
 // MARK: PracticeSequencer 单测
@@ -1000,7 +1024,7 @@ func practiceSequencerTests() {
 
 func recorderTests() {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    let url = dir.appendingPathComponent("ghds-test-\\(Int.random(in: 0...999_999)).dsrec")
+    let url = dir.appendingPathComponent("ghds-test-\(Int.random(in: 0...999_999)).dsrec")
 
     let recorder = try! PacketRecorder(fileURL: url)
     recorder.record(.controlOut, Data([1, 2, 3]))
@@ -1012,11 +1036,11 @@ func recorderTests() {
     recorder.close()
 
     let source = try! ReplaySource(fileURL: url)
-    check(source.records.count == 6, "记录数 6，\\(source.records.count)")
+    check(source.records.count == 6, "记录数 6，实际 \(source.records.count)")
     check(source.tcpOutFrames.count == 1 && source.tcpOutFrames[0] == Data([0xDE, 0xAD]), "tcpOut 帧提取")
 
     let batch1 = source.responseBatch(from: 0)
-    check(batch1.batch.count == 2 && batch1.batch[0] == Data([0x0A]), "第一组应答（1 条）到 controlOut 边界")
+    check(batch1.batch.count == 2 && batch1.batch[0] == Data([0x0A]), "第一组应答 2 条，止于下一个 controlOut")
     let batch2 = source.responseBatch(from: batch1.next)
     check(batch2.batch == [Data([0x0D])], "第二组应答跨 controlOut 正确分组")
 
@@ -1051,6 +1075,7 @@ func mrcClientScenario() {
 
 func runAllPhase2Tests() {
     runTest("safetyGateTests", safetyGateTests)
+    runTest("povHatTests", povHatTests)
     runTest("practiceSequencerTests", practiceSequencerTests)
     runTest("recorderTests", recorderTests)
     runTest("estopLatchScenario", estopLatchScenario)

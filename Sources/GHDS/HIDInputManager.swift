@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import IOKit.hid
+import DSCore
 
 // MARK: - HID 手柄枚举与轮询（IOHIDManager：可见所有 HID 设备，含 FRC 常用 Attack3 / Extreme 3D Pro）
 
@@ -34,7 +35,7 @@ final class HIDInputManager {
         let productID: Int
         let axisElements: [(element: IOHIDElement, usage: UInt32, min: Int32, max: Int32)]
         let buttonElements: [(element: IOHIDElement, number: Int)]
-        let hatElements: [IOHIDElement]
+        let hatElements: [(element: IOHIDElement, min: Int, max: Int)]
         let isXbox: Bool
     }
 
@@ -99,7 +100,7 @@ final class HIDInputManager {
 
         var axisElements: [(IOHIDElement, UInt32, Int32, Int32)] = []
         var buttonElements: [(IOHIDElement, Int)] = []
-        var hatElements: [IOHIDElement] = []
+        var hatElements: [(IOHIDElement, Int, Int)] = []
 
         for element in elements {
             let type = IOHIDElementGetType(element)
@@ -108,9 +109,18 @@ final class HIDInputManager {
             guard usagePage == kHIDPage_GenericDesktop || type == kIOHIDElementTypeInput_Button else { continue }
 
             if type == kIOHIDElementTypeInput_Button {
-                buttonElements.append((element, Int(usage)))
+                // 只接受标准按钮：Button 页（0x09）或 GenericDesktop 上编号 ≤64 的按钮。
+                // Consumer 页（0x0C，音量/媒体键）的 usage 是千位级功能码，若当作按钮号
+                // 会使 buttonCount 虚高（实测可达 233），控制包 0x0C tag 声明的按键数
+                // 与实际字节数便不再一致（协议层按 64 位截断，字节数却按原值算）。
+                if (usagePage == kHIDPage_Button || usagePage == kHIDPage_GenericDesktop),
+                   usage >= 1, usage <= 64 {
+                    buttonElements.append((element, Int(usage)))
+                }
             } else if usage == kHIDUsage_GD_Hatswitch {
-                hatElements.append(element)
+                // 记录描述器的逻辑范围：八向帽在 macOS 上有 0…7 / 0…8 / 1…8 三种实现，
+                // 中立态位置取决于此（见 JoystickData.povAngle 的说明）
+                hatElements.append((element, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element)))
             } else if type == kIOHIDElementTypeInput_Misc || type == kIOHIDElementTypeInput_Axis {
                 // 常见轴 usage：X/Y/Z/Rx/Ry/Rz/Slider/Dial/Wheel
                 let axisUsages: [UInt32] = [0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38]
@@ -166,11 +176,11 @@ final class HIDInputManager {
             }
 
             var povs: [Int16] = []
-            for element in record.hatElements {
+            for (element, hatMin, hatMax) in record.hatElements {
                 var value: Unmanaged<IOHIDValue>!
                 if IOHIDDeviceGetValue(record.device, element, &value) == kIOReturnSuccess, let v = value {
                     let raw = Int(IOHIDValueGetIntegerValue(v.takeUnretainedValue()))
-                    povs.append(raw >= 0 && raw <= 7 ? Int16(raw * 45) : -1)
+                    povs.append(JoystickData.povAngle(raw: raw, logicalMin: hatMin, logicalMax: hatMax))
                 } else {
                     povs.append(-1)
                 }

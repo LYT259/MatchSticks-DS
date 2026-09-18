@@ -180,7 +180,7 @@ public final class NT4Server: @unchecked Sendable {
             switch method {
             case "publish":
                 guard let name = params["name"] as? String else { continue }
-                let pubuid = NT4Server.asInt64(params["pubuid"])
+                let pubuid = NT4Server.asInt64(params["pubuid"] as Any)   // 缺省 nil → 0（显式 Any，免隐式提升警告）
                 let type = params["type"] as? String ?? "raw"
                 let id = assignTopic(name: name, type: type)
                 registerPublisher(fd: fd, pubuid: pubuid, name: name, type: type, topicID: id)
@@ -212,7 +212,7 @@ public final class NT4Server: @unchecked Sendable {
             lock.lock()
             let topic = clients.first { $0.sock == fd }?.publishers[pubuid]
             lock.unlock()
-            guard let (name, type, topicID) = topic else { continue }
+            guard let (name, _, topicID) = topic else { continue }     // 发布方声明的类型串此处不使用
             let ntValue = Self.ntValue(typeID: Int(typeID), raw: value)
             onValue?(name, ntValue)
             forward(name: name, topicID: topicID, ts: ts, value: value, excluding: fd)
@@ -411,7 +411,7 @@ public final class NT4Server: @unchecked Sendable {
             out.append(UInt8(length >> 8)); out.append(UInt8(length & 0xFF))
         } else {
             out.append(127)
-            var v = UInt64(length)
+            let v = UInt64(length)
             for shift in stride(from: 56, through: 0, by: -8) {
                 out.append(UInt8((v >> UInt64(shift)) & 0xFF))
             }
@@ -436,18 +436,15 @@ public final class NT4Server: @unchecked Sendable {
         var buffer = h
         let opcode = buffer[0] & 0x0F
         var length = Int(buffer[1] & 0x7F)
-        var headerSize = 2
         if length == 126 {
             guard let more = recvExact(2) else { return nil }
             buffer += more
             length = Int(buffer[2]) << 8 | Int(buffer[3])
-            headerSize = 4
         } else if length == 127 {
             guard let more = recvExact(8) else { return nil }
             buffer += more
             length = 0
             for i in 0..<8 { length = length << 8 | Int(buffer[2 + i]) }
-            headerSize = 10
         }
         guard let payload = recvExact(length) else { return nil }
         return (opcode, Data(payload))

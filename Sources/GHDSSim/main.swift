@@ -104,7 +104,25 @@ final class SimRobot: @unchecked Sendable {
             estopLatched = true
             simLog("🛑 E-STOP latched (cleared by code restart, per First DS semantics)")
         }
-        return rebootStart == 0
+        // 静默窗口内不应答，但时间线必须在这里推进：只有 response() 会清 rebootStart，
+        // 而重启期间 response() 永不被调用 → 一旦请求重启 roboRIO，模拟器将永久不应答
+        // （TCP 侧同因 isRebooting 永久断开）。2026-09-18 自查修复。
+        return !advanceRebootTimelineLocked(t)
+    }
+
+    /// 重启时间线推进（持锁调用）：3s 全静默 → 之后代码重启 1.5s。
+    /// 返回 true = 仍处在重启静默窗口（不回应答包）。
+    private func advanceRebootTimelineLocked(_ t: Double) -> Bool {
+        guard rebootStart > 0 else { return false }
+        if t - rebootStart < 3.0 { return true }
+        if t - rebootStart < 5.0 {
+            codeRestartStart = t - 0.5
+            simLog("🔋 roboRIO back online, code starting")
+        } else {
+            codeRestartStart = t
+        }
+        rebootStart = 0
+        return false
     }
 
     /// 构造应答包
@@ -112,18 +130,8 @@ final class SimRobot: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         let t = now()
 
-        // 重启时序：3s 断联静默 → 代码重启 2s → 恢复
-        if rebootStart > 0 {
-            if t - rebootStart < 3.0 { return Data() }
-            if t - rebootStart < 5.0 {
-                codeRestartStart = t - 0.5
-                rebootStart = 0
-                simLog("🔋 roboRIO back online, code starting")
-            } else {
-                rebootStart = 0
-                codeRestartStart = t
-            }
-        }
+        // 重启时序：3s 断联静默 → 代码重启 1.5s → 恢复（静默判定见 handleControl）
+        if advanceRebootTimelineLocked(t) { return Data() }
         var codeStarting = false
         if codeRestartStart > 0 {
             if t - codeRestartStart < 1.5 {
@@ -262,7 +270,7 @@ final class MrcSimRobot: @unchecked Sendable {
 
 let mrcRobot = MrcSimRobot()
 nonisolated(unsafe) var mrcPackets = 0
-nonisolated(unsafe) let mrcStart = Date()
+let mrcStart = Date()   // Sendable 常量，无需 nonisolated(unsafe)
 
 // MARK: UDP
 
