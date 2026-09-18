@@ -15,18 +15,9 @@ final class LoopbackResponder {
     func start() {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = NICodec.udpControlPort.bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        _ = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(rxSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        var txAddr = addr
-        txAddr.sin_port = NICodec.udpResponsePort.bigEndian
-        _ = withUnsafePointer(to: &txAddr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(txSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
+        guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "回环应答器 控制口") else { return }
+        _ = bindChecked(txSock, port: NICodec.udpResponsePort, soft: true,
+                        what: "回环应答器 应答口（未绑上则退回临时源端口）")
         Thread.detachNewThread { [weak self] in self?.loop() }
     }
 

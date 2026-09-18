@@ -66,6 +66,11 @@ public final class DSClient {
         public var heartbeatLimit = 0.2
         /// 通信失联判定阈值
         public var silenceLimit = 1.25
+        /// 控制通道端口：协议默认 1110（FMS 下 1115，档案「待实测」项）；
+        /// 做成配置项是为了场景测试可与实机/模拟器隔离（见 DSCoreTests 端口污染事故 2026-09-16）
+        public var controlPort: UInt16 = NICodec.udpControlPort
+        /// 慢速通道端口（协议 1740）
+        public var tcpPort: UInt16 = NICodec.tcpPort
 
         public init() {}
     }
@@ -340,7 +345,7 @@ public final class DSClient {
             }
         }
         guard let target = currentTarget,
-              let addr = sockaddrFor(target, port: NICodec.udpControlPort) else { return }
+              let addr = sockaddrFor(target, port: config.controlPort) else { return }
 
         let snapshot = snapshotProvider()
         var control = snapshot.control
@@ -466,9 +471,10 @@ public final class DSClient {
         tcpConnectInFlight = true
         tcpConnectAttempts += 1
         let target = host
+        let port = config.tcpPort
         resolverQueue.async { [weak self] in
             guard let self else { return }
-            let fd = Self.blockingTCPConnect(to: target, port: NICodec.tcpPort, timeout: 2.0)
+            let fd = Self.blockingTCPConnect(to: target, port: port, timeout: 2.0)
             self.queue.async {
                 self.tcpConnectInFlight = false
                 guard self.running, self.isConnectedLocked(to: target), self.currentTarget == target else {
@@ -486,7 +492,7 @@ public final class DSClient {
                 self.tcpConnected = true
                 self.tcpBuffer = Data()
                 self.lastDescriptorHash = 0 // 触发描述符重发
-                self.emit(.log("tcp channel open (\(target):\(NICodec.tcpPort))"))
+                self.emit(.log("tcp channel open (\(target):\(port))"))
             }
         }
     }

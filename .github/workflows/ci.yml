@@ -13,7 +13,7 @@ jobs:
         run: xcodebuild -version && swift --version
       - name: Build (debug)
         run: swift build
-      - name: Regression tests (38 groups / 257 checks incl. loopback & scenarios)
+      - name: Regression tests (39 groups / 272 checks incl. loopback, TCP & scenarios)
         run: swift run DSCoreTests
       - name: Release universal build
         run: swift build -c release --arch arm64 --arch x86_64
