@@ -144,6 +144,32 @@ public struct JoystickData: Sendable, Equatable {
     public static func decodeAxis(_ raw: Int8) -> Float {
         Float(raw) / 127.0
     }
+
+    /// HID hatswitch 原始值 → DS POV 角度（0/45/…/315，-1 = 未按）。
+    ///
+    /// 为什么要按描述器的逻辑范围判定：macOS 上八向帽的实现并不统一——
+    /// 0…7（无中立位）、0…8（0 = HID「Not detected」）、1…8（0 = 越界中立）都存在。
+    /// 旧实现把「raw 落在 0…7 之外」一律当未按，于是 0…8 / 1…8 设备同时错两处：
+    /// 归位值 0 被上报成「POV 0°」（实为未按），偏转角 8 被上报成未按。
+    ///
+    /// 本函数只修**可判定**的部分（中立态识别 + 越界拒绝），角度次序仍沿用
+    /// 「1 位 = 0°（正北）顺时针 +45°」的直序假设；HID Usage Tables 的 8 位帽
+    /// 用法表次序（NE,NW,SW,SE,N,W,S,E）与之不同，真机设备矩阵核对前不凭文档改判
+    /// ——见 docs/protocol/ds-protocol-2026.md「待实测（手柄 POV）」。
+    public static func povAngle(raw: Int, logicalMin: Int, logicalMax: Int) -> Int16 {
+        let stateCount = logicalMax - logicalMin + 1
+        guard stateCount >= 2 else { return -1 }
+        let hasNullState = stateCount >= 9 || logicalMin >= 1
+        if hasNullState {
+            // 0 为中立/未按；有效偏转从 1 起（logicalMin ≥ 1 时以 logicalMin 为准）
+            let first = max(1, logicalMin)
+            guard raw >= first, raw < first + 8 else { return -1 }
+            return Int16((raw - first) * 45)
+        }
+        // 无中立位（典型 0…7）：直序映射，越界即未按
+        guard raw >= logicalMin, raw - logicalMin < 8 else { return -1 }
+        return Int16((raw - logicalMin) * 45)
+    }
 }
 
 extension Comparable {

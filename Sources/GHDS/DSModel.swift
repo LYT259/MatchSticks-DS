@@ -370,7 +370,7 @@ final class DSModel {
     }
 
     var canEnable: Bool {
-        SafetyGate.canEnable(SafetyGate.State(
+        SafetyGate.canEnableNow(SafetyGate.State(
             commConnected: commConnected,
             watchdogHealthy: watchdogHealthy,
             estopEngaged: estopEngaged,
@@ -381,6 +381,9 @@ final class DSModel {
     // MARK: 操作员指令（安全门全部集中在这里）
 
     func setEnabled(_ on: Bool) {
+        // 幂等：与当前状态相同则不动作——否则重复点 Enable 会把 enabledSince
+        // 计时器复位并重复写日志（迷你视图 ENABLE 曾因此可被误点）
+        if on == enabled { return }
         if on {
             let state = SafetyGate.State(
                 commConnected: commConnected,
@@ -388,8 +391,9 @@ final class DSModel {
                 estopEngaged: estopEngaged,
                 currentlyEnabled: enabled
             )
-            guard case .allow = SafetyGate.evaluateEnable(state) else {
-                if case .deny(let reason) = SafetyGate.evaluateEnable(state) { log("拒绝使能：\(reason)") }
+            let decision = SafetyGate.evaluateEnable(state)
+            guard case .allow = decision else {
+                if case .deny(let reason) = decision { log("拒绝使能：\(reason)") }
                 return
             }
         }

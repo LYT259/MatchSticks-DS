@@ -36,6 +36,15 @@ public enum SafetyGate {
         if case .allow = evaluateEnable(s) { return true }
         return false
     }
+
+    /// UI 可用性判定：此刻「按下 Enable 是否有意义」——已使能时为 false。
+    /// 与 evaluateEnable 的分工（勿混用）：evaluateEnable 管**使能指令是否放行**
+    /// （重复使能按幂等放行，见上），canEnableNow 管**按钮该不该可点**，
+    /// 避免已使能时再点 Enable 把 enabledSince 计时器复位。
+    public static func canEnableNow(_ s: State) -> Bool {
+        if s.currentlyEnabled { return false }
+        return canEnable(s)
+    }
 }
 
 // MARK: - PracticeSequencer：Practice 时序纯状态机（报告 §2.1 NI DS Practice 语义）

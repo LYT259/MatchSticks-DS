@@ -38,8 +38,10 @@ struct OperationView: View {
                     bigButton(title: "Enable", symbol: "play.fill", role: .green) {
                         model.setEnabled(true)
                     }
-                    .disabled(!canEnable)
-                    .keyboardShortcut("\\", modifiers: [.command]) // 提示用；真实组合 [ + ] + \ 走事件监听
+                    .disabled(!model.canEnable)
+                    // 刻意不加 keyboardShortcut：使能键只走 ShortcutManager 的
+                    // [ + ] + \ 组合（NI DS 语义）；此前 .command 的 "\" 绑定
+                    // 使 Cmd+\ 能单独使能，绕过了组合键的防误触设计。
 
                     bigButton(title: "Disable", symbol: "stop.fill", role: .gray) {
                         model.setEnabled(false)
@@ -140,10 +142,6 @@ struct OperationView: View {
         } message: {
             Text("代码重启期间机器人保持失能。")
         }
-    }
-
-    private var canEnable: Bool {
-        model.commConnected && !model.estopEngaged && model.watchdogHealthy && !model.enabled
     }
 
     private var elapsedText: String {

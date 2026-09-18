@@ -151,7 +151,8 @@ public final class DSClient {
     }
 
     public func start() {
-        queue.async {
+        queue.async { [weak self] in
+            guard let self else { return }
             guard !self.running else { return }
             self.running = true
             self.rebuildCandidatesLocked()
@@ -294,11 +295,10 @@ public final class DSClient {
                 }
             }
             guard let packet = decoded else {
+                // 搜索期静默丢弃异协议应答（避免 NI/MRC 混布误建链）；已连接时的坏包才记日志
                 if isConnectedLocked {
                     emit(.log("malformed response packet from \(srcIP), dropped"))
                 }
-                continue // 搜索期静默丢弃异协议应答（避免 NI/MRC 混布误判）
-                emit(.log("malformed response packet from \(srcIP), dropped"))
                 continue
             }
 
@@ -342,7 +342,7 @@ public final class DSClient {
         guard let target = currentTarget,
               let addr = sockaddrFor(target, port: NICodec.udpControlPort) else { return }
 
-        var snapshot = snapshotProvider()
+        let snapshot = snapshotProvider()
         var control = snapshot.control
 
         // 看门狗：主线程冻结 → 冻结使能（estop 状态保持透传）
