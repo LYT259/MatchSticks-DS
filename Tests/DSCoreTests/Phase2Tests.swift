@@ -679,6 +679,8 @@ final class ScenarioServer {
     private(set) var disabledEchoCount = 0
 
     var brownoutForPackets = 0
+    /// 每个控制包回几条应答：>1 用于复现「应答数超过发送数」的统计窗口
+    var repliesPerPacket = 1
     private var estopLatched = false
     private var outageStart: Date?
     private var codeRestartAt: Date?
@@ -757,8 +759,10 @@ final class ScenarioServer {
 
             withUnsafePointer(to: &src) { dst in
                 dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    w.data.withUnsafeBytes { raw in
-                        _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    for _ in 0 ..< max(1, repliesPerPacket) {
+                        w.data.withUnsafeBytes { raw in
+                            _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+                        }
                     }
                 }
             }
@@ -794,6 +798,9 @@ final class ClientSink: @unchecked Sendable {
     var disableFaults: (comms: UInt16, twelveV: UInt16)?
     var railFaults: (sixV: UInt16, fiveV: UInt16, threeV: UInt16)?
     var tcpEventsSeen = 0
+    var statsEvents = 0
+    var lastLoss: Double = -1
+    var sawRxExceedTx = false
 
     func observe(_ event: DSClient.Event) {
         lock.lock(); defer { lock.unlock() }
@@ -813,6 +820,10 @@ final class ClientSink: @unchecked Sendable {
             case .railFaults(let s, let f, let th): railFaults = (s, f, th)
             case .unknown: break
             }
+        case .stats(let loss, _, let tx, let rx):
+            statsEvents += 1
+            lastLoss = loss
+            if rx > tx { sawRxExceedTx = true }
         case .response(let p):
             responses += 1
             if p.batteryVoltage > 3.0 { batteryOK = true }
@@ -1130,6 +1141,34 @@ func mrcClientScenario() {
     check(server.sawEnabled, "MRC 正向：使能指令到达")
 }
 
+// MARK: 统计窗口下溢回归（2026-09-19 崩溃报告：DSClient.tick 算术溢出 SIGTRAP）
+
+/// 真机可达路径：sendto 因漫游/缓冲满失败（tx 不计数）而先前发出的应答仍陆续
+/// 抵达，或机器人/中继对同一请求重复应答——窗口内 rx > tx。旧实现用 UInt64 相减
+/// 求丢包数，下溢即 `Swift runtime failure: arithmetic overflow`，整个 DS 进程
+/// 在控制环线程上崩掉（= 停发控制包 = 机器人看门狗自动失能）。
+func statsUnderflowScenario() {
+    let server = ScenarioServer(controlPort: 12210, responsePort: 12250)
+    server.repliesPerPacket = 3
+    guard server.start() else { return }
+    defer { server.stop() }
+
+    let sink = runScenarioClient(
+        heartbeatStale: { _ in false },
+        intent: { _ in (enabled: false, estop: false) },
+        duration: 3.5,
+        onClient: { c in c.updateConfig { $0.controlPort = 12210 } }
+    )
+
+    sink.lock.lock()
+    check(sink.connectedCount >= 1, "下溢场景：链路建立")
+    check(sink.responses >= 40, "下溢场景：应答持续抵达（\(sink.responses)）")
+    check(sink.statsEvents >= 1, "统计事件已产生（\(sink.statsEvents) 次）")
+    check(sink.sawRxExceedTx, "构造出窗口内 rx > tx 的倒挂条件")
+    check(sink.lastLoss >= 0, "丢包率被夹到非负而非崩溃（\(sink.lastLoss)）")
+    sink.lock.unlock()
+}
+
 // MARK: TCP 1740 正向端到端（robot → DS 慢速帧全部解码 + DS → robot keepalive/描述符）
 //
 // 此前自动化只测过「无监听者」的退避分支（tcpBackoffScenario），TCP 读写链路
@@ -1280,6 +1319,7 @@ func runAllPhase2Tests() {
     runTest("radioProbeTests", radioProbeTests)
     runTest("tcpBackoffScenario", tcpBackoffScenario)
     runTest("tcpPositiveScenario", tcpPositiveScenario)
+    runTest("statsUnderflowScenario", statsUnderflowScenario)
     runTest("wpilogTests", wpilogTests)
     runTest("crc32cTests", crc32cTests)
     runTest("mrcGoldenPacketTests", mrcGoldenPacketTests)

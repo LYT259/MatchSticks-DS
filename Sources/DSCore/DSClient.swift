@@ -624,8 +624,17 @@ public final class DSClient {
             if wasConnected {
                 let txWindow = txCount - txCountAtStats
                 let rxWindow = rxCount - rxCountAtStats
-                let loss = txWindow == 0 ? 0.0 : Double(txWindow - rxWindow) / Double(txWindow) * 100
-                emit(.stats(lossPercent: max(0, loss), rttMillis: nil, txCount: txCount, rxCount: rxCount))
+                // 必须先在带符号/浮点域里相减：窗口内 rx > tx 是**真实可达**的
+                // （sendto 因漫游或缓冲满失败则本包不计数，而更早发出的应答仍在途；
+                //  机器人/中继对同一请求重复应答同样会超发）。UInt64 直接相减会
+                // 下溢并触发 `Swift runtime failure: arithmetic overflow`——
+                // 崩溃点在控制环线程上 = 立刻停发控制包 = 机器人看门狗自动失能。
+                // 2026-09-19 崩溃报告（DSClient.tick）实锤，回归测试见 statsUnderflowScenario。
+                let loss = txWindow == 0
+                    ? 0.0
+                    : (Double(txWindow) - Double(rxWindow)) / Double(txWindow) * 100
+                emit(.stats(lossPercent: min(100, max(0, loss)), rttMillis: nil,
+                            txCount: txCount, rxCount: rxCount))
             }
             txCountAtStats = txCount
             rxCountAtStats = rxCount

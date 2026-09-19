@@ -48,6 +48,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>$VERSION</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
+    <!-- 控制环 20ms 与看门狗是安全链上的延迟敏感活动：双保险禁用 App Nap
+         （运行期另有 ProcessInfo.beginActivity(.latencyCritical)，见 DSModel.start） -->
+    <key>NSAppSleepDisabled</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>GH Driver Station 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。</string>
