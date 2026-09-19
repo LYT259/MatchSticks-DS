@@ -67,6 +67,8 @@ final class DSModel {
     }
     private var started = false
     private var startInvoked = false   // start() 幂等：多窗口/状态恢复会让 .task 再跑一次
+    /// App Nap 抑制令牌（见 start()）：随模型常驻，进程退出即失效，故不调 endActivity
+    private var latencyToken: NSObjectProtocol?
     private(set) var watchdogNotFed = false
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
@@ -211,6 +213,14 @@ final class DSModel {
         // 重复执行（多窗口 / 状态恢复再跑一次 .task）会叠加定时器与心跳源
         guard !startInvoked else { return }
         startInvoked = true
+
+        // 安全链级：控制环 20ms 与 UI 心跳看门狗都是延迟敏感的常驻活动。应用进入
+        // 后台/未激活时 macOS 的 App Nap 会把 DispatchSourceTimer 节流，控制包间隔
+        // 拉长会吃掉 robot 侧约 200ms 看门狗余量，也可能让本进程心跳看门狗误判。
+        // .latencyCritical 对该进程关闭 App Nap 与相关节流。
+        latencyToken = ProcessInfo.processInfo.beginActivity(
+            options: [.latencyCritical],
+            reason: "GH DS 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
         loadPersistedSettings()
         installTimers()
         networkMonitor.start()
