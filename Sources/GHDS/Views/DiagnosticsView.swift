@@ -13,7 +13,10 @@ struct DiagnosticsView: View {
                     LED(label: "Robot (UDP)", on: model.commConnected, onColor: .green, symbol: "arrow.triangle.swap")
                     LED(label: "Robot Radio", on: model.radioReachable, onColor: .green, symbol: "wifi")
                     LED(label: "USB", on: model.manualIP == "172.22.11.2", onColor: .green, symbol: "cable.connector")
-                    LED(label: "FMS", on: model.robotStatus.raw != 0 && false, onColor: .blue, symbol: "building.2")
+                    // FMS 不是「尚未实现的灯」而是本项目明确非目标（报告 §1.3：不做官方 FMS 连接）：
+                    // 旧写法 `model.robotStatus.raw != 0 && false` 恒为 false，看起来像坏了的假灯
+                    LED(label: "FMS", on: false, onColor: .blue, symbol: "building.2Slash",
+                        offText: "未接入（非目标）")
                     Spacer()
                     VStack(alignment: .trailing) {
                         Text("丢包 \(String(format: "%.1f%%", model.lossPercent))")

@@ -113,6 +113,9 @@ struct LED: View {
     let on: Bool
     let onColor: Color
     let symbol: String
+    /// 熄灭时替代标签的说明文字：用于「本版本不具备该能力」这类诚实状态，
+    /// 避免一盏永远不亮的灯被读成「坏了/没连上」
+    var offText: String? = nil
 
     var body: some View {
         VStack(spacing: 2) {
@@ -120,9 +123,11 @@ struct LED: View {
                 .font(.system(size: 13))
                 .foregroundStyle(on ? onColor : Color.gray.opacity(0.35))
                 .shadow(color: on ? onColor.opacity(0.6) : .clear, radius: 4)
-            Text(label)
+            Text(on ? label : (offText ?? label))
                 .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
+                .fixedSize()
+                .layoutPriority(1)
         }
     }
 }

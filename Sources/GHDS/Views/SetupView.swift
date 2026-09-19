@@ -130,8 +130,13 @@ struct SetupView: View {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = ["-a", appName]
-        try? p.run()
-        model.log("尝试启动 Dashboard：\(appName)")
+        do {
+            try p.run()
+            model.log("尝试启动 Dashboard：\(appName)")
+        } catch {
+            // 旧写法 try? 吞掉失败，日志仍写「尝试启动」，用户以为没装上的 Dashboard 其实根本没起
+            model.log("启动 Dashboard 失败：\(appName)（\(error.localizedDescription)）——请确认已安装该应用")
+        }
     }
 
     /// 启动同目录的 GHDSSim（.app 内为 Contents/MacOS/，swift run 下为同 Products 目录）
@@ -150,7 +155,12 @@ struct SetupView: View {
         let p = Process()
         p.executableURL = simURL
         p.arguments = ["--quiet"]
-        try? p.run()
+        do {
+            try p.run()
+        } catch {
+            model.log("模拟器启动失败：\(error.localizedDescription)（未改动手动 IP）")
+            return                       // 失败时不得再切手动 IP，否则界面显示「连不上机器人」
+        }
         simProcess = p
         model.manualIP = "127.0.0.1"
         model.log("模拟器已启动（127.0.0.1），手动 IP 已切换")

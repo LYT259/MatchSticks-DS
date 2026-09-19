@@ -46,18 +46,17 @@ struct MessagesView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(model.stdoutLines.enumerated()), id: \.offset) { i, line in
-                            Text(line)
+                        ForEach(model.stdoutLines) { line in
+                            Text(line.text)
                                 .font(.system(size: 11, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(i)
                         }
                     }
                     .padding(.horizontal, 10)
                 }
                 .onChange(of: model.stdoutLines.count) { _, new in
-                    guard autoScroll, !paused, new > 0 else { return }
-                    proxy.scrollTo(new - 1, anchor: .bottom)
+                    guard autoScroll, !paused, new > 0, let last = model.stdoutLines.last else { return }
+                    proxy.scrollTo(last.id, anchor: .bottom)   // 按稳定行身份滚，不按会漂移的下标
                 }
             }
             .background(.black.opacity(0.85))
@@ -72,7 +71,7 @@ struct MessagesView: View {
             if model.errorMessages.isEmpty {
                 Text("无错误消息").foregroundStyle(.secondary)
             }
-            ForEach(Array(model.errorMessages.enumerated()), id: \.offset) { _, e in
+            ForEach(model.errorMessages, id: \.rowID) { e in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
                         Image(systemName: e.flags & 0x01 != 0 ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
@@ -107,18 +106,17 @@ struct MessagesView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(model.dsEvents.enumerated()), id: \.offset) { i, line in
-                            Text(line)
+                        ForEach(model.dsEvents) { line in
+                            Text(line.text)
                                 .font(.system(size: 11, design: .monospaced))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(i)
                         }
                     }
                     .padding(.horizontal, 10)
                 }
                 .onChange(of: model.dsEvents.count) { _, new in
-                    guard autoScroll, new > 0 else { return }
-                    proxy.scrollTo(new - 1, anchor: .bottom)
+                    guard autoScroll, new > 0, let last = model.dsEvents.last else { return }
+                    proxy.scrollTo(last.id, anchor: .bottom)
                 }
             }
         }

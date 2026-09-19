@@ -109,7 +109,7 @@ final class DSModel {
 
     var versionEntries: [NICodec.VersionEntry] = []
     var errorMessages: [NICodec.ErrorMessage] = []
-    var stdoutLines: [String] = []
+    var stdoutLines: [LogLine] = []
     var disableFaults: (comms: UInt16, twelveV: UInt16) = (0, 0)
     var railFaults: (sixV: UInt16, fiveV: UInt16, threeV: UInt16) = (0, 0, 0)
 
@@ -149,7 +149,7 @@ final class DSModel {
 
     // MARK: 事件日志
 
-    var dsEvents: [String] = []
+    var dsEvents: [LogLine] = []
 
     // MARK: 抓包录制（Setup 页开关；报告 §6 决策 3）
 
@@ -474,9 +474,13 @@ final class DSModel {
         ))
         applyPracticeEvents(sequencer.start())
         practiceTimer?.invalidate()
-        practiceTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        // 与 installTimers 一致用 .common 模式：scheduledTimer 默认 .default 模式，
+        // 拖窗口/跟踪菜单期间不触发——比赛时序会在这些时刻停摆
+        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.practiceTick() }
         }
+        RunLoop.main.add(t, forMode: .common)
+        practiceTimer = t
     }
 
     func aStop() {
@@ -604,11 +608,12 @@ final class DSModel {
                 versionEntries = v
                 log("收到版本信息（\(v.count) 项）")
             }
-        case .error(let m):
+        case .error(var m):
+            m.rowID = nextRowID()          // 协议 seq 会回绕，行身份由 DS 侧分配
             errorMessages.insert(m, at: 0)
             if errorMessages.count > 500 { errorMessages.removeLast() }
         case .stdout(let m):
-            stdoutLines.append(m.message)
+            stdoutLines.append(LogLine(id: nextRowID(), text: m.message))
             if stdoutLines.count > 2000 { stdoutLines.removeFirst(1000) }
         case .disableFaults(let comms, let twelve):
             disableFaults = (comms, twelve)
@@ -762,9 +767,17 @@ final class DSModel {
     func log(_ line: String) {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
-        dsEvents.append("[\(formatter.string(from: Date()))] \(line)")
+        dsEvents.append(LogLine(id: nextRowID(), text: "[\(formatter.string(from: Date()))] \(line)"))
         if dsEvents.count > 1000 { dsEvents.removeFirst(500) }
     }
+
+    /// 列表行身份发号器：滑窗截断（removeFirst）会让 `id: \.offset` 的全部行身份
+    /// 整体漂移，SwiftUI diff 与 proxy.scrollTo 都会错位
+    private func nextRowID() -> Int {
+        rowIDCounter += 1
+        return rowIDCounter
+    }
+    private var rowIDCounter = 0
 }
 
 // MARK: - 手柄槽位模型
@@ -877,6 +890,12 @@ final class RecorderBox: @unchecked Sendable {
         recorder = nil
         currentFileName = nil
     }
+}
+
+/// 带稳定身份的单行日志（Console / DS 事件列表用）
+struct LogLine: Identifiable, Equatable, Sendable {
+    let id: Int
+    let text: String
 }
 
 struct CPUPoint: Sendable {
