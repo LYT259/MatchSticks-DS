@@ -4,7 +4,7 @@
 
 > ⚠️ **Practice Only**：所有第三方 DS 均不得用于正式比赛（规则 R710/R901）。本项目定位为练习、调试与台架测试工具。
 >
-> 📦 当前状态：**Phase 1 + Phase 2 完成，Phase 3 协议层完成**（NI 全功能 + MRC V2 + NT4 server，模拟器与 `robot_sim.py` 异构联调通过；发布线 v0.1.0-alpha.4）。真机（roboRIO / SystemCore）联调待实体硬件。完整论证见 [可行性研究报告](可行性研究报告.md)。
+> 📦 当前状态：**Phase 1 + Phase 2 完成，Phase 3 协议层完成**（NI 全功能 + MRC V2 + NT4 server，模拟器与 `robot_sim.py` 异构联调通过；发布线以 GitHub Releases 为准，当前 v0.1.0-alpha.5）。真机（roboRIO / SystemCore）联调待实体硬件。完整论证见 [可行性研究报告](可行性研究报告.md)。
 
 ## 功能（当前版本）
 
@@ -19,6 +19,7 @@
 - **SystemCore（MRC V2 · 实验性）**：Setup 页切换机器人类型；UDP V2 控制环（CRC32C 应答校验）+ NT4 server（6767，OpMode 选择经 ControlData.CurrentOpMode 下发）+ TCP 0x13 OpMode 列表
 - **会话日志**：连接期间 1Hz 自动记录 `.dslog`（NI DS 格式）与 `.wpilog`（WPILib DataLog 2027 VarInt 格式）双文件，AdvantageScope 可直接打开复盘
 - **本机状态**：DS 电脑电池/交流供电、系统 CPU、进程内存、本机网络指示（WiFi/有线）
+- **控制环稳定性**：统计窗口的收/发计数在浮点域求差并夹取（rx > tx 在真机可达——sendto 失败而先前应答在途、或机器人重复应答），避免旧实现的 UInt64 下溢把进程在控制环线程上打崩（2026-09-19 崩溃报告修复，回归测试 statsUnderflowScenario）；应用另声明 latency-critical 活动以抑制 App Nap 节流
 - **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能，`SafetyGate` 纯逻辑单测覆盖）
 - **快捷键**：`Space` = E-Stop · `Enter` = Disable · `[ + ] + \` = Enable · `Esc + I` = E-Stop 复位 · `F1` = 重扫手柄（应用前台；全局后台键属 Phase 4 + Input Monitoring 权限）
 
