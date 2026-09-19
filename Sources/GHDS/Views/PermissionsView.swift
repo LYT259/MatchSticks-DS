@@ -5,15 +5,15 @@ import CoreGraphics
 
 struct PermissionsView: View {
     @State private var inputMonitoringOK = false
-    @State private var checked = false
 
     var body: some View {
         Form {
-            Section("Input Monitoring（全局快捷键）") {
+            Section("Input Monitoring（全局快捷键 · Phase 4）") {
                 HStack {
                     statusBadge(ok: inputMonitoringOK)
-                    Text(inputMonitoringOK ? "已授权：全局 E-Stop/快捷键可后台生效"
-                                           : "未授权：快捷键仅应用前台生效")
+                    Text(inputMonitoringOK
+                         ? "已授权（本版本尚无后台按键功能，授权暂不被使用）"
+                         : "未授权——当前版本不需要它：快捷键只在应用前台生效（属预期）")
                         .font(.callout)
                     Spacer()
                     Button("重新检测") { checkInputMonitoring(prompt: false) }
@@ -21,7 +21,9 @@ struct PermissionsView: View {
                         Button("请求授权") { checkInputMonitoring(prompt: true) }
                     }
                 }
-                guide("macOS 12+：系统设置 → 隐私与安全性 → 输入监控 → 勾选 GH Driver Station。授权后需重启应用。")
+                guide("现状：Space/Enter/[ + ] + \\/Esc+I/F1/Backspace 由应用内键盘监听实现，切到后台即不再生效。"
+                    + "后台全局 E-Stop 需 CGEventTap（Phase 4 实现），届时才需要「输入监控」权限；"
+                    + "macOS 12+ 路径：系统设置 → 隐私与安全性 → 输入监控 → 勾选 GH Driver Station，授权后需重启应用。")
             }
 
             Section("本地网络（连接机器人）") {
@@ -62,8 +64,6 @@ struct PermissionsView: View {
     }
 
     private func checkInputMonitoring(prompt: Bool) {
-        let ok = prompt ? CGRequestListenEventAccess() : CGPreflightListenEventAccess()
-        inputMonitoringOK = ok
-        checked = true
+        inputMonitoringOK = prompt ? CGRequestListenEventAccess() : CGPreflightListenEventAccess()
     }
 }

@@ -66,6 +66,7 @@ final class DSModel {
         }
     }
     private var started = false
+    private var startInvoked = false   // start() 幂等：多窗口/状态恢复会让 .task 再跑一次
     private(set) var watchdogNotFed = false
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
@@ -206,6 +207,10 @@ final class DSModel {
     }
 
     func start() {
+        // 幂等：installTimers 往 main runloop 加 4 个定时器且从不清理，
+        // 重复执行（多窗口 / 状态恢复再跑一次 .task）会叠加定时器与心跳源
+        guard !startInvoked else { return }
+        startInvoked = true
         loadPersistedSettings()
         installTimers()
         networkMonitor.start()

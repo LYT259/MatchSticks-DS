@@ -55,7 +55,7 @@ GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer  # 按本机 Xcode 路径调整
 swift build
-swift run DSCoreTests   # 回归测试：38 组 / 257 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放/POV 归一化单测 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/NT4 握手 场景级集成测试）
+swift run DSCoreTests   # 回归测试：39 组 / 272 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/NT4 握手 场景级集成测试）
 swift run GHDS          # 运行驾驶台
 ```
 

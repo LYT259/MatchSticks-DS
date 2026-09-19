@@ -555,6 +555,51 @@ import DSCore
 // 场景覆盖（红线 3 的验证证据链）：E-Stop 锁存与复位 / roboRIO 重启断联与恢复 /
 // UI 冻结看门狗冻结使能 / brownout 解码 / 30s 长跑稳定性。
 
+/// bind 并断言成功。**此前所有 bind 返回值都被丢弃**，症状是「应答数为 0」的
+/// 误导性失败——真凶往往是残留的 GHDS/GHDSSim 进程占着 1110/1150（2026-09-16
+/// 通宵段就因残留实例误判过一次负向测试）。失败时给出可执行的排查提示。
+@discardableResult
+func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: Bool = false, what: String) -> Bool {
+    guard sock >= 0 else { check(false, "\(what)：套接字创建失败"); return false }
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    addr.sin_addr = in_addr(s_addr: inet_addr(host))
+    let rc = withUnsafePointer(to: &addr) { ptr in
+        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+            bind(sock, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    if rc != 0 {
+        guard soft else {
+            let held = portInUse(port)
+            check(false, "\(what)：bind \(host):\(port) 失败（errno \(errno)）"
+                + (held ? " —— 端口被占用，先 `pgrep -lf GHDS` 清残留进程"
+                        : "（端口探测空闲，可能是权限问题）"))
+            return false
+        }
+        return false    // soft：调用方自行降级，不计失败
+    }
+    return true
+}
+
+/// 端口是否已被别的进程占用（用一次性 bind 探测，EADDRINUSE = 占用）
+func portInUse(_ port: UInt16) -> Bool {
+    let s = socket(AF_INET, SOCK_DGRAM, 0)
+    guard s >= 0 else { return false }
+    defer { close(s) }
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+    let rc = withUnsafePointer(to: &addr) { ptr in
+        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+            bind(s, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    return rc != 0
+}
+
 final class MRCResponder {
     var rxSock: Int32 = -1
     var txSock: Int32 = -1
@@ -568,18 +613,10 @@ final class MRCResponder {
     func start() {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = NICodec.udpControlPort.bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        _ = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(rxSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        var txAddr = addr
-        txAddr.sin_port = NICodec.udpResponsePort.bigEndian
-        _ = withUnsafePointer(to: &txAddr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(txSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
+        guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "MRC 应答器 控制口") else { return }
+        // 应答口 1150 只是真机形态；被占时不绑（内核给临时源端口）——DS 按源端口收包，语义不变
+        _ = bindChecked(txSock, port: NICodec.udpResponsePort, soft: true,
+                        what: "MRC 应答器 应答口（未绑上则退回临时源端口，不影响本场景）")
         Thread.detachNewThread { [weak self] in self?.loop() }
     }
 
@@ -628,7 +665,7 @@ final class MRCResponder {
     }
 }
 
-// MARK: ScenarioServer：可编程 roboRIO 应答器（每个场景独立实例，端口 1110/1150）
+// MARK: ScenarioServer：可编程 roboRIO 应答器（默认 1110/1150；可换隔离端口，避免与残留进程/实机互踩）
 
 final class ScenarioServer {
     let lock = NSLock()
@@ -648,25 +685,26 @@ final class ScenarioServer {
     private var rxSock: Int32 = -1
     private var txSock: Int32 = -1
     private var stopFlag = false
+    let controlPort: UInt16
+    let responsePort: UInt16
 
-    func start() {
+    init(controlPort: UInt16 = NICodec.udpControlPort,
+         responsePort: UInt16 = NICodec.udpResponsePort) {
+        self.controlPort = controlPort
+        self.responsePort = responsePort
+    }
+
+    @discardableResult
+    func start() -> Bool {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
         var reuse: Int32 = 1
         setsockopt(rxSock, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
-        var rxAddr = sockaddr_in()
-        rxAddr.sin_family = sa_family_t(AF_INET)
-        rxAddr.sin_port = NICodec.udpControlPort.bigEndian
-        rxAddr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        _ = withUnsafePointer(to: &rxAddr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(rxSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        var txAddr = rxAddr
-        txAddr.sin_port = NICodec.udpResponsePort.bigEndian
-        _ = withUnsafePointer(to: &txAddr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(txSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
+        guard bindChecked(rxSock, port: controlPort, what: "场景应答器 控制口") else { return false }
+        // 应答口绑不上时用内核临时源端口：DS 只按源地址/源端口收应答，语义不变
+        _ = bindChecked(txSock, port: responsePort, soft: true, what: "场景应答器 应答口")
         Thread.detachNewThread { [weak self] in self?.loop() }
+        return true
     }
 
     private func loop() {
@@ -749,6 +787,13 @@ final class ClientSink: @unchecked Sendable {
     var estopClearedAfterLatch = false
     var estopStatusHistory: [Bool] = []
     var batteryOK = false
+    // TCP 1740 正向链路（2026-09-18 前从未被自动化覆盖）
+    var versions: [NICodec.VersionEntry] = []
+    var tcpStdout: [String] = []
+    var tcpErrors: [NICodec.ErrorMessage] = []
+    var disableFaults: (comms: UInt16, twelveV: UInt16)?
+    var railFaults: (sixV: UInt16, fiveV: UInt16, threeV: UInt16)?
+    var tcpEventsSeen = 0
 
     func observe(_ event: DSClient.Event) {
         lock.lock(); defer { lock.unlock() }
@@ -758,6 +803,16 @@ final class ClientSink: @unchecked Sendable {
         case .autoDisabled: autoDisabled += 1
         case .watchdogTripped: watchdogTripped += 1
         case .watchdogRecovered: watchdogRecovered += 1
+        case .tcpEvent(let e):
+            tcpEventsSeen += 1
+            switch e {
+            case .versions(let list): versions.append(contentsOf: list)
+            case .error(let m): tcpErrors.append(m)
+            case .stdout(let m): tcpStdout.append(m.message)
+            case .disableFaults(let c, let t): disableFaults = (c, t)
+            case .railFaults(let s, let f, let th): railFaults = (s, f, th)
+            case .unknown: break
+            }
         case .response(let p):
             responses += 1
             if p.batteryVoltage > 3.0 { batteryOK = true }
@@ -776,6 +831,7 @@ func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
                        actions: [(at: Double, run: (DSClient) -> Void)] = [],
                        duration: Double,
                        onClient: ((DSClient) -> Void)? = nil,
+                       descriptors: [NICodec.JoystickDescriptor] = [],
                        protocolKind: DSClient.ProtocolKind = .ni) -> ClientSink {
     let sink = ClientSink()
     let boot = Date()
@@ -788,6 +844,7 @@ func runScenarioClient(heartbeatStale: @escaping (Double) -> Bool,
         let i = intent(Date().timeIntervalSince(boot))
         snap.control.enabled = i.enabled
         snap.control.estop = i.estop
+        snap.joystickDescriptors = descriptors
         return snap
     }
     client.updateConfig {
@@ -1073,6 +1130,140 @@ func mrcClientScenario() {
     check(server.sawEnabled, "MRC 正向：使能指令到达")
 }
 
+// MARK: TCP 1740 正向端到端（robot → DS 慢速帧全部解码 + DS → robot keepalive/描述符）
+//
+// 此前自动化只测过「无监听者」的退避分支（tcpBackoffScenario），TCP 读写链路
+// ——版本 0x0A / stdout 0x0C / 错误 0x0B / 故障 0x04·0x05 / 描述符 0x02——从未跑过。
+// 本场景用隔离端口（UDP 12110、TCP 12740）跑，不与实机/模拟器/残留进程抢 1110/1740。
+
+final class PositiveTCPServer {
+    let lock = NSLock()
+    private var listenSock: Int32 = -1
+    private var stopped = false
+    private(set) var dsFrameIDs: [UInt8] = []      // DS → 服务器 的帧 id（0 = keepalive）
+    private(set) var accepted = false
+
+    @discardableResult
+    func start(port: UInt16) -> Bool {
+        listenSock = socket(AF_INET, SOCK_STREAM, 0)
+        guard listenSock >= 0 else { check(false, "TCP 正向场景：socket 创建失败"); return false }
+        var reuse: Int32 = 1
+        setsockopt(listenSock, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        guard bindChecked(listenSock, port: port, what: "TCP 正向场景 监听口") else { return false }
+        guard listen(listenSock, 4) == 0 else { check(false, "TCP 正向场景：listen 失败"); return false }
+        Thread.detachNewThread { [weak self] in self?.run() }
+        return true
+    }
+
+    private func run() {
+        let fd = accept(listenSock, nil, nil)
+        guard fd >= 0 else { return }
+        lock.lock(); accepted = true; lock.unlock()
+        var tv = timeval(tv_sec: 0, tv_usec: 150_000)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        for frame in Self.robotFrames() {
+            frame.withUnsafeBytes { raw in _ = send(fd, raw.baseAddress, raw.count, 0) }
+        }
+        var buf = [UInt8](repeating: 0, count: 4096)
+        var pending = Data()
+        while !stopped {
+            let n = recv(fd, &buf, buf.count, 0)
+            if n > 0 {
+                pending.append(Data(buf[0 ..< n]))
+                let (frames, remainder) = NICodec.extractTCPFrames(from: pending)
+                pending = remainder
+                lock.lock(); dsFrameIDs.append(contentsOf: frames.map(\.id)); lock.unlock()
+            } else if n == 0 {
+                break
+            } else if errno != EAGAIN && errno != EWOULDBLOCK {
+                break
+            }
+        }
+        close(fd)
+    }
+
+    var keepAliveCount: Int { lock.lock(); defer { lock.unlock() }; return dsFrameIDs.filter { $0 == 0 }.count }
+    var sawDescriptor: Bool { lock.lock(); defer { lock.unlock() }; return dsFrameIDs.contains(0x02) }
+
+    func stop() {
+        stopped = true
+        if listenSock >= 0 { close(listenSock) }
+    }
+
+    /// robot → DS 慢速帧（布局依 docs/protocol/ds-protocol-2026.md 已核查条目）
+    static func robotFrames() -> [Data] {
+        var out: [Data] = []
+        var ver = ByteWriter()
+        for (type, name, v) in [(UInt8(0), "RoboRIO", "25.0.0"),
+                                (UInt8(2), "CAN Talon FX", "26.1.0"),
+                                (UInt8(8), "PDP", "1.40")] {
+            ver.u8(type); ver.u16be(0); ver.u8(0); ver.string8(name); ver.string8(v)
+        }
+        ver.bytes([0, 0, 0, 0, 0, 0])                       // 6 零终止符
+        out.append(NICodec.tcpFrame(id: 0x0A, payload: ver.data))
+
+        for (i, line) in ["Robot initialized", "teleop periodic"].enumerated() {
+            var w = ByteWriter(); w.f32be(Float(i)); w.u16be(UInt16(i)); w.bytes(Array(line.utf8))
+            out.append(NICodec.tcpFrame(id: 0x0C, payload: w.data))
+        }
+
+        var err = ByteWriter()
+        err.f32be(1.5); err.u16be(7); err.u16be(0)
+        err.u32be(UInt32(bitPattern: Int32(-1044))); err.u8(0x03)
+        err.string16("No CAN Trellis connected"); err.string16("CAN"); err.string16("at robotInit")
+        out.append(NICodec.tcpFrame(id: 0x0B, payload: err.data))
+
+        var faults = ByteWriter(); faults.u16be(3); faults.u16be(1)
+        out.append(NICodec.tcpFrame(id: 0x04, payload: faults.data))
+        var rails = ByteWriter(); rails.u16be(2); rails.u16be(4); rails.u16be(6)
+        out.append(NICodec.tcpFrame(id: 0x05, payload: rails.data))
+        return out
+    }
+}
+
+func tcpPositiveScenario() {
+    let udp = ScenarioServer(controlPort: 12110, responsePort: 12150)
+    guard udp.start() else { return }
+    defer { udp.stop() }
+    let tcp = PositiveTCPServer()
+    guard tcp.start(port: 12740) else { return }
+    defer { tcp.stop() }
+
+    var descriptor = NICodec.JoystickDescriptor()
+    descriptor.index = 0; descriptor.type = 20; descriptor.name = "Test Pad"
+    descriptor.axisTypes = [0, 1]; descriptor.buttonCount = 3; descriptor.povCount = 1
+
+    let sink = runScenarioClient(
+        heartbeatStale: { _ in false },
+        intent: { _ in (enabled: false, estop: false) },
+        duration: 3.0,
+        onClient: { c in c.updateConfig { $0.controlPort = 12110; $0.tcpPort = 12740 } },
+        descriptors: [descriptor]
+    )
+
+    sink.lock.lock()
+    check(sink.connectedCount >= 1, "TCP 正向场景：UDP 先建链（TCP 仅在已连接后发起）")
+    check(sink.responses >= 20, "UDP 控制环在隔离端口正常收发（\(sink.responses) 应答）")
+    check(sink.versions.count == 3, "TCP 0x0A：版本条目 3 项（\(sink.versions.count)）")
+    check(sink.versions.first?.name == "RoboRIO" && sink.versions.first?.version == "25.0.0",
+          "版本首条 = RoboRIO 25.0.0（type/u16/id/串串布局）")
+    check(sink.versions.contains { $0.deviceType == 2 && $0.name == "CAN Talon FX" }, "版本按 deviceType 分类")
+    check(sink.tcpStdout == ["Robot initialized", "teleop periodic"], "TCP 0x0C stdout 两条且有序（\(sink.tcpStdout)）")
+    check(sink.tcpErrors.first?.errorCode == -1044, "TCP 0x0B 错误码按有符号解码")
+    check(sink.tcpErrors.first?.details == "No CAN Trellis connected"
+        && sink.tcpErrors.first?.location == "CAN"
+        && sink.tcpErrors.first?.callStack == "at robotInit", "错误的详情/位置/调用栈三段 u16 前缀串")
+    check(sink.tcpErrors.first?.flags == 0x03, "错误 flags（bit0 错误 / bit1 LV 码）")
+    check(sink.disableFaults?.comms == 3 && sink.disableFaults?.twelveV == 1, "TCP 0x04 通信/12V 故障计数")
+    check(sink.railFaults?.sixV == 2 && sink.railFaults?.fiveV == 4 && sink.railFaults?.threeV == 6, "TCP 0x05 电源轨故障计数")
+    check(sink.tcpEventsSeen >= 6, "TCP 事件分类计数 ≥6（\(sink.tcpEventsSeen)）")
+    sink.lock.unlock()
+
+    check(tcp.accepted, "服务器 accept 到 DS 的 TCP 连接")
+    check(tcp.keepAliveCount >= 4, "DS 按 250ms 发 keepalive（3s 内 \(tcp.keepAliveCount) 帧）")
+    check(tcp.sawDescriptor, "DS 发出手柄描述符 0x02")
+}
+
 func runAllPhase2Tests() {
     runTest("safetyGateTests", safetyGateTests)
     runTest("povHatTests", povHatTests)
@@ -1088,6 +1279,7 @@ func runAllPhase2Tests() {
     runTest("settingsStoreTests", settingsStoreTests)
     runTest("radioProbeTests", radioProbeTests)
     runTest("tcpBackoffScenario", tcpBackoffScenario)
+    runTest("tcpPositiveScenario", tcpPositiveScenario)
     runTest("wpilogTests", wpilogTests)
     runTest("crc32cTests", crc32cTests)
     runTest("mrcGoldenPacketTests", mrcGoldenPacketTests)
