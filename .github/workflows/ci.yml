@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [beta, main, "feat/**", "fix/**", "docs/**"]
+    branches: [stable, beta, main, "feat/**", "fix/**", "docs/**"]
   pull_request:
 
 jobs:
