@@ -22,12 +22,45 @@ final class HeartbeatBox: @unchecked Sendable {
     private var lastBeat = Date()
 
     func beat() {
-        lock.lock(); lastBeat = Date(); lock.unlock()
+        lock.lock()
+        // 主线程停滞探针（GHDS_LOG_STDERR=1 时启用）：心跳本应 10ms 一跳，
+        // 间隔超过 100ms 说明主 runloop 被阻塞过——打印实际停滞毫秒数。
+        let gap = Date().timeIntervalSince(lastBeat)
+        if Diag.enabled, gap > 0.1 {
+            Diag.write("UI stall \(Int(gap * 1000))ms")
+        }
+        lastBeat = Date()
+        lock.unlock()
     }
 
     func ageSeconds() -> Double {
         lock.lock(); defer { lock.unlock() }
         return Date().timeIntervalSince(lastBeat)
+    }
+}
+
+// MARK: 诊断输出（非隔离：log() 在 MainActor、心跳探针在主 runloop，均为主线程调用）
+enum Diag {
+    /// 事件日志镜像到 stderr（性能测量 / E2E 验证用；默认关闭，行为零差异）
+    static let toStderr = ProcessInfo.processInfo.environment["GHDS_LOG_STDERR"] == "1"
+    /// 写入指定文件（open 启动的 GUI 无 stderr 可读时用）
+    static let filePath = ProcessInfo.processInfo.environment["GHDS_LOG_FILE"]
+    static var enabled: Bool { toStderr || filePath != nil }
+
+    static func write(_ line: String) {
+        if toStderr {
+            FileHandle.standardError.write(Data((line + "\n").utf8))
+        }
+        if let path = filePath {
+            if !FileManager.default.fileExists(atPath: path) {
+                FileManager.default.createFile(atPath: path, contents: nil)
+            }
+            if let h = FileHandle(forWritingAtPath: path) {
+                h.seekToEndOfFile()
+                h.write(Data((line + "\n").utf8))
+                try? h.close()
+            }
+        }
     }
 }
 
@@ -37,6 +70,13 @@ final class HeartbeatBox: @unchecked Sendable {
 @Observable
 final class DSModel {
     static let isAutoSim = ProcessInfo.processInfo.environment["GHDS_AUTO_SIM"] == "1"
+    /// log() 时间戳 formatter：创建一次复用（每次新建 DateFormatter 约 1ms，
+    /// 消息高峰期会放大主线程负担）
+    private static let logTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
 
     // MARK: 连接与配置
 
@@ -77,6 +117,13 @@ final class DSModel {
     private var wpilogWriter: WPILogWriter?
     var commState: DSClient.CommState = .idle
     var watchdogHealthy = true
+
+    /// 遥测显示合并（性能修复 2026-09-27）：应答包 50Hz 到达，逐包写 @Observable 属性
+    /// 会让状态栏/安全栏/驾驶页每 20ms 失效重建一次。这里只暂存最新载荷，至少间隔
+    /// 100ms 才发布到可观察属性（显示 10Hz 足够）。控制路径不受影响：控制环读的是
+    /// snapshotBox（仅操作员意图），看门狗喂狗核算与电池历史采样仍逐应答执行。
+    private var pendingResponse: NICodec.ResponsePacket?
+    private var lastTelemetryPublishAt: TimeInterval = 0
 
     // MARK: 控制状态（操作员意图）
 
@@ -233,6 +280,11 @@ final class DSModel {
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
         syncClientConfig()
         client.heartbeatAge = { [heartbeatBox] in heartbeatBox.ageSeconds() }
+        // 冷启动伪触发修复：HeartbeatBox 的 lastBeat 在模型创建时初始化，而 beat 定时器
+        // 要到 runloop 下一轮才首跳——控制环在 client.start() 后 20ms 内读到的心跳年龄
+        // 实为「应用启动耗时」（实测 0.3–1s），必然 >200ms 误判冻结并强清使能。
+        // 这里在控制环启动前同步喂一次，把年龄归零；定时器随即接管（真冻结仍会触发）。
+        heartbeatBox.beat()
         client.recordSink = { [recorderBox] dir, data in recorderBox.record(dir, data) }
         client.eventHandler = { [weak self] event in
             guard let self else { return }
@@ -393,6 +445,10 @@ final class DSModel {
         ))
     }
 
+    /// 最近一次发布到控制环快照的 estop 位（UI 状态回归用：
+    /// 验证急停触发/复位后快照同步刷新，不再依赖 50Hz 定时器时序）
+    var latestPublishedSnapshotEstop: Bool { snapshotBox.get().control.estop }
+
     // MARK: 操作员指令（安全门全部集中在这里）
 
     func setEnabled(_ on: Bool) {
@@ -423,6 +479,8 @@ final class DSModel {
         estopEngaged = true
         enabled = false
         enabledSince = nil
+        // 同步刷新控制快照：否则快照盒里还是 ≤20ms 前的 estop=0，急停位上线被拖延
+        pollAndPublishSnapshot()
         log("E-STOP 触发（Space）")
     }
 
@@ -430,6 +488,11 @@ final class DSModel {
     func resetEstop() {
         guard estopEngaged else { return }
         estopEngaged = false
+        // 竞态修复（2026-09-27 E2E 发现）：请求脉冲持续 ~120ms，期间若快照盒仍是旧值
+        // （estop=1），发出的包会同时带 restartCode 请求与 estop 位——模拟器/机器人
+        // 先清锁存又被同包 estop 位重新锁上，复位永久失效。控制环与脉冲都排在本
+        // MainActor 回合之后，此处同步刷新保证脉冲窗口内的每个包都已是 estop=0。
+        pollAndPublishSnapshot()
         client.sendRequestPulse(RequestWord(rebootRoboRIO: false, restartCode: true))
         log("E-Stop 复位请求已发送（重启 robot code）")
     }
@@ -545,17 +608,7 @@ final class DSModel {
         case .commState(let s):
             commState = s
         case .response(let p):
-            robotStatus = p.status
-            robotTrace = p.trace
-            batteryVolts = p.batteryVoltage
-            appendBattery(p.batteryVoltage)
-            cpuCores = p.cpu.cores
-            ramUsed = p.ramUsedBytes
-            ramTotal = p.ramTotalBytes
-            diskFree = p.diskFreeBytes
-            can = p.can
-            if !p.joystickOutputs.isEmpty { joystickOutputs = p.joystickOutputs }
-            // MRC：WatchdogFed 连续缺失 ≥5 → 「Watchdog Not Fed」告警（First DS 语义）
+            // 逐应答执行（不随显示节流）：喂狗核算 + 电池历史采样（5Hz 内部节流）
             if p.watchdogFed {
                 watchdogMissCount = 0
                 if watchdogNotFed { watchdogNotFed = false; log("Watchdog 恢复喂狗") }
@@ -566,6 +619,9 @@ final class DSModel {
                     log("⚠️ Watchdog Not Fed（连续 5 应答未喂狗）")
                 }
             }
+            appendBattery(p.batteryVoltage)
+            pendingResponse = p
+            publishTelemetryIfDue()
         case .tcpEvent(let e):
             handleTCP(e)
         case .opModes(let list):
@@ -599,6 +655,24 @@ final class DSModel {
         case .log(let line):
             log(line)
         }
+    }
+
+    /// 发布暂存的遥测到可观察属性（≥100ms 一次；见 pendingResponse 注释）
+    private func publishTelemetryIfDue() {
+        guard let p = pendingResponse else { return }
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - lastTelemetryPublishAt >= 0.1 else { return }
+        pendingResponse = nil
+        lastTelemetryPublishAt = now
+        robotStatus = p.status
+        robotTrace = p.trace
+        batteryVolts = p.batteryVoltage
+        cpuCores = p.cpu.cores
+        ramUsed = p.ramUsedBytes
+        ramTotal = p.ramTotalBytes
+        diskFree = p.diskFreeBytes
+        can = p.can
+        if !p.joystickOutputs.isEmpty { joystickOutputs = p.joystickOutputs }
     }
 
     private func handleTCP(_ e: NICodec.TCPEvent) {
@@ -765,9 +839,11 @@ final class DSModel {
     }
 
     func log(_ line: String) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        dsEvents.append(LogLine(id: nextRowID(), text: "[\(formatter.string(from: Date()))] \(line)"))
+        let text = "[\(Self.logTimeFormatter.string(from: Date()))] \(line)"
+        if Diag.enabled {
+            Diag.write(text)
+        }
+        dsEvents.append(LogLine(id: nextRowID(), text: text))
         if dsEvents.count > 1000 { dsEvents.removeFirst(500) }
     }
 

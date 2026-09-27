@@ -93,16 +93,20 @@ final class SimRobot: @unchecked Sendable {
                 simLog("⚡  roboRIO reboot requested (outage 3s, then code restart)")
             }
         }
-        if p.request.restartCode {
-            if codeRestartStart == 0 {
-                codeRestartStart = t
-                estopLatched = false   // FDS 语义：重启代码即解除 E-Stop 锁存
-                simLog("⟳  robot code restart requested (estop cleared, code starting)")
-            }
-        }
+        // 先采样 estop 位、后处理 restartCode 请求：同一包可能两者兼有（DS 侧复位
+        // 脉冲发出瞬间，快照里的 estop 位尚未清零——2026-09-27 E2E 复位竞态）。
+        // 顺序若相反，「清除锁存」会被同包的 estop 位立即重新锁上，且
+        // codeRestartStart != 0 使后续请求脉冲被忽略——复位永久失效。
         if p.control.estop, !estopLatched {
             estopLatched = true
             simLog("🛑 E-STOP latched (cleared by code restart, per First DS semantics)")
+        }
+        if p.request.restartCode {
+            if codeRestartStart == 0 {
+                codeRestartStart = t
+                estopLatched = false   // FDS 语义：重启代码即解除 E-Stop 锁存（请求优先于同包 estop 位）
+                simLog("⟳  robot code restart requested (estop cleared, code starting)")
+            }
         }
         // 静默窗口内不应答，但时间线必须在这里推进：只有 response() 会清 rebootStart，
         // 而重启期间 response() 永不被调用 → 一旦请求重启 roboRIO，模拟器将永久不应答
