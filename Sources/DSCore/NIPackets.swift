@@ -538,6 +538,9 @@ public enum NICodec {
         public var details = ""
         public var location = ""
         public var callStack = ""
+        /// 列表行身份（DS 侧插入时赋值）：协议 seq 会回绕、时间戳可重复，
+        /// 不足以做 ForEach 的稳定 id——用偏移量作 id 时滑窗截断会让全部行身份漂移
+        public var rowID = 0
         public init() {}
     }
 

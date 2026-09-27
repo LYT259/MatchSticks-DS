@@ -1,81 +1,50 @@
 import SwiftUI
 import DSCore
 
-// MARK: - 迷你视图（Phase 4：FDS Mini view / NI DS Docked 模式对应）
-// 常驻角落的紧凑控制面：状态 / 电池 / 三大按键。与主窗口共享同一 DSModel。
-
+// Same status source and safety-gated actions as the main window.
 struct MiniView: View {
     let model: DSModel
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("TEAM").font(.system(size: 9)).foregroundStyle(.secondary)
-                    Text(model.teamNumber > 0 ? "\(model.teamNumber)" : "—")
-                        .font(.system(.headline, design: .rounded).monospacedDigit())
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "GH Driver Station")
+                        .font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                    Text(model.connectionDetail).font(.caption).foregroundStyle(.secondary)
                 }
-                LED(label: "Comm", on: model.commConnected, onColor: .green, symbol: "antenna.radiowaves.left.and.right")
-                LED(label: "Code", on: model.robotTrace.hasRobotCode, onColor: .green, symbol: "curlybraces")
-                LED(label: "Joy", on: !model.joystickSlots.isEmpty, onColor: .green, symbol: "gamecontroller")
                 Spacer()
-                VStack(alignment: .trailing, spacing: 0) {
-                    Text(model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "--.- V")
-                        .font(.system(.headline, design: .rounded).monospacedDigit())
-                        .foregroundStyle(model.robotStatus.brownout ? Color.red : Color.primary)
-                    Text(model.mode.displayName)
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
-                }
+                Text(model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "— V")
+                    .font(.system(size: 20, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(model.commConnected && model.robotStatus.brownout ? Color.red : Color.primary)
             }
-
-            statusPill
-
+            DSBadge(text: model.uiStatus, color: model.uiStatusColor,
+                    symbol: model.estopEngaged || model.robotStatus.estop ? "exclamationmark.octagon.fill" : "circle.inset.filled")
             HStack(spacing: 8) {
-                Button {
-                    model.setEnabled(true)
-                } label: {
-                    Text("ENABLE").font(.caption.bold())
-                        .frame(maxWidth: .infinity, minHeight: 30)
+                Button { model.setEnabled(true) } label: {
+                    Label("使能", systemImage: "play.fill").frame(maxWidth: .infinity, minHeight: 22)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-                .disabled(!model.canEnable)
-
-                Button {
-                    model.setEnabled(false)
-                } label: {
-                    Text("DISABLE").font(.caption.bold())
-                        .frame(maxWidth: .infinity, minHeight: 30)
+                .buttonStyle(DSActionStyle(color: .green, prominent: true))
+                .disabled(!model.canEnable || model.remoteEstopReported)
+                Button { model.setEnabled(false) } label: {
+                    Label("失能", systemImage: "stop.fill").frame(maxWidth: .infinity, minHeight: 22)
                 }
-                .buttonStyle(.bordered)
-                .keyboardShortcut(.return, modifiers: [])
-
-                Button {
-                    model.triggerEstop()
-                } label: {
-                    Image(systemName: "exclamationmark.octagon.fill")
-                        .frame(minWidth: 44, minHeight: 30)
+                .buttonStyle(DSActionStyle(color: .primary))
+                Button { model.triggerEstop() } label: {
+                    Label("急停", systemImage: "exclamationmark.octagon.fill").frame(maxWidth: .infinity, minHeight: 22)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .buttonStyle(DSActionStyle(color: .red, prominent: true))
+                .disabled(model.estopEngaged)
+            }
+            Text(model.enableExplanation).font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.estopEngaged {
+                Button("复位急停（请求重启程序）") { model.resetEstop() }
+                    .buttonStyle(DSActionStyle(color: .primary))
             }
         }
-        .padding(12)
-        .background(.regularMaterial)
-    }
-
-    private var statusPill: some View {
-        HStack {
-            Circle()
-                .fill(model.enabled ? Color.green : Color.gray.opacity(0.4))
-                .frame(width: 7, height: 7)
-            Text(model.robotStatus.estop ? "E-STOP" : (model.enabled ? "\(model.mode.displayName) ENABLED" : "Disabled"))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(model.enabled ? Color.green : Color.secondary)
-            Spacer()
-            if !model.watchdogHealthy {
-                Text("看门狗冻结").font(.caption2).foregroundStyle(.orange)
-            }
-        }
+        .padding(20).padding(.top, 16)
+        .frame(width: 420)
+        .background(DSTheme.surface)
     }
 }

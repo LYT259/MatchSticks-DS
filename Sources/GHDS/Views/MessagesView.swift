@@ -1,126 +1,197 @@
 import SwiftUI
 import DSCore
 
-// MARK: - Messages 页（robot stdout / 错误消息 / DS 事件）
-
 struct MessagesView: View {
     let model: DSModel
-    @State private var paused = false
-    @State private var autoScroll = true
+    @State private var source: Source = .console
+    @State private var search = ""
+    @State private var followsNewMessages = true
+
+    private enum Source: String, CaseIterable, Identifiable {
+        case console = "机器人输出"
+        case errors = "错误与警告"
+        case events = "应用事件"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("来源", selection: $tab) {
-                Text("Console").tag(0)
-                Text("错误消息").tag(1)
-                Text("DS 事件").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .padding(10)
+            VStack(spacing: 14) {
+                Picker("消息来源", selection: $source) {
+                    ForEach(Source.allCases) { source in Text(source.rawValue).tag(source) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 460)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField("搜索当前消息", text: $search)
+                            .textFieldStyle(.plain)
+                        if !search.isEmpty {
+                            Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                                .buttonStyle(.plain).foregroundStyle(.secondary)
+                                .help("清除搜索").accessibilityLabel("清除搜索")
+                        }
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 8)
+                    .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line.opacity(0.5)))
+                    .frame(maxWidth: 340)
+                    Spacer(minLength: 0)
+                    if source != .errors {
+                        Button {
+                            followsNewMessages.toggle()
+                        } label: {
+                            Label(followsNewMessages ? "正在跟随" : "继续跟随", systemImage: followsNewMessages ? "pause" : "arrow.down.to.line")
+                        }
+                        .buttonStyle(DSActionStyle(color: followsNewMessages ? .accentColor : .secondary))
+                        .help(followsNewMessages ? "暂停自动滚动；仍继续接收消息" : "滚动到最新消息")
+                        Button("清空", systemImage: "trash") { clearCurrentLog() }
+                            .buttonStyle(DSActionStyle(color: .secondary))
+                            .disabled(currentLines.isEmpty)
+                    }
+                }
+            }
+            .padding(.horizontal, 24).padding(.vertical, 16)
             Divider()
 
-            switch tab {
-            case 0: console
-            case 1: errors
-            default: events
+            if source == .errors {
+                errors
+            } else {
+                logLines
             }
+
+            Divider()
+            HStack {
+                Text(resultSummary)
+                Spacer()
+                if source != .errors && !followsNewMessages {
+                    Text("已暂停自动滚动，仍在接收消息")
+                } else if !model.commConnected {
+                    Text("机器人未连接")
+                }
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 24).padding(.vertical, 10)
         }
     }
 
-    @State private var tab = 0
+    private var currentLines: [LogLine] { source == .console ? model.stdoutLines : model.dsEvents }
+    private var filteredLines: [LogLine] { currentLines.filter { matches($0.text) } }
+    private var filteredErrors: [NICodec.ErrorMessage] {
+        model.errorMessages.filter {
+            matches([$0.details, $0.location, $0.callStack, String($0.errorCode)].joined(separator: " "))
+        }
+    }
 
-    // MARK: Console（robot stdout）
+    private var resultSummary: String {
+        let total = source == .errors ? model.errorMessages.count : currentLines.count
+        let count = source == .errors ? filteredErrors.count : filteredLines.count
+        return search.isEmpty ? "\(total) 条消息" : "找到 \(count) 条 · 共 \(total) 条"
+    }
 
-    private var console: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Toggle("暂停滚动", isOn: $paused)
-                Spacer()
-                Text("\(model.stdoutLines.count) 行")
-                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                Button("清空") { model.stdoutLines.removeAll() }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(model.stdoutLines.enumerated()), id: \.offset) { i, line in
-                            Text(line)
-                                .font(.system(size: 11, design: .monospaced))
+    private var logLines: some View {
+        let lines = filteredLines
+        return ScrollViewReader { proxy in
+            ScrollView {
+                if lines.isEmpty {
+                    emptyState
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(lines) { line in
+                            Text(line.text)
+                                .font(.system(size: 13, design: .monospaced))
+                                .lineSpacing(3)
+                                .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(i)
+                                .id(line.id)
                         }
                     }
-                    .padding(.horizontal, 10)
-                }
-                .onChange(of: model.stdoutLines.count) { _, new in
-                    guard autoScroll, !paused, new > 0 else { return }
-                    proxy.scrollTo(new - 1, anchor: .bottom)
+                    .padding(24)
                 }
             }
-            .background(.black.opacity(0.85))
-            .foregroundStyle(Color(red: 0.2, green: 0.9, blue: 0.35))
+            .background(DSTheme.surface)
+            .onChange(of: lines.last?.id) { _, lastID in
+                guard followsNewMessages, let lastID else { return }
+                proxy.scrollTo(lastID, anchor: .bottom)
+            }
+            .onChange(of: followsNewMessages) { _, follow in
+                guard follow, let lastID = lines.last?.id else { return }
+                proxy.scrollTo(lastID, anchor: .bottom)
+            }
+            .onAppear {
+                guard followsNewMessages, let lastID = lines.last?.id else { return }
+                proxy.scrollTo(lastID, anchor: .bottom)
+            }
         }
+        .id(source)
     }
-
-    // MARK: 错误（TCP 0x0B）
 
     private var errors: some View {
-        List {
-            if model.errorMessages.isEmpty {
-                Text("无错误消息").foregroundStyle(.secondary)
-            }
-            ForEach(Array(model.errorMessages.enumerated()), id: \.offset) { _, e in
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Image(systemName: e.flags & 0x01 != 0 ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(e.flags & 0x01 != 0 ? Color.red : Color.orange)
-                        Text(e.details)
-                            .font(.callout.weight(.medium))
-                        Spacer()
-                        Text("code \(e.errorCode)")
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }
-                    if !e.location.isEmpty {
-                        Text("@ \(e.location)").font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }
-                    if !e.callStack.isEmpty {
-                        Text(e.callStack).font(.caption2.monospaced()).foregroundStyle(.tertiary)
+        ScrollView {
+            if filteredErrors.isEmpty {
+                emptyState
+            } else {
+                LazyVStack(spacing: 12) {
+                    ForEach(filteredErrors, id: \.rowID) { entry in
+                        errorRow(entry)
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(24)
             }
         }
     }
 
-    // MARK: DS 事件
-
-    private var events: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button("清空") { model.dsEvents.removeAll() }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 1) {
-                        ForEach(Array(model.dsEvents.enumerated()), id: \.offset) { i, line in
-                            Text(line)
-                                .font(.system(size: 11, design: .monospaced))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id(i)
-                        }
+    private func errorRow(_ entry: NICodec.ErrorMessage) -> some View {
+        let isError = entry.flags & 0x01 != 0
+        return DSPanel(title: "") {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 18)).foregroundStyle(isError ? Color.red : Color.orange)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(isError ? "错误" : "警告").font(.callout.weight(.semibold))
+                        Spacer()
+                        Text("代码 \(entry.errorCode)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
-                    .padding(.horizontal, 10)
-                }
-                .onChange(of: model.dsEvents.count) { _, new in
-                    guard autoScroll, new > 0 else { return }
-                    proxy.scrollTo(new - 1, anchor: .bottom)
+                    Text(entry.details).font(.callout).textSelection(.enabled)
+                    if !entry.location.isEmpty {
+                        Text(entry.location).font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    if !entry.callStack.isEmpty {
+                        DisclosureGroup("调用详情") {
+                            Text(entry.callStack)
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(.secondary).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 6)
+                        }
+                        .font(.callout)
+                    }
                 }
             }
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: search.isEmpty ? (source == .errors ? "checkmark.circle" : "text.alignleft") : "magnifyingglass")
+                .font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
+            Text(search.isEmpty ? (source == .errors ? "暂无错误或警告" : "暂无消息") : "没有匹配的消息")
+                .font(.headline)
+            Text(search.isEmpty ? (source == .console ? "机器人程序的输出会显示在这里。" : "新消息会自动显示在这里。") : "尝试更短的关键词，或清除搜索。")
+                .font(.callout).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 230)
+        .padding(24)
+    }
+
+    private func matches(_ text: String) -> Bool { search.isEmpty || text.localizedCaseInsensitiveContains(search) }
+    private func clearCurrentLog() {
+        if source == .console { model.stdoutLines.removeAll() }
+        else if source == .events { model.dsEvents.removeAll() }
     }
 }

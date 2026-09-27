@@ -114,5 +114,3 @@ final class NetworkPathMonitor: @unchecked Sendable {
         monitor.start(queue: DispatchQueue(label: "gh.driverstation.netpath"))
     }
 }
-
-import Network

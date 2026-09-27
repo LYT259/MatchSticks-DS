@@ -1,36 +1,101 @@
 import SwiftUI
 import DSCore
 
-// MARK: - USB Devices 页（槽位 / 实时轴值 / 按键高亮 / POV / 锁定排序）
-
+// Input presentation only. Slot order, locking and polling stay in DSModel.
 struct USBDevicesView: View {
     let model: DSModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            if model.joystickSlots.isEmpty {
-                ContentUnavailableView(
-                    "未检测到手柄",
-                    systemImage: "gamecontroller",
-                    description: Text("插入 HID 手柄 / 游戏控制器后自动出现。F1 或工具栏按钮可手动重扫。")
-                )
-            } else {
-                ScrollView {
-                    VStack(spacing: 12) {
-                        ForEach(Array(model.joystickSlots.enumerated()), id: \.element.id) { index, slot in
-                            JoystickCard(model: model, index: index, slot: slot)
+        ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(model.joystickSlots.count) 个手柄")
+                                .font(.headline)
+                            Text("槽位从 0 开始，与机器人程序中的编号对应。")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            model.rescanJoysticks()
+                        } label: {
+                            Label("重新扫描", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(DSActionStyle())
+                        .help("重新扫描已连接的手柄。应用在前台且未编辑文本时，也可按 F1。")
+                    }
+
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+                        ForEach(0..<6, id: \.self) { index in
+                            let slot = model.joystickSlots.indices.contains(index) ? model.joystickSlots[index] : nil
+                            Button {
+                                if let slot { reader.scrollTo(slot.id, anchor: .top) }
+                            } label: {
+                                slotSummary(index: index, slot: slot)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(slot == nil)
+                            .accessibilityLabel("槽位 \(index)，\(slot?.name ?? "空闲")")
+                            .help(slot.map { "查看 \($0.name) 的实时输入" } ?? "连接手柄后自动分配槽位")
                         }
                     }
-                    .padding(14)
+
+                    if model.joystickSlots.isEmpty {
+                        emptyState
+                    } else {
+                        if model.joystickSlots.count > 6 {
+                            Label("只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。", systemImage: "info.circle")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        ForEach(Array(model.joystickSlots.enumerated()), id: \.element.id) { index, slot in
+                            JoystickCard(model: model, index: index, slot: slot)
+                                .id(slot.id)
+                        }
+                    }
                 }
+                .padding(24)
             }
         }
-        .toolbar {
-            Button {
-                model.rescanJoysticks()
-            } label: {
-                Label("重扫（F1）", systemImage: "arrow.triangle.2.circlepath")
+    }
+
+    private func slotSummary(index: Int, slot: JoystickSlot?) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Text("槽位 \(index)")
+                    .font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                Spacer(minLength: 4)
+                Image(systemName: slot?.lockedDeviceID != nil ? "lock.fill" : "gamecontroller")
+                    .font(.system(size: 12))
+                    .foregroundStyle(slot == nil ? Color.secondary : Color.accentColor)
             }
+            Text(slot?.name ?? "空闲")
+                .font(.system(size: 12))
+                .foregroundStyle(slot == nil ? Color.secondary : Color.primary)
+                .lineLimit(2)
+                .frame(height: 32, alignment: .topLeading)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(DSTheme.line.opacity(0.45)))
+    }
+
+    private var emptyState: some View {
+        DSPanel(title: "") {
+            VStack(spacing: 12) {
+                Image(systemName: "gamecontroller")
+                    .font(.system(size: 34, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text("连接你的手柄")
+                    .font(.title3.weight(.semibold))
+                Text("通过 USB 连接 HID 手柄或游戏控制器，设备会自动出现。\n如果没有出现，请检查连接线，然后重新扫描。")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
         }
     }
 }
@@ -41,104 +106,142 @@ struct JoystickCard: View {
     let slot: JoystickSlot
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 10) {
-                // 头部：槽位号 + 名称 + VID/PID + 操作
-                HStack(spacing: 10) {
-                    Text("\(index)")
-                        .font(.system(.title2, design: .rounded).bold().monospacedDigit())
-                        .frame(width: 34, height: 34)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 6) {
-                            Text(slot.name).font(.headline)
-                            if slot.isXbox {
-                                Text("Xbox")
-                                    .font(.caption2.weight(.semibold))
-                                    .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(.green.opacity(0.18), in: Capsule())
-                            }
-                            if slot.lockedDeviceID != nil {
-                                Label("已锁定", systemImage: "lock.fill")
-                                    .font(.caption2).foregroundStyle(.orange)
-                            }
-                        }
-                        Text(String(format: "VID %04X · PID %04X", slot.vendorID, slot.productID))
-                            .font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    HStack(spacing: 6) {
-                        Button {
-                            model.moveSlot(index, up: true)
-                        } label: { Image(systemName: "chevron.up") }
-                        .disabled(index == 0)
-                        Button {
-                            model.moveSlot(index, up: false)
-                        } label: { Image(systemName: "chevron.down") }
-                        .disabled(index == model.joystickSlots.count - 1)
-                        Button {
-                            model.toggleLock(index)
-                        } label: {
-                            Image(systemName: slot.lockedDeviceID == nil ? "lock.open" : "lock.fill")
-                        }
-                        .tint(slot.lockedDeviceID == nil ? .secondary : .orange)
-                    }
-                    .buttonStyle(.borderless)
-                }
+        DSPanel(title: "") {
+            header
+            Divider()
 
-                // 轴
-                if !slot.axes.isEmpty {
-                    VStack(spacing: 4) {
+            if !slot.axes.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("摇杆轴 · \(slot.axes.count)")
+                        .font(.subheadline.weight(.semibold))
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)], spacing: 12) {
                         ForEach(slot.axes.indices, id: \.self) { axisIndex in
-                            HStack(spacing: 8) {
-                                Text("A\(axisIndex)")
-                                    .font(.caption.monospaced())
-                                    .frame(width: 26, alignment: .leading)
-                                    .foregroundStyle(.secondary)
-                                GeometryReader { geo in
-                                    ZStack(alignment: .leading) {
-                                        Capsule().fill(.quaternary)
-                                        let v = CGFloat(slot.axes[axisIndex]) // -1…1
-                                        Capsule()
-                                            .fill(v >= 0 ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.orange))
-                                            .frame(width: abs(v) * geo.size.width / 2)
-                                            .offset(x: v >= 0 ? geo.size.width / 2 : geo.size.width / 2 + v * geo.size.width / 2)
-                                    }
-                                }
-                                .frame(height: 8)
-                                Text(String(format: "%+.2f", slot.axes[axisIndex]))
-                                    .font(.caption.monospacedDigit())
-                                    .frame(width: 48, alignment: .trailing)
-                            }
-                        }
-                    }
-                }
-
-                // 按键
-                if slot.buttonCount > 0 {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("按键（\(slot.buttonCount)）").font(.caption).foregroundStyle(.secondary)
-                        FlowButtons(count: min(slot.buttonCount, 40), pressed: slot.buttons)
-                    }
-                }
-
-                // POV
-                if !slot.povs.isEmpty {
-                    HStack(spacing: 10) {
-                        Text("POV").font(.caption).foregroundStyle(.secondary)
-                        ForEach(slot.povs.indices, id: \.self) { povIndex in
-                            let angle = slot.povs[povIndex]
-                            Text(angle >= 0 ? "\(angle)°" : "—")
-                                .font(.callout.monospacedDigit())
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(angle >= 0 ? AnyShapeStyle(Color.accentColor.opacity(0.2)) : AnyShapeStyle(.quaternary),
-                                            in: Capsule())
+                            axisRow(axisIndex)
                         }
                     }
                 }
             }
-            .padding(4)
+
+            if slot.buttonCount > 0 {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("按键 · \(slot.buttonCount)")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("按下时高亮")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    FlowButtons(count: min(slot.buttonCount, 64), pressed: slot.buttons)
+                }
+            }
+
+            if !slot.povs.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("方向帽 · POV")
+                        .font(.subheadline.weight(.semibold))
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], alignment: .leading, spacing: 8) {
+                        ForEach(slot.povs.indices, id: \.self) { povIndex in
+                            let angle = slot.povs[povIndex]
+                            HStack {
+                                Text("POV \(povIndex)").foregroundStyle(.secondary)
+                                Spacer()
+                                Text(angle >= 0 ? "\(angle)°" : "未按下")
+                                    .foregroundStyle(angle >= 0 ? Color.accentColor : Color.secondary)
+                            }
+                            .font(.system(size: 12)).monospacedDigit()
+                            .padding(.horizontal, 10).padding(.vertical, 8)
+                            .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 6))
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Text("\(index)")
+                    .font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(index < 6 ? Color.accentColor : Color.secondary)
+                    .frame(width: 44, height: 44)
+                    .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityLabel("槽位 \(index)")
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(slot.name).font(.headline).textSelection(.enabled)
+                    Text(String(format: "VID %04X · PID %04X", slot.vendorID, slot.productID))
+                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if slot.isXbox { DSBadge(text: "Xbox", symbol: "gamecontroller") }
+                if index >= 6 { DSBadge(text: "未发送", color: .orange, symbol: "info.circle") }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.moveSlot(index, up: true)
+                } label: {
+                    Label("上移", systemImage: "arrow.up")
+                }
+                .disabled(index == 0)
+                .accessibilityLabel("将 \(slot.name) 上移一个槽位")
+                .help("将手柄移到前一个槽位")
+
+                Button {
+                    model.moveSlot(index, up: false)
+                } label: {
+                    Label("下移", systemImage: "arrow.down")
+                }
+                .disabled(index == model.joystickSlots.count - 1)
+                .accessibilityLabel("将 \(slot.name) 下移一个槽位")
+                .help("将手柄移到后一个槽位")
+
+                Spacer()
+
+                Button {
+                    model.toggleLock(index)
+                } label: {
+                    Label(slot.lockedDeviceID == nil ? "锁定槽位" : "解锁槽位",
+                          systemImage: slot.lockedDeviceID == nil ? "lock.open" : "lock.fill")
+                }
+                .accessibilityLabel("\(slot.lockedDeviceID == nil ? "锁定" : "解锁") \(slot.name) 的槽位")
+                .help("锁定后，重新扫描会优先保留此设备的槽位")
+            }
+            .buttonStyle(DSActionStyle(color: .primary))
+        }
+    }
+
+    private func axisRow(_ axisIndex: Int) -> some View {
+        HStack(spacing: 10) {
+            Text("轴 \(axisIndex)")
+                .font(.system(size: 12)).monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .leading)
+            GeometryReader { geometry in
+                // Clamp only the drawing; the displayed reading remains the actual input value.
+                let raw = slot.axes[axisIndex]
+                let value = raw.isFinite ? CGFloat(max(-1, min(1, raw))) : 0
+                let center = geometry.size.width / 2
+                ZStack(alignment: .leading) {
+                    Capsule().fill(DSTheme.canvas)
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: abs(value) * center)
+                        .offset(x: value >= 0 ? center : center + value * center)
+                    Rectangle().fill(DSTheme.line)
+                        .frame(width: 1, height: 12)
+                        .offset(x: center)
+                }
+                .frame(height: 8)
+            }
+            .frame(height: 8)
+            Text(String(format: "%+.2f", slot.axes[axisIndex]))
+                .font(.system(size: 12).monospacedDigit())
+                .frame(width: 46, alignment: .trailing)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("轴 \(axisIndex)")
+        .accessibilityValue(String(format: "%+.2f", slot.axes[axisIndex]))
     }
 }
 
@@ -147,17 +250,17 @@ struct FlowButtons: View {
     let pressed: UInt64
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 4), count: 13), spacing: 4) {
-            ForEach(0..<count, id: \.self) { i in
-                let on = pressed & (1 << UInt64(i)) != 0
-                Text("\(i + 1)")
-                    .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                    .frame(width: 28, height: 20)
-                    .background(on ? AnyShapeStyle(Color.green) : AnyShapeStyle(.quaternary),
-                                in: RoundedRectangle(cornerRadius: 5))
-                    .foregroundStyle(on ? Color.white : Color.secondary)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 30, maximum: 36), spacing: 6)], alignment: .leading, spacing: 6) {
+            ForEach(0..<min(count, 64), id: \.self) { index in
+                let isPressed = pressed & (1 << UInt64(index)) != 0
+                Text("\(index + 1)")
+                    .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                    .frame(maxWidth: .infinity, minHeight: 28)
+                    .foregroundStyle(isPressed ? Color.white : Color.secondary)
+                    .background(isPressed ? Color.accentColor : DSTheme.canvas, in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityLabel("按键 \(index + 1)")
+                    .accessibilityValue(isPressed ? "已按下" : "已松开")
             }
         }
-        .padding(2)
     }
 }
