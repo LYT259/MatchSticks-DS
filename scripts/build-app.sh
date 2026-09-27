@@ -69,7 +69,9 @@ echo "PBPB" > "$APP/Contents/PkgInfo"
 
 # ad-hoc 签名（打包红线：保留有效签名；未公证分发按报告 §5.5 方案 A）
 codesign --force --deep -s - "$APP"
-codesign --verify --strict "$APP" && echo "  ✓ 签名校验通过"
+# --deep --strict：连同嵌套可执行文件（GHDSSim）一起做资源密封校验；
+# 打包红线「签名损坏=只剩 xattr 终端路的死胡同」依赖这道门禁真正兜住嵌套代码
+codesign --verify --deep --strict --verbose=2 "$APP" >/dev/null && echo "  ✓ 签名校验通过（deep+strict，含嵌套 GHDSSim）"
 
 echo "▶ 打 DMG"
 rm -rf "$OUT_DIR/stage"
