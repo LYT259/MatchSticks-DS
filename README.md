@@ -4,13 +4,13 @@
 
 > ⚠️ **Practice Only**：所有第三方 DS 均不得用于正式比赛（规则 R710/R901）。本项目定位为练习、调试与台架测试工具。
 >
-> 📦 当前状态：**Phase 1 + Phase 2 完成，Phase 3 协议层完成**（NI 全功能 + MRC V2 + NT4 server，模拟器与 `robot_sim.py` 异构联调通过；发布线以 GitHub Releases 为准，当前 v0.1.0-alpha.5）。真机（roboRIO / SystemCore）联调待实体硬件。完整论证见 [可行性研究报告](可行性研究报告.md)。
+> 📦 当前状态：**Phase 1–3 完成 + Apple 原生风格全量界面重做**（2026-09-27：七页 UI + 迷你驾驶台 + 常驻安全控制条；附带冷启动看门狗伪触发修复、急停复位竞态双侧修复、遥测显示 10Hz 合并；发布线以 GitHub Releases 为准，当前 v0.1.0-alpha.6）。真机（roboRIO / SystemCore）与实物手柄联调待实体硬件。完整论证见 [可行性研究报告](可行性研究报告.md)。
 
 ## 功能（当前版本）
 
 - **连接**：roboRIO 1.0/2.0 NI 协议——UDP 1110 控制环（20ms / 50Hz）+ UDP 1150 遥测回传 + TCP 1740 慢速通道；目标自动轮换（mDNS `roboRIO-<队号>-FRC.local` → 静态 `10.T.E.2` → USB `172.22.11.2`），支持手动 IP
 - **操作**：Teleop / Autonomous / Test 模式、Enable / Disable / **E-Stop**（协议位直发）、E-Stop 复位（First DS 语义）、Alliance 站位（R1–B3）、使能计时、Practice 分段时序（Auto/TeleOp 延迟 + 提示音 + A-Stop）、远程 Reboot roboRIO / Restart Robot Code
-- **状态栏常驻**：队伍号、电池电压（brownout 红底警示 + 迷你曲线）、三大指示灯（Comms / Robot Code / Joysticks）、状态字符串
+- **界面**：Apple 原生风格（实色自适应表面、无模糊/材质装饰）——侧栏导航（操作/监测两组）+ 每页常驻安全控制条（使能/失能/急停 + 状态解释）；状态条：机器人状态、通信/程序/手柄指示、电池电压（brownout 红字警示）；队伍号常驻侧栏；迷你驾驶台独立小窗（状态 + 三键 + 电池）
 - **手柄**：IOHIDManager 枚举所有 HID 设备（含 Attack3 / Extreme 3D Pro 等非游戏标准手柄）、槽位排序 + **槽位锁定**、轴 / 按键 / POV 实时显示
 - **诊断**：每核 CPU、内存、磁盘、CAN 总线指标（利用率 / BusOff / TxFull / 错误计数）、电源故障计数、TCP 版本信息、网络指示灯、丢包率
 - **图表**：电池电压曲线、每核 CPU、UDP 链路质量（Swift Charts 原生）
@@ -56,7 +56,8 @@ GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer  # 按本机 Xcode 路径调整
 swift build
-swift run DSCoreTests   # 回归测试：39 组 / 272 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/NT4 握手 场景级集成测试）
+swift run DSCoreTests   # 协议回归：277 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/NT4 握手 场景级集成测试）
+scripts/test-ui.sh      # UI 状态干测试：46 项检查（状态文案/安全门禁/急停锁存与复位快照/连接草稿语义；不起 socket 与 HID）
 swift run GHDS          # 运行驾驶台
 ```
 
@@ -69,11 +70,13 @@ swift run GHDS          # 运行驾驶台
 安装 / 校验：
 
 ```bash
-# 终端安装（无 Gatekeeper 隔离属性，免「仍要打开」）
-curl -L <release-dmg-url> -o GHDS.dmg && hdiutil attach GHDS.dmg
+# 终端下载（仓库现为 Private：直链 curl 需带 GitHub 凭证，浏览器下载不受影响）
+curl -L -H "Authorization: Bearer <token>" <release-dmg-url> -o GHDS.dmg && hdiutil attach GHDS.dmg
 # 校验
 shasum -a 256 -c SHA256SUMS
 ```
+
+> Homebrew tap 与国内镜像：**待建**（建好后此节更新为一行安装命令）。
 
 ## 打包发布
 
@@ -85,15 +88,16 @@ scripts/build-app.sh 0.1.0-alpha.1   # universal .app + ad-hoc 签名 + DMG + SH
 
 ```
 Sources/DSCore/      协议核心：NI 编解码、20ms 控制环、看门狗、连接管理（平台无关）
-Sources/GHDS/        SwiftUI 应用：DSModel 状态源、六页 UI、HID、快捷键
+Sources/GHDS/        SwiftUI 应用：DSModel 状态源、七页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
 Sources/GHDSSim/     roboRIO 模拟器（本机端到端验证）
 Tests/DSCoreTests/   协议回归测试（自带 runner）+ 回环集成测试
-scripts/             图标生成 + 打包脚本
+Tests/GHDSUITests/   UI 状态干测试（无 socket/HID/定时器；scripts/test-ui.sh 运行）
+scripts/             图标生成 + 打包脚本 + UI 测试脚本
 ```
 
 ## 分支模型
 
-`feat/*` → PR → **beta**（开发主线，PR 合入）→ 用户全面验证后 → **stable**（发布基线）。Releases 基于 beta 产出的构建。
+`feat/*`、`fix/*` → PR → **beta**（集成分支）→ 用户点名验证后 → **stable**（**主干与发布基线**，仓库默认分支；Releases 从 stable 打 tag）。
 
 ## 路线图（报告 §9）
 
