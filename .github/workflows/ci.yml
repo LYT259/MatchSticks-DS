@@ -1,0 +1,19 @@
+name: CI
+on:
+  push:
+    branches: [beta, main, "feat/**", "fix/**", "docs/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
+      - name: Build (debug)
+        run: swift build
+      - name: Regression tests (39 groups / 272 checks incl. loopback, TCP & scenarios)
+        run: swift run DSCoreTests
+      - name: Release universal build
+        run: swift build -c release --arch arm64 --arch x86_64

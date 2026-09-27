@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager / Xcode 构建
+.build/
+dist/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.swiftpm/
+Packages/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+scripts/AppIcon.iconset/
+
+# 内部协作文档（CLAUDE.md 自述：不入库，严禁 add -f）
+AGENTS.md
+CLAUDE.md
+.claude/
+分发安装更新_待入册草案.md
+
+# 工程日志（沿 GHPaths 分家修订：只留工作区本地，不入公开库）
+engineering-log/
+
+# 日志与抓包产物
+*.dslog
+*.dsevents
+*.wpilog
+captures/
