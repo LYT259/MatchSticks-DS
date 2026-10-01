@@ -273,6 +273,47 @@ func rateLimiterTests() {
     check(limiter.allow() == false, "boundary (0.99 < 1.0) still rejected")
 }
 
+
+// MARK: Phase 4 — 0x2E 手柄输出 tag：金样本编码 + 解码往返（协议侧验证）
+
+func rumbleTagGoldenTests() {
+    // 编码器字节级金样本：槽 0 联调确定值 → [size=12][0x2E][20 40 80 12 34 23 45 34 56 45 67]
+    let tag = MRCPackets.slotOutputsTag([.loopbackPattern])
+    check(Array(tag) == [0x0C, 0x2E, 0x20, 0x40, 0x80, 0x12, 0x34, 0x23, 0x45, 0x34, 0x56, 0x45, 0x67],
+          "0x2E 金样本字节，got " + tag.map { String(format: "%02X", $0) }.joined())
+    // 双槽：size = 1 + 22
+    let two = MRCPackets.slotOutputsTag([.loopbackPattern, .loopbackPattern])
+    check(two.count == 1 + 1 + 22 && two[0] == 23, "双槽 size 字节 = 1+22（got \(two[0])）")
+    // 超过 6 槽截断（协议上限 6）
+    let seven = MRCPackets.slotOutputsTag(Array(repeating: MRCSlotOutput(), count: 7))
+    check(seven[0] == UInt8(1 + 11 * 6), "7 槽截断为 6（size=\(seven[0])）")
+}
+
+func rumbleTagRoundTripTests() {
+    // 编码 → 完整应答包 → 解码：非零值全字段往返（LED + 四路 rumble）
+    let payload = MRCPackets.slotOutputsTag([.loopbackPattern, .loopbackPattern])
+    let reply = MRCPackets.replyPacket(seq: 0x0102, mode: .teleoperated, enabled: false,
+                                       batteryVolts: 12.0, payload: payload)
+    guard let decoded = MRCPackets.decodeReply(reply) else {
+        check(false, "带 0x2E 的应答包应可解码"); return
+    }
+    check(decoded.slotOutputs.count == 2, "解码出 2 槽（\(decoded.slotOutputs.count)）")
+    guard decoded.slotOutputs.count == 2 else { return }
+    let a0 = decoded.slotOutputs[0]
+    check(a0 == .loopbackPattern, "槽 0 全字段往返一致（LED/四路 rumble）")
+    check(decoded.batteryVoltage > 11.9 && decoded.batteryVoltage < 12.1, "其余字段不受 tag 影响")
+    // 与既有 92B 金样本的兼容：全零 0x2E（mrcGoldenPacketTests 里的 92B 包）仍然可解
+    var zeroPayload = ByteWriter()
+    zeroPayload.u8(0x43); zeroPayload.u8(0x2E)
+    for _ in 0..<6 {
+        zeroPayload.u8(0); zeroPayload.u8(0); zeroPayload.u8(0)
+        zeroPayload.u16be(0); zeroPayload.u16be(0); zeroPayload.u16be(0); zeroPayload.u16be(0)
+    }
+    let legacy = MRCPackets.replyPacket(seq: 0x0123, mode: .teleoperated, enabled: false,
+                                        batteryVolts: 12.0, payload: Data(zeroPayload.data))
+    check(MRCPackets.decodeReply(legacy)?.slotOutputs.count == 6, "全零 0x2E 六槽兼容可解")
+}
+
 func runAllPhase4Tests() {
     runTest("updateSafetyGateMatrix", updateSafetyGateMatrix)
     runTest("updateSafetyGateReasonPrecedence", updateSafetyGateReasonPrecedence)
@@ -281,4 +322,6 @@ func runAllPhase4Tests() {
     runTest("webuiSocketRoundTripTests", webuiSocketRoundTripTests)
     runTest("mockCameraServerTests", mockCameraServerTests)
     runTest("rateLimiterTests", rateLimiterTests)
+    runTest("rumbleTagGoldenTests", rumbleTagGoldenTests)
+    runTest("rumbleTagRoundTripTests", rumbleTagRoundTripTests)
 }

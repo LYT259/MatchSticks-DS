@@ -336,17 +336,14 @@ func runUDP(_ a: Args) {
                     simLog("MRC 已收 " + String(mrcPackets) + " 包（" + String(format: "%.1f", Date().timeIntervalSince(mrcStart)) + "s）")
                 }
                 let stateEnabled = mrcRobot.handle(mrcPacket)
-                var payload = ByteWriter()
-                payload.u8(0x43); payload.u8(0x2E)
-                for _ in 0..<6 {
-                    payload.u8(0); payload.u8(0); payload.u8(0)
-                    payload.u16be(0); payload.u16be(0); payload.u16be(0); payload.u16be(0)
-                }
+                // 0x2E 手柄输出：槽 0 回送联调确定值（MRCSlotOutput.loopbackPattern），
+                // 编码统一走 slotOutputsTag——DS 端到端解码/呈现与回归应答器共用同一 pattern
+                let payload = MRCPackets.slotOutputsTag([MRCSlotOutput.loopbackPattern])
                 let mode: MRCMode = mrcPacket.control.autonomous && !mrcPacket.control.test ? .autonomous : (mrcPacket.control.test ? .test : .teleoperated)
                 let reply = MRCPackets.replyPacket(seq: mrcPacket.seq, mode: mode,
                                                    enabled: stateEnabled, estop: mrcPacket.control.estop,
                                                    hasCode: true, batteryVolts: 12.02,
-                                                   payload: Data(payload.data))
+                                                   payload: payload)
                 var dst = src
                 withUnsafePointer(to: &dst) { dstPtr in
                     dstPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in

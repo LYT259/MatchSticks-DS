@@ -294,6 +294,9 @@ public final class DSClient {
                         var j = JoystickOutput()
                         j.leftRumble = slot.leftRumble
                         j.rightRumble = slot.rightRumble
+                        j.ledRGB = UInt32(slot.ledR) << 16 | UInt32(slot.ledG) << 8 | UInt32(slot.ledB)
+                        j.leftTriggerRumble = slot.leftTriggerRumble
+                        j.rightTriggerRumble = slot.rightTriggerRumble
                         return j
                     }
                     return np

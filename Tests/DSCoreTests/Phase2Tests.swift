@@ -638,16 +638,13 @@ final class MRCResponder {
             if packet.control.autonomous { sawAuto = true }
 
             seq &+= 1
-            var payload = ByteWriter()
-            payload.u8(0x43); payload.u8(0x2E)
-            for _ in 0..<6 {
-                payload.u8(0); payload.u8(0); payload.u8(0)
-                payload.u16be(0); payload.u16be(0); payload.u16be(0); payload.u16be(0)
-            }
+                        // 0x2E 手柄输出：槽 0 联调确定值，编码走 MRCPackets.slotOutputsTag——
+            // 场景断言「DS 侧解码 = 同值」，金样本断言「线上字节 = 编码器输出」
+            let payload = MRCPackets.slotOutputsTag([MRCSlotOutput.loopbackPattern])
             let reply = MRCPackets.replyPacket(seq: packet.seq, mode: packet.control.autonomous ? .autonomous : .teleoperated,
                                                enabled: packet.control.enabled && !packet.control.estop,
                                                batteryVolts: 12.1,
-                                               payload: Data(payload.data))
+                                               payload: payload)
             withUnsafePointer(to: &src) { dst in
                 dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
                     reply.withUnsafeBytes { raw in
@@ -801,6 +798,7 @@ final class ClientSink: @unchecked Sendable {
     var statsEvents = 0
     var lastLoss: Double = -1
     var sawRxExceedTx = false
+    var lastJoystickOutputs: [JoystickOutput] = []
 
     func observe(_ event: DSClient.Event) {
         lock.lock(); defer { lock.unlock() }
@@ -826,6 +824,7 @@ final class ClientSink: @unchecked Sendable {
             if rx > tx { sawRxExceedTx = true }
         case .response(let p):
             responses += 1
+            if !p.joystickOutputs.isEmpty { lastJoystickOutputs = p.joystickOutputs }
             if p.batteryVoltage > 3.0 { batteryOK = true }
             if p.status.brownout { sawBrownout = true }
             estopStatusHistory.append(p.status.estop)
@@ -1139,6 +1138,16 @@ func mrcClientScenario() {
     check(sink.responses >= 30, "MRC 正向：应答 ≥30（\(sink.responses)）")
     check(sink.batteryOK, "MRC 正向：电池解码")
     check(server.sawEnabled, "MRC 正向：使能指令到达")
+    // 0x2E 手柄输出端到端：应答器回送确定值 pattern，DS 侧解码应得同值
+    check(sink.lastJoystickOutputs.count >= 1, "MRC 0x2E：DS 收到手柄输出 tag（\(sink.lastJoystickOutputs.count) 槽）")
+    if let out = sink.lastJoystickOutputs.first {
+        check(out.leftRumble == MRCSlotOutput.loopbackPattern.leftRumble
+              && out.rightRumble == MRCSlotOutput.loopbackPattern.rightRumble
+              && out.leftTriggerRumble == MRCSlotOutput.loopbackPattern.leftTriggerRumble
+              && out.rightTriggerRumble == MRCSlotOutput.loopbackPattern.rightTriggerRumble
+              && out.ledRGB == 0x204080,
+              "MRC 0x2E：rumble/LED 值端到端一致（L=\(out.leftRumble) R=\(out.rightRumble) LT=\(out.leftTriggerRumble) RT=\(out.rightTriggerRumble) LED=\(String(out.ledRGB, radix: 16))）")
+    }
 }
 
 // MARK: 统计窗口下溢回归（2026-09-19 崩溃报告：DSClient.tick 算术溢出 SIGTRAP）
