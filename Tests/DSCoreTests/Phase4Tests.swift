@@ -1,5 +1,6 @@
-// MARK: Phase 4：更新安全门全状态矩阵 + WebUI/摄像头/rumble（后续阶段并入本文件）
+// MARK: Phase 4：更新安全门全状态矩阵 + WebUI 行为测试（后续阶段并入本文件）
 
+import Foundation
 import DSCore
 
 func updateSafetyGateMatrix() {
@@ -52,8 +53,158 @@ func updateSafetyGateBlockingDrivesUiState() {
           "任一为真 != .allow")
 }
 
+
+// MARK: Phase 4 — WebUI 服务器行为测试（路由纯函数 + 回环 socket 往返）
+
+import DSCore
+
+func makeWebUITempEnv() -> (WebUIServer.Environment, URL) {
+    let dir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ghds-webui-test-\(UUID().uuidString)", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    var store: [String: String] = ["teamNumber": "2590", "soundsEnabled": "true"]
+    let env = WebUIServer.Environment(
+        logsDirectory: { dir },
+        listSettings: { store },
+        applySetting: { key, value in
+            guard key == "teamNumber" || key == "soundsEnabled" else { return "未知设置项" }
+            if key == "teamNumber", Int(value) == nil { return "队伍号须为整数" }
+            store[key] = value
+            return nil
+        },
+        status: { ["commState": "idle", "updateGateAllowed": "true"] }
+    )
+    return (env, dir)
+}
+
+
+/// 连接 127.0.0.1:port 的 TCP 客户端（WebUI 回环测试用）
+func socketConnect(host: String, port: UInt16) -> Int32? {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    addr.sin_addr = in_addr(s_addr: inet_addr(host))
+    let ok = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard ok == 0 else { close(fd); return nil }
+    return fd
+}
+
+func webuiRoutingTests() {
+    let (env, dir) = makeWebUITempEnv()
+    defer { try? FileManager.default.removeItem(at: dir) }
+
+    // 首页
+    let index = WebUIServer.route(method: "GET", target: "/", body: Data(), env: env)
+    check(index.status == 200 && String(data: index.body, encoding: .utf8)?.contains("GH Driver Station") == true,
+          "index page serves")
+
+    // 状态
+    let status = WebUIServer.route(method: "GET", target: "/api/status", body: Data(), env: env)
+    check(status.status == 200 && String(data: status.body, encoding: .utf8)?.contains("updateGateAllowed") == true,
+          "status JSON exposes update gate")
+
+    // 设置查看
+    let get = WebUIServer.route(method: "GET", target: "/api/settings", body: Data(), env: env)
+    check(get.status == 200 && String(data: get.body, encoding: .utf8)?.contains("\"teamNumber\":\"2590\"") == true,
+          "settings JSON lists store values")
+
+    // 设置覆盖：合法键应用 + 非法值拒绝 + 未知键拒绝
+    let good = Data("{\"teamNumber\":\"2591\",\"soundsEnabled\":\"maybe\",\"evil\":\"1\"}".utf8)
+    // 注：mock 校验器只拒 teamNumber 非整数与未知键；soundsEnabled 任意值按 mock 通过
+    let apply = WebUIServer.route(method: "POST", target: "/api/settings", body: good, env: env)
+    let applyText = String(data: apply.body, encoding: .utf8) ?? ""
+    check(apply.status == 200 && applyText.contains("\"teamNumber\"") && applyText.contains("evil"),
+          "apply reports applied + rejected keys, got \(applyText)")
+
+    // 坏 JSON / 非平面对象 → 400
+    let bad = WebUIServer.route(method: "POST", target: "/api/settings", body: Data("not json".utf8), env: env)
+    check(bad.status == 400, "malformed settings body rejected 400")
+
+    // 日志列表 + 下载 + 白名单
+    let name = "2099_12_31 23_59_59.dslog"
+    FileManager.default.createFile(atPath: dir.appendingPathComponent(name).path, contents: Data([0xAB, 0xCD]))
+    FileManager.default.createFile(atPath: dir.appendingPathComponent("hidden.sh").path, contents: Data([0x01]))
+    let logs = WebUIServer.route(method: "GET", target: "/api/logs", body: Data(), env: env)
+    let logsText = String(data: logs.body, encoding: .utf8) ?? ""
+    check(logs.status == 200 && logsText.contains(name) && !logsText.contains("hidden.sh"),
+          "logs list shows .dslog only, hides non-whitelisted")
+
+    let dl = WebUIServer.route(method: "GET", target: "/logs/\(name.replacingOccurrences(of: " ", with: "%20"))", body: Data(), env: env)
+    check(dl.status == 200 && dl.body == Data([0xAB, 0xCD]), "log download returns exact bytes")
+
+    // 目录逃逸与非法名 → 404（编码后的 ../ 与绝对路径与控制字符）
+    for evil in ["/logs/..%2F..%2Fetc%2Fpasswd", "/logs/%2e%2e%2fsecret.dslog", "/logs//etc/passwd.dslog", "/logs/%00.dslog", "/logs/a.dslog%00.txt"] {
+        let r = WebUIServer.route(method: "GET", target: evil, body: Data(), env: env)
+        check(r.status == 404, "traversal attempt rejected: \(evil)")
+    }
+
+    // 未知路由 → 404
+    check(WebUIServer.route(method: "GET", target: "/nope", body: Data(), env: env).status == 404, "unknown route 404")
+}
+
+func webuiSocketRoundTripTests() {
+    let (env, dir) = makeWebUITempEnv()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    FileManager.default.createFile(atPath: dir.appendingPathComponent("x.dsrec").path, contents: Data(repeating: 7, count: 32))
+
+    let server = WebUIServer(port: 0, environment: env) // 内核分配端口，避免与真实实例冲突
+    var serverLogs: [String] = []
+    let logLock = NSLock()
+    server.onLog = { line in
+        logLock.lock(); serverLogs.append(line); logLock.unlock()
+    }
+    server.start()
+    var port: UInt16 = 0
+    for _ in 0..<100 where port == 0 { // 轮询 boundPort（最多 ~5s）
+        usleep(50_000)
+        port = server.boundPort
+    }
+    logLock.lock(); let logs = serverLogs.joined(separator: " | "); logLock.unlock()
+    check(port > 0, "server binds ephemeral port (got \(port); logs: \(logs))")
+    guard port > 0 else { return }
+
+    func httpGet(_ raw: String) -> String? {
+        guard let fd = socketConnect(host: "127.0.0.1", port: port) else { return nil }
+        defer { close(fd) }
+        guard WebUIServer.send(fd, Data(raw.utf8)) else { return nil }
+        var data = Data()
+        var buf = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let n = recv(fd, &buf, buf.count, 0)
+            if n <= 0 { break }
+            data.append(contentsOf: buf[0..<n])
+            if data.range(of: Data("}\r\n".utf8)) != nil || data.count > 1_000_000 { break }
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    let resp1 = httpGet("GET /api/status HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    check(resp1?.hasPrefix("HTTP/1.1 200") == true && resp1?.contains("updateGateAllowed") == true,
+          "socket GET /api/status round trip")
+
+    let body = "{\"teamNumber\":\"1234\"}"
+    let post = "POST /api/settings HTTP/1.1\r\nHost: localhost\r\nContent-Length: \(body.utf8.count)\r\n\r\n\(body)"
+    let resp2 = httpGet(post)
+    check(resp2?.hasPrefix("HTTP/1.1 200") == true && resp2?.contains("teamNumber") == true,
+          "socket POST /api/settings round trip")
+
+    let resp3 = httpGet("GET /logs/x.dsrec HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    check(resp3?.hasPrefix("HTTP/1.1 200") == true && resp3?.contains("Content-Type: application/octet-stream") == true,
+          "socket log download round trip")
+
+    server.stop()
+}
+
 func runAllPhase4Tests() {
     runTest("updateSafetyGateMatrix", updateSafetyGateMatrix)
     runTest("updateSafetyGateReasonPrecedence", updateSafetyGateReasonPrecedence)
     runTest("updateSafetyGateBlockingDrivesUiState", updateSafetyGateBlockingDrivesUiState)
+    runTest("webuiRoutingTests", webuiRoutingTests)
+    runTest("webuiSocketRoundTripTests", webuiSocketRoundTripTests)
 }
