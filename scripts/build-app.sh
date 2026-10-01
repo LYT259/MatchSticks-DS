@@ -25,6 +25,15 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD_DIR/GHDS" "$APP/Contents/MacOS/"
 cp "$BUILD_DIR/GHDSSim" "$APP/Contents/MacOS/"
 
+# Sparkle 框架入 bundle + rpath（应用内更新，报告 §5.5）
+if [ ! -d "$BUILD_DIR/Sparkle.framework" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 Sparkle.framework——依赖缺失即失败，不出残缺包" >&2
+    exit 1
+fi
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$BUILD_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/GHDS"
+
 # 图标（缺失时跳过，不阻塞打包）
 if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
   echo "  生成图标…"
@@ -61,6 +70,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     </array>
     <key>NSHumanReadableCopyright</key>
     <string>© 2026 GH-FRC — Practice Only（第三方 DS 不得用于正式比赛）</string>
+    <!-- Sparkle 应用内更新（报告 §5.5）：appcast 托管 GitHub Releases；
+         公钥对应私钥 ~/.ghds-release-keys/ghds-ed25519（本机保管，勿入库） -->
+    <key>SUFeedURL</key>
+    <string>${SU_FEED_URL:-https://github.com/LYT259/ghdriverstation/releases/latest/download/appcast.xml}</string>
+    <key>SUPublicEDKey</key>
+    <string>${SU_PUBLIC_ED_KEY:-YHHW4wKUsjO8HlZkuZc4vdJWZj4y4ftbiFcEsJkNop4=}</string>
 </dict>
 </plist>
 PLIST

@@ -229,11 +229,15 @@ final class DSModel {
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
     private let nt4Server = NT4Server(port: 6767)
+    private var webUI: WebUIServer?
     private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
     private var tickers: [Timer] = []
+    // 吞吐汇总行状态（打包版 E2E 判活断言用；Diag 镜像，不进 UI 日志）
+    private var statsTickCount = 0
+    private var lastThroughputTick: (tx: UInt64, at: TimeInterval)?
 
     // MARK: 生命周期
 
@@ -347,6 +351,7 @@ final class DSModel {
             }
         }
 
+        startWebUI()
         client.start()
         log("GH DS 控制环已启动（20ms）")
 
@@ -434,6 +439,130 @@ final class DSModel {
     var commConnected: Bool {
         if case .connected = commState { return true }
         return false
+    }
+
+    // MARK: 更新安全门状态映射（GHDS UpdateCenter 读取；点击重启时刻现场求值，不缓存）
+    var updateGateState: UpdateSafetyGate.State {
+        UpdateSafetyGate.State(
+            enabled: enabled,
+            commConnected: commConnected,
+            estopEngaged: estopEngaged
+        )
+    }
+
+    // MARK: WebUI（localhost:6768；报告 §6/§7——日志列表/下载、设置查看覆盖、状态）
+
+    private func startWebUI() {
+        guard webUI == nil else { return }
+        let env = WebUIServer.Environment(
+            logsDirectory: {
+                FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("GHDriverStation/Logs", isDirectory: true)
+            },
+            listSettings: { [weak self] in
+                guard let self else { return [:] }
+                return DispatchQueue.main.sync {
+                    MainActor.assumeIsolated { self.webSettingsSnapshot() }
+                }
+            },
+            applySetting: { [weak self] key, value in
+                guard let self else { return "应用未就绪" }
+                return DispatchQueue.main.sync {
+                    MainActor.assumeIsolated { self.applyWebSetting(key: key, value: value) }
+                }
+            },
+            status: { [weak self] in
+                guard let self else { return [:] }
+                return DispatchQueue.main.sync {
+                    MainActor.assumeIsolated { self.webStatusSnapshot() }
+                }
+            }
+        )
+        let server = WebUIServer(port: 6768, environment: env)
+        server.onLog = { [weak self] line in
+            Task { @MainActor in self?.log(line) }
+        }
+        server.start()
+        webUI = server
+    }
+
+    /// 设置快照（字符串值；白名单与 applyWebSetting 一致）
+    func webSettingsSnapshot() -> [String: String] {
+        [
+            "teamNumber": String(teamNumber),
+            "manualIP": manualIP,
+            "protocolKind": protocolKind.rawValue,
+            "alliance": String(alliance.rawValue),
+            "dashboardKind": dashboardKind.rawValue,
+            "practiceAutoTime": String(practiceAutoTime),
+            "practiceTeleopTime": String(practiceTeleopTime),
+            "practiceDelayTime": String(practiceDelayTime),
+            "soundsEnabled": soundsEnabled ? "true" : "false",
+            "dslogEnabled": dslogEnabled ? "true" : "false",
+        ]
+    }
+
+    /// 设置覆盖（逐键校验；范围与 loadPersistedSettings 同源）。返回 nil = 应用成功。
+    func applyWebSetting(key: String, value: String) -> String? {
+        switch key {
+        case "teamNumber":
+            guard let t = Int(value), (0...99999).contains(t) else { return "队伍号须为 0–99999 的整数" }
+            teamNumber = t
+        case "manualIP":
+            guard value.count <= 45 else { return "地址过长" }
+            manualIP = value
+        case "protocolKind":
+            guard let kind = DSClient.ProtocolKind(rawValue: value) else { return "未知协议：\(value)" }
+            protocolKind = kind
+        case "alliance":
+            guard let raw = UInt8(value), let a = AllianceStation(rawValue: raw) else { return "非法站位值" }
+            alliance = a
+        case "dashboardKind":
+            guard let d = DashboardKind(rawValue: value) else { return "未知 Dashboard：\(value)" }
+            dashboardKind = d
+        case "practiceAutoTime":
+            guard let v = Double(value), v >= 1 else { return "自动阶段时长须 ≥1 秒" }
+            practiceAutoTime = v
+        case "practiceTeleopTime":
+            guard let v = Double(value), v >= 15 else { return "遥控阶段时长须 ≥15 秒" }
+            practiceTeleopTime = v
+        case "practiceDelayTime":
+            guard let v = Double(value), v >= 0 else { return "延迟须 ≥0 秒" }
+            practiceDelayTime = v
+        case "soundsEnabled":
+            guard value == "true" || value == "false" else { return "须为 true/false" }
+            soundsEnabled = (value == "true")
+        case "dslogEnabled":
+            guard value == "true" || value == "false" else { return "须为 true/false" }
+            dslogEnabled = (value == "true")
+        default:
+            return "未知设置项：\(key)"
+        }
+        log("WebUI 设置覆盖：\(key) = \(value)")
+        return nil
+    }
+
+    /// 状态快照（P5 打包 E2E 经 /api/status 断言；含更新门现场求值）
+    func webStatusSnapshot() -> [String: String] {
+        let gate = UpdateSafetyGate.evaluate(updateGateState)
+        let comm: String
+        switch commState {
+        case .idle: comm = "idle"
+        case .searching: comm = "searching"
+        case .connected(let host): comm = "connected(\(host))"
+        }
+        var dict: [String: String] = [
+            "commState": comm,
+            "enabled": enabled ? "true" : "false",
+            "estopEngaged": estopEngaged ? "true" : "false",
+            "teamNumber": String(teamNumber),
+            "updateGateAllowed": gate == UpdateSafetyGate.Decision.allow ? "true" : "false",
+        ]
+        if case .blocked(let reason) = gate { dict["updateGateReason"] = reason }
+        if let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            dict["appVersion"] = v
+        }
+        return dict
     }
 
     var canEnable: Bool {
@@ -633,6 +762,15 @@ final class DSModel {
             lossPercent = loss
             txCount = tx
             rxCount = rx
+            // 控制环吞吐汇总行（stats 事件 1Hz；每 5s 一条）：打包版 E2E 判活依据——
+            // 不能只看建链/进程存在，要看到控制包在按节拍持续发出（2026-09-16 教训）。
+            statsTickCount += 1
+            let nowT = Date().timeIntervalSinceReferenceDate
+            if statsTickCount % 5 == 0, let last = lastThroughputTick, nowT > last.at {
+                let hz = Double(tx &- last.tx) / (nowT - last.at)
+                Diag.write(String(format: "控制环吞吐：%.1f Hz（tx=%d rx=%d loss=%.1f%%）", hz, tx, rx, loss))
+            }
+            if statsTickCount % 5 == 0 { lastThroughputTick = (tx, nowT) }
             lossHistory.append(LossPoint(t: Date(), loss: loss))
             if lossHistory.count > 300 { lossHistory.removeFirst(lossHistory.count - 300) }
             if !cpuCores.isEmpty {
