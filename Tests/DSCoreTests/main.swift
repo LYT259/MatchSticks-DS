@@ -373,6 +373,7 @@ runTest("allianceStationSemantics", allianceStationSemantics)
 runTest("axisEncodingSaturation", axisEncodingSaturation)
 runTest("loopbackIntegration", loopbackIntegrationTest)
 runAllPhase2Tests()
+runAllPhase4Tests()
 
 print("\n\(checks) checks, \(failures.count) failures")
 for f in failures { print("  ✗ \(f)") }

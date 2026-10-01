@@ -436,6 +436,15 @@ final class DSModel {
         return false
     }
 
+    // MARK: 更新安全门状态映射（GHDS UpdateCenter 读取；点击重启时刻现场求值，不缓存）
+    var updateGateState: UpdateSafetyGate.State {
+        UpdateSafetyGate.State(
+            enabled: enabled,
+            commConnected: commConnected,
+            estopEngaged: estopEngaged
+        )
+    }
+
     var canEnable: Bool {
         SafetyGate.canEnableNow(SafetyGate.State(
             commConnected: commConnected,
