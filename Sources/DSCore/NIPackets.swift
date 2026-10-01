@@ -199,6 +199,10 @@ public struct JoystickOutput: Sendable, Equatable {
     public var outputs: UInt32 = 0
     public var leftRumble: UInt16 = 0
     public var rightRumble: UInt16 = 0
+    // MRC 0x2E 扩展（NI 路径不填，保持 0；DS 呈现用）
+    public var ledRGB: UInt32 = 0
+    public var leftTriggerRumble: UInt16 = 0
+    public var rightTriggerRumble: UInt16 = 0
     public init() {}
 }
 

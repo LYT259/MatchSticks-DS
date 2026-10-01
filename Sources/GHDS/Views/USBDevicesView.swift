@@ -135,6 +135,8 @@ struct JoystickCard: View {
                 }
             }
 
+            rumbleOutputRow
+
             if !slot.povs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("方向帽 · POV")
@@ -156,6 +158,42 @@ struct JoystickCard: View {
                 }
             }
         }
+    }
+
+    /// 机器人回传的 0x2E 手柄输出（rumble/LED）：协议侧验证呈现。
+    /// 物理手柄震动映射待真机核查（协议档案「待实测（手柄）」）——显示值不代表已驱动硬件。
+    @ViewBuilder private var rumbleOutputRow: some View {
+        let outputs = model.joystickOutputs
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("机器人输出 · 0x2E").font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(outputs.isEmpty ? "尚未收到" : "实时")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if outputs.isEmpty {
+                Text("连接 SystemCore（MRC V2）后，机器人程序可通过 0x2E 下发震动/LED。")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 6) {
+                    ForEach(outputs.indices, id: \.self) { i in
+                        let o = outputs[i]
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("槽 \(i)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("L \(o.leftRumble) · R \(o.rightRumble)")
+                                .font(.caption.monospacedDigit())
+                            Text("扳机 L \(o.leftTriggerRumble) · R \(o.rightTriggerRumble) · LED #\(String(o.ledRGB, radix: 16))")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        .padding(6)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(DSTheme.canvas))
+                    }
+                }
+                Text("值为协议解码结果；到物理手柄的震动映射待真机核查（待实测清单）。")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.top, 2)
     }
 
     private var header: some View {

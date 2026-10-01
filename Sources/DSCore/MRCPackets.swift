@@ -61,7 +61,40 @@ public struct MRCSlotOutput: Sendable, Equatable {
     public var rightRumble: UInt16 = 0
     public var leftTriggerRumble: UInt16 = 0
     public var rightTriggerRumble: UInt16 = 0
-    public init() {}
+    public init(ledR: UInt8 = 0, ledG: UInt8 = 0, ledB: UInt8 = 0,
+                leftRumble: UInt16 = 0, rightRumble: UInt16 = 0,
+                leftTriggerRumble: UInt16 = 0, rightTriggerRumble: UInt16 = 0) {
+        self.ledR = ledR; self.ledG = ledG; self.ledB = ledB
+        self.leftRumble = leftRumble; self.rightRumble = rightRumble
+        self.leftTriggerRumble = leftTriggerRumble; self.rightTriggerRumble = rightTriggerRumble
+    }
+
+    /// 联调确定值：GHDSSim 与回归应答器回送 0x2E 时用同一 pattern，
+    /// 端到端断言「线上字节 = 金样本编码、DS 侧解码 = 同值」。
+    public static let loopbackPattern = MRCSlotOutput(
+        ledR: 0x20, ledG: 0x40, ledB: 0x80,
+        leftRumble: 0x1234, rightRumble: 0x2345,
+        leftTriggerRumble: 0x3456, rightTriggerRumble: 0x4567
+    )
+}
+
+public extension MRCPackets {
+    /// 手柄输出 tag（0x2E）编码：[size u8 = 1 + 11×n][id 0x2E][n × 11B]。
+    /// 11B/槽 = LED RGB 3×u8 + 左/右/左扳机/右扳机 rumble 4×u16 BE（协议档案 §MRC）。
+    static func slotOutputsTag(_ slots: [MRCSlotOutput]) -> Data {
+        let n = min(slots.count, 6)
+        var w = ByteWriter()
+        w.u8(UInt8(1 + 11 * n))
+        w.u8(0x2E)
+        for slot in slots.prefix(n) {
+            w.u8(slot.ledR); w.u8(slot.ledG); w.u8(slot.ledB)
+            w.u16be(slot.leftRumble)
+            w.u16be(slot.rightRumble)
+            w.u16be(slot.leftTriggerRumble)
+            w.u16be(slot.rightTriggerRumble)
+        }
+        return Data(w.data)
+    }
 }
 
 // MARK: OpMode（TCP 0x13 列表项）
