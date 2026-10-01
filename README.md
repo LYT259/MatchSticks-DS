@@ -4,7 +4,7 @@
 
 > ⚠️ **Practice Only**：所有第三方 DS 均不得用于正式比赛（规则 R710/R901）。本项目定位为练习、调试与台架测试工具。
 >
-> 📦 当前状态：**Phase 1–3 完成 + Apple 原生风格全量界面重做**（2026-09-27：七页 UI + 迷你驾驶台 + 常驻安全控制条；附带冷启动看门狗伪触发修复、急停复位竞态双侧修复、遥测显示 10Hz 合并；发布线以 GitHub Releases 为准，当前 v0.1.0-alpha.6）。真机（roboRIO / SystemCore）与实物手柄联调待实体硬件。完整论证见 [可行性研究报告](可行性研究报告.md)。
+> 📦 当前状态：**Phase 1–4（无硬件部分）完成**（2026-10-01：Apple 全量 UI 重做、Sparkle 应用内自动更新、内置 WebUI、摄像头 MOCK 通道、0x2E 手柄输出协议侧、打包版 E2E、分发配套；发布线当前 v0.1.0-alpha.6）。剩余为真机联调项——照单执行见 [docs/bench-checklist.md](docs/bench-checklist.md)。完整论证见 [可行性研究报告](可行性研究报告.md)。
 
 ## 功能（当前版本）
 
@@ -21,6 +21,10 @@
 - **本机状态**：DS 电脑电池/交流供电、系统 CPU、进程内存、本机网络指示（WiFi/有线）
 - **控制环稳定性**：统计窗口的收/发计数在浮点域求差并夹取（rx > tx 在真机可达——sendto 失败而先前应答在途、或机器人重复应答），避免旧实现的 UInt64 下溢把进程在控制环线程上打崩（2026-09-19 崩溃报告修复，回归测试 statsUnderflowScenario）；应用另声明 latency-critical 活动以抑制 App Nap 节流
 - **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能，`SafetyGate` 纯逻辑单测覆盖）
+- **应用内更新（Sparkle）**：启动静默查（GitHub Releases appcast）→ 静默后台下载 → 固定角落进度角标（可忽略、无弹窗）→ 点击一键重启安装；**安全门**：机器人使能中 / 通信活跃 / 急停锁存期间点击无效（tooltip 说明）——仅「失能 + 未连接 + 无锁存」放行；下载失败静默跳过下次再试
+- **内置 WebUI**：`http://127.0.0.1:6768`（仅本机）——日志文件列表与下载、设置查看/覆盖（逐键校验）、连接/使能/急停/更新门状态页
+- **摄像头（MOCK）**：诊断页显示槽位（点按刷新 + ≥1s 限流）；真实 SystemCore 流协议未核查（协议档案待实测），现由 GHDSSim 提供自定义 MOCK 图像源（:6769）
+- **手柄输出（0x2E）**：MRC 应答中的 rumble/LED 输出实时呈现于手柄页（协议侧已核查——编码金样本 + 模拟器端到端同值；物理手柄震动映射待真机）
 - **快捷键**：`Space` = E-Stop · `Enter` = Disable · `[ + ] + \` = Enable · `Esc + I` = E-Stop 复位 · `F1` = 重扫手柄（应用前台；全局后台键属 Phase 4 + Input Monitoring 权限）
 
 ## 内置 roboRIO 模拟器
@@ -56,9 +60,11 @@ GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer  # 按本机 Xcode 路径调整
 swift build
-swift run DSCoreTests   # 协议回归：277 项检查（协议金样本/容错 + 安全门禁/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/NT4 握手 场景级集成测试）
-scripts/test-ui.sh      # UI 状态干测试：46 项检查（状态文案/安全门禁/急停锁存与复位快照/连接草稿语义；不起 socket 与 HID）
+swift run DSCoreTests   # 协议回归：326 项检查（协议金样本/容错 + 安全门禁/更新安全门/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/0x2E 端到端/NT4 握手/WebUI 路由与回环/MOCK 摄像头 场景级集成测试）
+scripts/test-ui.sh      # UI 状态干测试：65 项检查（状态文案/安全门禁/急停锁存与复位快照/连接草稿/更新流状态机与安全门联动语义；不起 socket 与 HID）
 swift run GHDS          # 运行驾驶台
+scripts/test-update.sh  # Sparkle 本地升级链路 E2E：9.9.8→9.9.9 全流程 + 安全门双阻断
+scripts/test-e2e.sh     # 打包版 E2E：进程存活 + 控制环吞吐 ≥40Hz + connected + 日志落盘
 ```
 
 ## 安装（GitHub Releases）
@@ -76,7 +82,7 @@ curl -L -H "Authorization: Bearer <token>" <release-dmg-url> -o GHDS.dmg && hdiu
 shasum -a 256 -c SHA256SUMS
 ```
 
-> Homebrew tap 与国内镜像：**待建**（建好后此节更新为一行安装命令）。
+> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/ghdriverstation/<ref>/scripts/install.sh | bash`（发版后生效）。Homebrew tap 与国内镜像：**待建**（物料已备，见 packaging/ 与 mirror/）。
 
 ## 打包发布
 
@@ -92,7 +98,10 @@ Sources/GHDS/        SwiftUI 应用：DSModel 状态源、七页 UI + 迷你驾�
 Sources/GHDSSim/     roboRIO 模拟器（本机端到端验证）
 Tests/DSCoreTests/   协议回归测试（自带 runner）+ 回环集成测试
 Tests/GHDSUITests/   UI 状态干测试（无 socket/HID/定时器；scripts/test-ui.sh 运行）
-scripts/             图标生成 + 打包脚本 + UI 测试脚本
+scripts/             图标生成 + 打包/签名工具 + 安装脚本 + 三套测试脚本（UI 干测试 / 升级链路 E2E / 打包版 E2E）
+packaging/           Homebrew cask 模板（自维护 tap 用）
+mirror/              Cloudflare Pages 镜像（下载页 + appcast 镜像；部署待定）
+docs/                协议档案 / 发版操作单（release-kit）/ 真机台架手册（bench-checklist）
 ```
 
 ## 分支模型
@@ -106,7 +115,7 @@ scripts/             图标生成 + 打包脚本 + UI 测试脚本
 | Phase 1 | NI 协议栈 + Apple 风格核心 UI（roboRIO 1/2 可用 MVP） | ✅ 完成 |
 | Phase 2 | NI 全功能：Practice ✅、dslog + WPILog ✅、Charts ✅、Dashboard 启动 ✅、DS 自身监控 ✅（XInput 震动待硬件：GCDeviceHaptics 引擎链路 + 实物手柄） | ✅ 基本完成 |
 | Phase 3 | MRCCOMM V2 协议栈 ✅（金样本验证）+ NT4 server（6767，异构联测通过）+ OpMode 选择 ✅（Alerts/Display 待真机核对） | ✅ 协议层完成 |
-| Phase 4 | 迷你视图 ✅、权限引导页 ✅；全局快捷键（CGEventTap + Input Monitoring）、应用内更新（Sparkle）、内置 Web UI、摄像头流 待做 | ⏳ 部分完成 |
+| Phase 4 | 迷你视图 ✅、权限引导页 ✅、应用内更新（Sparkle，含安全门与本地升级链路 E2E）✅、内置 WebUI ✅、摄像头 MOCK 通道 + DS 槽位 ✅（真实协议待真机）、0x2E 手柄输出协议侧 ✅（物理震动待真机）、打包版 E2E ✅、分发配套 ✅；余全局后台快捷键与真机联调项（[台架手册](docs/bench-checklist.md)） | ✅ 无硬件部分完成 |
 
 ## 许可与合规
 
