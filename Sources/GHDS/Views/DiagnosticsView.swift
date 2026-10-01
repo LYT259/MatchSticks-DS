@@ -17,6 +17,7 @@ struct DiagnosticsView: View {
                     powerPanel
                     computerPanel
                 }
+                cameraMockPanel
                 versionsPanel
                 maintenancePanel
             }
@@ -137,6 +138,12 @@ struct DiagnosticsView: View {
                     metricRow("\(entry.name) · 类型 \(entry.deviceType)", value: entry.version)
                 }
             }
+        }
+    }
+
+    private var cameraMockPanel: some View {
+        DSPanel(title: "摄像头", subtitle: "模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）") {
+            CameraMockPanel()
         }
     }
 

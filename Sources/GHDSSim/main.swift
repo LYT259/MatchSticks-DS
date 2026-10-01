@@ -1,5 +1,9 @@
 import Foundation
 import Darwin
+import CoreGraphics
+import CoreText
+import ImageIO
+import UniformTypeIdentifiers
 import DSCore
 
 // MARK: - GHDSSim：roboRIO 1.0/2.0 模拟器
@@ -19,6 +23,7 @@ struct Args {
     var quiet = false
     var replayPath: String? = nil     // --replay <file.dsrec>：按录制应答回放
     var radioPort: UInt16 = 0         // --radio-port <n>：模拟 radio 可达性端口
+    var cameraPort: UInt16 = 6769     // --camera-port <n|0>：MOCK 摄像头通道端口（0 = 关闭；非 SystemCore 真实协议，见协议档案待实测）
     var mrc = false                   // --mrc：扮演 SystemCore（MrcComm V2 协议）
 }
 
@@ -34,6 +39,7 @@ let args: Args = {
         case "--stdout-interval": if let v = value(), let d = Double(v) { a.stdoutInterval = d }
         case "--replay": a.replayPath = value()
         case "--radio-port": if let v = value(), let p = UInt16(v) { a.radioPort = p }
+        case "--camera-port": if let v = value(), let p = UInt16(v) { a.cameraPort = p }
         case "--mrc": a.mrc = true
         case "--quiet": a.quiet = true
         default: break
@@ -574,6 +580,7 @@ print("""
   协议模式     : \(args.mrc ? "MRC V2（SystemCore）" : "NI（roboRIO 1.0/2.0）")
   UDP 控制通道 : 0.0.0.0:\(args.udpPort) → 应答源端口 1150
   TCP 慢速通道 : 0.0.0.0:\(args.tcpPort)
+  MOCK 摄像头  : \(args.cameraPort == 0 ? "关闭" : "127.0.0.1:\(args.cameraPort)/frame.jpg")
   等待 Driver Station 连接…（DS 侧 team 模式或手动 IP 127.0.0.1）
 """)
 fflush(stdout)
@@ -606,9 +613,57 @@ if args.radioPort > 0 {
     }
 }
 
+// MOCK 摄像头通道（自定义，非 SystemCore 协议——协议档案待实测清单）
+// 文件作用域持有：start() 的监听线程只持 weak self，局部量随语句结束释放会让
+// 服务器未开始监听即释放（2026-10-01 实测连接拒绝）
+var mockCamera: MockCameraServer?
+if args.cameraPort > 0 {
+    let camera = MockCameraServer(port: args.cameraPort, frameProvider: generateMockCameraFrame)
+    camera.onLog = { simLog($0) }
+    camera.start()
+    mockCamera = camera
+}
+
 Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
     if robot.packetCount > 0 {
         simLog("… \(robot.summary)")
     }
 }
 RunLoop.main.run()
+
+
+// MARK: - MOCK 帧生成（640×360 彩条 + 帧计数/时间戳，按需绘制——时间戳动 = 活图源）
+
+func generateMockCameraFrame() -> Data {
+    let w = 640, h = 360
+    let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    // 八条标准彩条
+    let bars: [(CGFloat, CGFloat, CGFloat)] = [
+        (1, 1, 1), (1, 1, 0), (0, 1, 1), (0, 1, 0), (1, 0, 1), (1, 0, 0), (0, 0, 1), (0, 0, 0.35)
+    ]
+    let barW = CGFloat(w) / CGFloat(bars.count)
+    for (i, bar) in bars.enumerated() {
+        ctx.setFillColor(CGColor(red: bar.0, green: bar.1, blue: bar.2, alpha: 1))
+        ctx.fill(CGRect(x: CGFloat(i) * barW, y: 0, width: barW, height: CGFloat(h) * 0.72))
+    }
+    // 底部信息条
+    ctx.setFillColor(CGColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h) * 0.28))
+    let stamp = String(format: "GHDSSim MOCK  %@  %05d", Date().formatted(.dateTime.hour().minute().second()), Int(Date().timeIntervalSinceReferenceDate) % 100000)
+    let attr = [
+        kCTFontAttributeName: CTFontCreateWithName("Menlo" as CFString, 22, nil),
+        kCTForegroundColorAttributeName: CGColor(red: 0.9, green: 0.95, blue: 1, alpha: 1),
+    ] as CFDictionary
+    let line = CTLineCreateWithAttributedString(CFAttributedStringCreate(nil, stamp as CFString, attr)!)
+    ctx.textPosition = CGPoint(x: 18, y: 36)
+    CTLineDraw(line, ctx)
+
+    guard let image = ctx.makeImage() else { return Data() }
+    let out = NSMutableData()
+    guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return Data() }
+    CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.75] as CFDictionary)
+    guard CGImageDestinationFinalize(dest) else { return Data() }
+    return out as Data
+}
