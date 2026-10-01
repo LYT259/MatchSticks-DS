@@ -235,6 +235,9 @@ final class DSModel {
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
     private var tickers: [Timer] = []
+    // 吞吐汇总行状态（打包版 E2E 判活断言用；Diag 镜像，不进 UI 日志）
+    private var statsTickCount = 0
+    private var lastThroughputTick: (tx: UInt64, at: TimeInterval)?
 
     // MARK: 生命周期
 
@@ -759,6 +762,15 @@ final class DSModel {
             lossPercent = loss
             txCount = tx
             rxCount = rx
+            // 控制环吞吐汇总行（stats 事件 1Hz；每 5s 一条）：打包版 E2E 判活依据——
+            // 不能只看建链/进程存在，要看到控制包在按节拍持续发出（2026-09-16 教训）。
+            statsTickCount += 1
+            let nowT = Date().timeIntervalSinceReferenceDate
+            if statsTickCount % 5 == 0, let last = lastThroughputTick, nowT > last.at {
+                let hz = Double(tx &- last.tx) / (nowT - last.at)
+                Diag.write(String(format: "控制环吞吐：%.1f Hz（tx=%d rx=%d loss=%.1f%%）", hz, tx, rx, loss))
+            }
+            if statsTickCount % 5 == 0 { lastThroughputTick = (tx, nowT) }
             lossHistory.append(LossPoint(t: Date(), loss: loss))
             if lossHistory.count > 300 { lossHistory.removeFirst(lossHistory.count - 300) }
             if !cpuCores.isEmpty {
