@@ -127,6 +127,43 @@ struct UIStateTests {
         upd.setEnabled(false)
         check(updateBlockReason(upd)?.contains("通信") == true, "disable falls back to connection block reason")
 
+        // 更新流状态机 + 安全门联动（Phase 4；Sparkle 集成层之外的纯逻辑回归）
+        let flow = UpdateFlowModel()
+        check(!flow.badgeVisible, "idle badge hidden")
+        flow.beganCheck()
+        check(flow.badgeVisible && flow.phase == .checking, "checking badge visible")
+        flow.updateNotFound()
+        check(!flow.badgeVisible && flow.phase == .idle, "no update → quiet idle")
+        flow.downloadStarted(version: "9.9.9")
+        check(flow.badgeVisible, "downloading badge visible")
+        flow.downloadProgress(0.5)
+        if case .downloading(let p, _) = flow.phase { check(abs(p - 0.5) < 1e-9, "progress tracked") } else { check(false, "downloading phase") }
+        flow.downloadProgress(1.7)
+        if case .downloading(let p, _) = flow.phase { check(p == 1.0, "progress clamped to 1") } else { check(false, "downloading phase after clamp") }
+        check(flow.requestRestart() == .notReady, "tap before ready is ignored")
+        flow.downloadCompleted(version: "9.9.9")
+        check(flow.lastBlockReason == nil, "no block reason before any blocked tap")
+        // 安全门阻断：使能中点击无效，且状态保持就绪（不进入安装）
+        var gateState = UpdateSafetyGate.State(enabled: true, commConnected: false, estopEngaged: false)
+        flow.gateStateProvider = { gateState }
+        if case .blocked(let r) = flow.requestRestart() { check(r.contains("使能"), "enabled gate blocks restart") } else { check(false, "expected block while enabled") }
+        check(flow.lastBlockReason?.contains("使能") == true, "block reason surfaced for tooltip")
+        if case .ready = flow.phase {} else { check(false, "blocked tap keeps ready (no install)") }
+        // 状态变化后同一角标可放行：现场求值（不缓存判定）
+        gateState = UpdateSafetyGate.State(enabled: false, commConnected: false, estopEngaged: false)
+        if case .initiated = flow.requestRestart() {} else { check(false, "gate release after state change → initiated") }
+        check(flow.phase == .installing, "installing phase after allow")
+        check(flow.requestRestart() == .notReady, "double tap ignored")
+        // 失败静默：badge 隐藏
+        let flow2 = UpdateFlowModel()
+        flow2.downloadStarted(version: "x")
+        flow2.failedQuietly()
+        check(!flow2.badgeVisible && flow2.phase == .failed, "download failure → silent hidden state")
+        // 未接安全门（gateStateProvider = nil）：保守阻断
+        let flow3 = UpdateFlowModel()
+        flow3.downloadCompleted(version: "x")
+        if case .blocked(let r) = flow3.requestRestart() { check(r.contains("未接入"), "missing gate provider blocks conservatively") } else { check(false, "expected conservative block") }
+
         print("GHDS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)

@@ -5,6 +5,7 @@ import DSCore
 struct GHDSApp: App {
     @State private var model = DSModel()
     @State private var shortcuts = ShortcutManager()
+    @State private var updates = UpdateCenter()
 
     init() {
         if !Bundle.main.bundlePath.hasSuffix(".app") {
@@ -14,11 +15,13 @@ struct GHDSApp: App {
 
     var body: some Scene {
         Window("GH Driver Station", id: "main") {
-            RootView(model: model)
+            RootView(model: model, updates: updates)
                 .frame(minWidth: 1040, minHeight: 740)
                 .task {
                     shortcuts.install(model: model)
                     model.start()
+                    updates.attach(model: model)
+                    updates.start()
                 }
         }
         .defaultSize(width: 1180, height: 820)
@@ -41,6 +44,7 @@ struct GHDSApp: App {
 /// 进页时自动跟随模型（GHDS_AUTO_SIM / 启动模拟器会改写连接目标）。
 struct RootView: View {
     let model: DSModel
+    let updates: UpdateCenter
     @State private var selection: Page = .operation
     @State private var simProcess: Process?
     @State private var connectionDraft = ConnectionDraft()
@@ -98,6 +102,7 @@ struct RootView: View {
                         Label("迷你驾驶台", systemImage: "pip")
                     }
                     .buttonStyle(DSActionStyle(color: .primary))
+                    UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
                 }
                 .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 20)
                 DSStatusBar(model: model)

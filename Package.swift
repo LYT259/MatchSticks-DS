@@ -7,13 +7,21 @@ let swiftV5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 let package = Package(
     name: "GHDriverStation",
     platforms: [.macOS(.v14)],
+    dependencies: [
+        // 应用内自动更新（报告 §5.5 / CLAUDE.md 分发章；MIT，商用友好）。
+        // 版本由 Package.resolved 钉住（随本文件入库）；升级属主动决策（通用 §6 版本冻结）。
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
+    ],
     targets: [
         // 平台无关协议核心：NI 编解码、传输、20ms 控制环、看门狗
         .target(name: "DSCore", swiftSettings: swiftV5),
-        // SwiftUI 主应用
+        // SwiftUI 主应用（Sparkle 仅此目标依赖，DSCore 保持零外部依赖）
         .executableTarget(
             name: "GHDS",
-            dependencies: ["DSCore"],
+            dependencies: [
+                "DSCore",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             swiftSettings: swiftV5
         ),
         // roboRIO 模拟器（本机端到端验证用，报告 §6 设计决策 3「录制即测试」的最小起步）
