@@ -110,6 +110,23 @@ struct UIStateTests {
         draft.load(from: draftModel)
         check(draft.manualIP.isEmpty && !draft.userEdited, "reload discards edits and clears the flag")
 
+        // 更新安全门映射（Phase 4 / Sparkle 重启门）：点击时刻现场求值自 DSModel 三态
+        let upd = DSModel()
+        let updateBlockReason: (DSModel) -> String? = { m in
+            if case .blocked(let r) = UpdateSafetyGate.evaluate(m.updateGateState) { return r }
+            return nil
+        }
+        check(updateBlockReason(upd) == nil, "update gate allows on fresh offline disabled model")
+        upd.triggerEstop()
+        check(updateBlockReason(upd)?.contains("急停") == true, "estop latch blocks update restart")
+        upd.resetEstop()
+        upd.commState = .connected(host: "127.0.0.1")
+        check(updateBlockReason(upd)?.contains("通信") == true, "active connection blocks update restart")
+        upd.setEnabled(true)
+        check(updateBlockReason(upd)?.contains("使能") == true, "enabled intent outranks connection as block reason")
+        upd.setEnabled(false)
+        check(updateBlockReason(upd)?.contains("通信") == true, "disable falls back to connection block reason")
+
         print("GHDS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
