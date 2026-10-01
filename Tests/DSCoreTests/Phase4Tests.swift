@@ -201,10 +201,84 @@ func webuiSocketRoundTripTests() {
     server.stop()
 }
 
+
+// MARK: Phase 4 — MOCK 摄像头通道 + 限流器
+
+func mockCameraServerTests() {
+    let server = MockCameraServer(port: 0, frameProvider: {
+        Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x01, 0xFF, 0xD9]) // JPEG 魔数首尾的最小帧
+    })
+    server.start()
+    var port: UInt16 = 0
+    for _ in 0..<100 where port == 0 {
+        usleep(50_000)
+        port = server.boundPort
+    }
+    check(port > 0, "mock camera binds ephemeral port (got \(port))")
+    guard port > 0 else { return }
+
+    func httpGetRaw(_ path: String) -> Data? {
+        guard let fd = socketConnect(host: "127.0.0.1", port: port) else { return nil }
+        defer { close(fd) }
+        guard WebUIServer.send(fd, Data("GET \(path) HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8)) else { return nil }
+        var data = Data()
+        var buf = [UInt8](repeating: 0, count: 65536)
+        while true {
+            let n = recv(fd, &buf, buf.count, 0)
+            if n <= 0 { break }
+            data.append(contentsOf: buf[0..<n])
+        }
+        return data
+    }
+    func headerText(_ raw: Data?) -> String {
+        // 只解码头部终止符之前的字节——prefix(512) 会把二进制帧体带进来，UTF-8 解码必 nil
+        guard let raw else { return "" }
+        let headData = raw.range(of: Data("\r\n\r\n".utf8)).map { raw.subdata(in: raw.startIndex..<$0.lowerBound) } ?? raw
+        return String(data: headData, encoding: .utf8) ?? ""
+    }
+    func bodyAfterHeader(_ raw: Data?) -> Data {
+        guard let raw, let range = raw.range(of: Data("\r\n\r\n".utf8)) else { return Data() }
+        return raw.subdata(in: range.upperBound..<raw.endIndex)
+    }
+
+    let frame = httpGetRaw("/frame.jpg")
+    check(headerText(frame).hasPrefix("HTTP/1.1 200") && headerText(frame).contains("Content-Type: image/jpeg"),
+          "frame request returns JPEG content type")
+    // 帧字节完整送达：头之后恰好是 8 字节 mock JPEG（FF D8 开头 FF D9 结尾）
+    let body = bodyAfterHeader(frame)
+    check(body == Data([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x01, 0xFF, 0xD9]), "frame body carries mock JPEG bytes, got \(body.map { String(format: "%02X", $0) })")
+
+    let miss = httpGetRaw("/nope")
+    check(headerText(miss).hasPrefix("HTTP/1.1 404"), "unknown path 404")
+
+    // 第二次请求仍然成功（无状态、可持续刷新）
+    check(headerText(httpGetRaw("/frame.jpg")).hasPrefix("HTTP/1.1 200"), "second frame fetch works")
+
+    server.stop()
+}
+
+func rateLimiterTests() {
+    // 时钟注入：确定性验证限流窗口（给定条件可复现）
+    final class ClockBox { var t = Date(timeIntervalSince1970: 1000) }
+    let clock = ClockBox()
+    let limiter = RateLimiter(minInterval: 1.0, now: { clock.t })
+    check(limiter.allow() == true, "first request allowed")
+    clock.t = clock.t.addingTimeInterval(0.4)
+    check(limiter.allow() == false, "request inside window rejected")
+    check(abs(limiter.retryAfterSeconds() - 0.6) < 0.01, "retry-after reports remaining window")
+    clock.t = clock.t.addingTimeInterval(0.61)
+    check(limiter.allow() == true, "request after window allowed")
+    // 连续两次成功放行之间的实际间隔 ≥ 窗口
+    clock.t = clock.t.addingTimeInterval(0.99)
+    check(limiter.allow() == false, "boundary (0.99 < 1.0) still rejected")
+}
+
 func runAllPhase4Tests() {
     runTest("updateSafetyGateMatrix", updateSafetyGateMatrix)
     runTest("updateSafetyGateReasonPrecedence", updateSafetyGateReasonPrecedence)
     runTest("updateSafetyGateBlockingDrivesUiState", updateSafetyGateBlockingDrivesUiState)
     runTest("webuiRoutingTests", webuiRoutingTests)
     runTest("webuiSocketRoundTripTests", webuiSocketRoundTripTests)
+    runTest("mockCameraServerTests", mockCameraServerTests)
+    runTest("rateLimiterTests", rateLimiterTests)
 }
