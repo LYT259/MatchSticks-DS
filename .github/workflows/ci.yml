@@ -13,9 +13,9 @@ jobs:
         run: xcodebuild -version && swift --version
       - name: Build (debug)
         run: swift build
-      - name: Regression tests (277 checks incl. loopback, TCP & scenarios)
+      - name: Regression tests (326 checks incl. loopback, TCP, scenarios & 0x2E)
         run: swift run DSCoreTests
-      - name: UI state dry tests (46 checks; no sockets or HID)
+      - name: UI state dry tests (65 checks; no sockets or HID)
         run: bash scripts/test-ui.sh
       - name: Release universal build
         run: swift build -c release --arch arm64 --arch x86_64
