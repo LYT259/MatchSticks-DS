@@ -1,5 +1,5 @@
 #!/bin/bash
-# 打包版 E2E（无硬件；本地运行，不进 CI——runner 的 GUI/端口环境不可控）
+# 打包版 E2E（无硬件；本地运行，依赖本机 GUI/端口环境）
 #
 # 判活三重断言（2026-09-16 教训：不能只看 TCP 建链）：
 #   ① 打包版进程存活整个观测窗；
@@ -8,7 +8,7 @@
 # 全部产物来自 build-app.sh 打出的 .app（含包内 GHDSSim）。
 #
 # 用法：bash scripts/test-e2e.sh
-# 可调：GHDS_E2E_HZ_FLOOR（默认 40——本机控制环 50Hz；CI VM 定时器慢的场景用 8）
+# 可调：GHDS_E2E_HZ_FLOOR（默认 40——本机控制环 50Hz；慢机器场景用 8）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
