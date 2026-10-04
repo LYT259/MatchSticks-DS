@@ -2,14 +2,14 @@
 # Dry app-state regression tests; no network or simulator startup.
 # Builds DSCore from source into its own dylib+swiftmodule, then compiles the
 # app layer and tests against them — independent of SPM's build layout, which
-# differs between the Xcode and native toolchains (CI runners).
+# differs between the Xcode and native toolchains.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# 本机默认 Xcode-beta；CI 等环境沿用系统默认工具链
+# 本机默认 Xcode-beta；其他环境沿用系统默认工具链
 if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode-beta.app ]; then
   export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
 fi
-swift build   # 先确认主工程可构建（与 CI 其余步骤一致的常规门禁）
+swift build   # 先确认主工程可构建（常规门禁）
 mkdir -p .build/uitest
 swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   -emit-module-path .build/uitest/DSCore.swiftmodule \
