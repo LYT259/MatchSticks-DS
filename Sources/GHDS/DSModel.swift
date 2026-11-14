@@ -1,5 +1,6 @@
 import SwiftUI
 import DSCore
+import Darwin
 
 // MARK: - 线程安全盒子：主线程写、控制环队列读（避免跨 actor 访问）
 
@@ -22,15 +23,19 @@ final class HeartbeatBox: @unchecked Sendable {
     private var lastBeat = Date()
 
     func beat() {
+        var stallMS: Int?
         lock.lock()
-        // 主线程停滞探针（GHDS_LOG_STDERR=1 时启用）：心跳本应 10ms 一跳，
-        // 间隔超过 100ms 说明主 runloop 被阻塞过——打印实际停滞毫秒数。
+        // 主线程停滞探针（Diag 输出开启时生效）：心跳本应 10ms 一跳，
+        // 间隔超过 100ms 说明主 runloop 被阻塞过——记录实际停滞毫秒数。
         let gap = Date().timeIntervalSince(lastBeat)
-        if Diag.enabled, gap > 0.1 {
-            Diag.write("UI stall \(Int(gap * 1000))ms")
-        }
+        if gap > 0.1 { stallMS = Int(gap * 1000) }
         lastBeat = Date()
         lock.unlock()
+        // 探针写盘在锁外执行：持锁做文件 I/O 会拖住 ageSeconds()——控制环 20ms
+        // 队列每个控制包都在读它，锁内写盘等于把 UI 停滞转嫁给控制环。
+        if let stallMS, Diag.enabled {
+            Diag.write("UI stall \(stallMS)ms")
+        }
     }
 
     func ageSeconds() -> Double {
@@ -39,29 +44,76 @@ final class HeartbeatBox: @unchecked Sendable {
     }
 }
 
-// MARK: 诊断输出（非隔离：log() 在 MainActor、心跳探针在主 runloop，均为主线程调用）
+// MARK: 诊断输出（log() 在 MainActor、心跳探针在主 runloop、测试线程均可能调用；写器自身线程安全）
 enum Diag {
     /// 事件日志镜像到 stderr（性能测量 / E2E 验证用；默认关闭，行为零差异）
     static let toStderr = ProcessInfo.processInfo.environment["GHDS_LOG_STDERR"] == "1"
-    /// 写入指定文件（open 启动的 GUI 无 stderr 可读时用）
+    /// 写入指定文件（open 启动的 GUI 无 stderr 可读时用；常驻 O_APPEND 句柄，懒打开）
     static let filePath = ProcessInfo.processInfo.environment["GHDS_LOG_FILE"]
-    static var enabled: Bool { toStderr || filePath != nil }
+    static var enabled: Bool { toStderr || ensureFileOutput() }
+
+    private static let writerLock = NSLock()
+    private static var fileFD: Int32 = -1
+    private static var bootstrapped = false
+
+    /// 切换输出文件为常驻 O_APPEND 句柄（每行一次原子 write(2)，不再逐行 open/seek/close）。
+    /// 返回 false = 打开失败（输出保持原目标不变）。
+    @discardableResult
+    static func setFileOutput(path: String) -> Bool {
+        writerLock.lock(); defer { writerLock.unlock() }
+        return openFileOutputLocked(path)
+    }
+
+    /// 环境变量目标只在首次查询时打开一次（失败不逐行重试）
+    private static func ensureFileOutput() -> Bool {
+        writerLock.lock(); defer { writerLock.unlock() }
+        if !bootstrapped {
+            bootstrapped = true
+            if let path = filePath { _ = openFileOutputLocked(path) }
+        }
+        return fileFD >= 0
+    }
+
+    private static func openFileOutputLocked(_ path: String) -> Bool {
+        if fileFD >= 0 {
+            close(fileFD)
+            fileFD = -1
+        }
+        let fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        guard fd >= 0 else { return false }
+        fileFD = fd
+        return true
+    }
 
     static func write(_ line: String) {
         if toStderr {
             FileHandle.standardError.write(Data((line + "\n").utf8))
         }
-        if let path = filePath {
-            if !FileManager.default.fileExists(atPath: path) {
-                FileManager.default.createFile(atPath: path, contents: nil)
-            }
-            if let h = FileHandle(forWritingAtPath: path) {
-                h.seekToEndOfFile()
-                h.write(Data((line + "\n").utf8))
-                try? h.close()
+        guard ensureFileOutput() else { return }
+        writerLock.lock()
+        defer { writerLock.unlock() }
+        let fd = fileFD
+        guard fd >= 0 else { return }
+        let data = Data((line + "\n").utf8)
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            var offset = 0
+            while offset < raw.count {
+                let n = Darwin.write(fd, raw.baseAddress! + offset, raw.count - offset)
+                if n > 0 { offset += n }
+                else if errno == EINTR { continue }
+                else { break }
             }
         }
     }
+}
+
+// MARK: radio 探测目标盒（主线程写队号，probe 队列读——hostProvider 不再跨线程读 MainActor 状态）
+
+final class RadioTeamBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var team = 0
+    func set(_ t: Int) { lock.lock(); team = t; lock.unlock() }
+    func get() -> Int { lock.lock(); defer { lock.unlock() }; return team }
 }
 
 // MARK: - DSModel：应用层唯一状态源（@MainActor + @Observable）
@@ -83,6 +135,7 @@ final class DSModel {
     var teamNumber: Int = 0 {
         didSet {
             settings.set("teamNumber", teamNumber)
+            radioTeamBox.set(teamNumber)
             syncClientConfig()
         }
     }
@@ -114,6 +167,7 @@ final class DSModel {
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
     var localNetworkSummary = "检测中…"
     private let networkMonitor = NetworkPathMonitor()
+    private let macStatusSampler = MacStatusMonitor.BackgroundSampler()
     private var wpilogWriter: WPILogWriter?
     var commState: DSClient.CommState = .idle
     var watchdogHealthy = true
@@ -162,8 +216,18 @@ final class DSModel {
 
     // MARK: 手柄
 
+    /// UI 可见槽位镜像（@Observable）：结构变化（增删/移动/锁定）立即发布；轴/按键
+    /// 实时值由 publishVisibleSlotsIfDue 以 ≥100ms 节流刷新——50Hz 逐 tick 写
+    /// @Observable 数组会让 USB 页每 20ms 整页失效重建。控制路径不读它（见 controlSlots）。
     var joystickSlots: [JoystickSlot] = []
     var lastHIDScanAt: Date?
+    /// 控制槽位（非 UI 发布）：50Hz 每 tick 刷新最新手柄值并进控制快照。结构真值在此，
+    /// rebuildSlots/moveSlot/toggleLock 先改它，再按需发布到 joystickSlots。
+    private var controlSlots: [JoystickSlot] = []
+    private var lastSlotsPublishAt: TimeInterval = 0
+    /// HID 轮询源（默认真实 IOKit 主线程轮询；测试注入假设备流）。
+    /// 50Hz 调用、保持主线程——IOKit 路径未在其他线程验证过，不擅自迁移。
+    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { HIDInputManager.shared.pollAll() }
 
     // MARK: 慢速设置
 
@@ -225,6 +289,7 @@ final class DSModel {
     private let client = DSClient()
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
+    private let radioTeamBox = RadioTeamBox()
     private let settings = SettingsStore()
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
@@ -275,6 +340,7 @@ final class DSModel {
         loadPersistedSettings()
         installTimers()
         networkMonitor.start()
+        macStatusSampler.start()
         HIDInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
         }
@@ -294,17 +360,15 @@ final class DSModel {
             guard let self else { return }
             Task { @MainActor in self.handle(event) }
         }
-        let probe = RadioProbe(configuration: {
-            var c = RadioProbe.Configuration()
-            if DSModel.isAutoSim { c.port = 8080 } // 模拟器 radio 走非特权端口
-            return c
-        }())
-        probe.hostProvider = { [weak self] in
-            guard let self else { return nil }
-            if !self.manualIP.isEmpty { return (self.manualIP, probe.configuration.port) }
-            guard self.teamNumber > 0 else { return nil }
-            let t = self.teamNumber
-            return (String(format: "10.%d.%d.1", t / 100, t % 100), probe.configuration.port)
+        // radio 选址（root cause ②，2026-10-31 真机确认）：
+        // - 纯函数 RadioProbe.autoTarget 决定目标——普通自动 = 队号派生 10.T.E.1:80，
+        //   与 roboRIO manualIP 无关（旧实现填手动 IP 后 radio 灯亮来自 roboRIO:80）；
+        // - AUTO_SIM 保持 127.0.0.1 + 模拟 radio 端口 8080；
+        // - hostProvider 只捕获值盒（不跨线程读 MainActor 属性）；队号变化经 radioTeamBox 生效。
+        radioTeamBox.set(teamNumber)
+        let probe = RadioProbe(configuration: RadioProbe.Configuration())
+        probe.hostProvider = { [radioTeamBox] in
+            RadioProbe.autoTarget(autoSim: DSModel.isAutoSim, teamNumber: radioTeamBox.get())
         }
         probe.onResult = { [weak self] ok in
             Task { @MainActor in self?.radioReachable = ok }
@@ -374,15 +438,17 @@ final class DSModel {
     }
 
     // MARK: 主线程 50Hz：轮询 HID → 刷新槽位 → 填快照盒子
+    // 定时器都挂在主 runloop 上，回调天然在主线程：直接 MainActor.assumeIsolated 直达，
+    // 不再每 tick 包一层 Task { @MainActor }（50Hz×4 个定时器的无谓堆分配 + 执行器跳转）。
 
-    private func installTimers() {
+    func installTimers() {
         updateDSLogWriter()
         let dslog = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.appendDSLogEntry() }
+            MainActor.assumeIsolated { self?.appendDSLogEntry() }
         }
         RunLoop.main.add(dslog, forMode: .common)
         let poll = Timer(timeInterval: 0.02, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pollAndPublishSnapshot() }
+            MainActor.assumeIsolated { self?.pollAndPublishSnapshot() }
         }
         RunLoop.main.add(poll, forMode: .common)
         pollTimer = poll
@@ -393,7 +459,7 @@ final class DSModel {
         RunLoop.main.add(beat, forMode: .common)
 
         let elapsed = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, let since = self.enabledSince else { return }
                 self.enabledElapsed = Date().timeIntervalSince(since)
             }
@@ -404,12 +470,12 @@ final class DSModel {
 
     private var lastRescan = Date.distantPast
 
-    private func pollAndPublishSnapshot() {
-        // 刷新手柄实时值（UI 的 USB 页同源；列表重建 0.5s 防抖）
-        let devices = HIDInputManager.shared.pollAll()
-        for (i, slot) in joystickSlots.enumerated() {
+    func pollAndPublishSnapshot() {
+        // 控制路径（50Hz）：每 tick 刷新手柄实时值进 controlSlots（列表重建 0.5s 防抖）
+        let devices = hidPoller()
+        for (i, slot) in controlSlots.enumerated() {
             guard let device = devices.first(where: { $0.uniqueID == slot.uniqueID }) else { continue }
-            joystickSlots[i].apply(device)
+            controlSlots[i].apply(device)
         }
         if Date().timeIntervalSince(lastRescan) > 0.5 {
             lastRescan = Date()
@@ -421,14 +487,29 @@ final class DSModel {
         snap.control.enabled = enabled && watchdogHealthy && commConnected
         snap.control.estop = estopEngaged
         snap.alliance = alliance
-        snap.joysticks = joystickSlots.prefix(6).map(\.data)
-        snap.joystickDescriptors = joystickSlots.prefix(6).map(\.descriptor)
+        snap.joysticks = controlSlots.prefix(6).map(\.data)
+        snap.joystickDescriptors = controlSlots.prefix(6).map(\.descriptor)
         snap.matchTime = practiceTimeTag
         if !gameData.isEmpty { snap.gameData = gameData }
         if !competition.isEmpty || matchType != 0 {
             snap.matchInfo = .init(competition: competition, type: matchType)
         }
         snapshotBox.set(snap)
+        // UI 路径：可见手柄值 ~10Hz 节流发布（控制快照在上面已每 tick 发布）
+        publishVisibleSlotsIfDue()
+    }
+
+    /// 可见手柄值节流发布（≥100ms 一次；结构变化走 publishVisibleSlotsNow 立即发布）
+    private func publishVisibleSlotsIfDue() {
+        let now = Date().timeIntervalSinceReferenceDate
+        guard now - lastSlotsPublishAt >= 0.1 else { return }
+        lastSlotsPublishAt = now
+        joystickSlots = controlSlots
+    }
+
+    private func publishVisibleSlotsNow() {
+        lastSlotsPublishAt = Date().timeIntervalSinceReferenceDate
+        joystickSlots = controlSlots
     }
 
     private var practiceTimeTag: Float? {
@@ -578,6 +659,9 @@ final class DSModel {
     /// 验证急停触发/复位后快照同步刷新，不再依赖 50Hz 定时器时序）
     var latestPublishedSnapshotEstop: Bool { snapshotBox.get().control.estop }
 
+    /// 最近一次发布到控制环快照的手柄数据（控制路径行为回归用）
+    var latestPublishedJoysticks: [JoystickData] { snapshotBox.get().joysticks }
+
     // MARK: 操作员指令（安全门全部集中在这里）
 
     func setEnabled(_ on: Bool) {
@@ -669,7 +753,7 @@ final class DSModel {
         // 与 installTimers 一致用 .common 模式：scheduledTimer 默认 .default 模式，
         // 拖窗口/跟踪菜单期间不触发——比赛时序会在这些时刻停摆
         let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.practiceTick() }
+            MainActor.assumeIsolated { self?.practiceTick() }
         }
         RunLoop.main.add(t, forMode: .common)
         practiceTimer = t
@@ -839,14 +923,14 @@ final class DSModel {
     // MARK: 手柄槽位（锁定 = 设备钉住槽位索引）
 
     func rescanJoysticks() {
-        rebuildSlots(from: HIDInputManager.shared.pollAll())
+        rebuildSlots(from: hidPoller())
     }
 
     private func rebuildSlots(from snapshots: [HIDDeviceSnapshot]) {
-        var slots = [JoystickSlot?](repeating: nil, count: max(snapshots.count, joystickSlots.count))
+        var slots = [JoystickSlot?](repeating: nil, count: max(snapshots.count, controlSlots.count))
 
         var used = Set<String>()
-        for slot in joystickSlots {
+        for slot in controlSlots {
             guard let lockID = slot.lockedDeviceID,
                   let device = snapshots.first(where: { $0.uniqueID == lockID }) else { continue }
             let index = min(slot.index, slots.count - 1)
@@ -857,7 +941,7 @@ final class DSModel {
         var fill = snapshots.filter { !used.contains($0.uniqueID) }.makeIterator()
         for i in slots.indices where slots[i] == nil {
             if let device = fill.next() {
-                var s = joystickSlots.first { $0.uniqueID == device.uniqueID }
+                var s = controlSlots.first { $0.uniqueID == device.uniqueID }
                     ?? JoystickSlot(index: i, device: device)
                 s.index = i
                 s.apply(device)
@@ -865,22 +949,26 @@ final class DSModel {
                 slots[i] = s
             }
         }
-        joystickSlots = slots.compactMap { $0 }
+        controlSlots = slots.compactMap { $0 }
         lastHIDScanAt = Date()
+        // 结构变化不等节流窗口：立即发布到可见槽位
+        publishVisibleSlotsNow()
     }
 
     func moveSlot(_ index: Int, up: Bool) {
         let target = up ? index - 1 : index + 1
-        guard joystickSlots.indices.contains(index), joystickSlots.indices.contains(target) else { return }
-        joystickSlots.swapAt(index, target)
-        for (i, _) in joystickSlots.enumerated() { joystickSlots[i].index = i }
+        guard controlSlots.indices.contains(index), controlSlots.indices.contains(target) else { return }
+        controlSlots.swapAt(index, target)
+        for (i, _) in controlSlots.enumerated() { controlSlots[i].index = i }
+        publishVisibleSlotsNow()
     }
 
     func toggleLock(_ index: Int) {
-        guard joystickSlots.indices.contains(index) else { return }
-        joystickSlots[index].lockedDeviceID = joystickSlots[index].lockedDeviceID == nil
-            ? joystickSlots[index].uniqueID
+        guard controlSlots.indices.contains(index) else { return }
+        controlSlots[index].lockedDeviceID = controlSlots[index].lockedDeviceID == nil
+            ? controlSlots[index].uniqueID
             : nil
+        publishVisibleSlotsNow()
     }
 
     // MARK: .dslog 采样（1Hz）
@@ -911,7 +999,10 @@ final class DSModel {
     }
 
     private func appendDSLogEntry() {
-        macStatus = MacStatusMonitor.snapshot()
+        // 读后台采样缓存（IOKit/mach 重采样已移出主线程）；日志写器仍在本主线程 tick 内
+        if let sampled = macStatusSampler.latest {
+            macStatus = sampled
+        }
         localNetworkSummary = networkMonitor.summary
         appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }

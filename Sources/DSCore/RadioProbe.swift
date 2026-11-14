@@ -50,6 +50,8 @@ public final class SettingsStore {
 //
 // NI DS Diagnostics 的 Robot Radio 灯来自对 radio 网关的 ping；ICMP 需要特权，
 // 这里用短超时 TCP 连接作为可达性代理（radio 自带 web 服务，端口 80 常开）。
+// 2026-10-31 真机实测修正：OM5P 的 :80 可以回 RST（Connection refused）而 radio 在线——
+// TCP 结局里 connected 与 refused 都证明主机活着，只有超时/不可达/其他错误才判离线。
 
 public final class RadioProbe {
     public struct Configuration {
@@ -57,11 +59,26 @@ public final class RadioProbe {
         public var timeout: TimeInterval
         public var port: UInt16
 
-        public init(interval: TimeInterval = 2.0, timeout: TimeInterval = 0.6, port: UInt16 = 80) {
+        public init(interval: TimeInterval = 2.0, timeout: TimeInterval = 2.0, port: UInt16 = 80) {
             self.interval = interval
             self.timeout = timeout
             self.port = port
         }
+    }
+
+    /// 自动模式 radio 探测目标（纯函数，可测）：
+    /// - AUTO_SIM：本机模拟器 host + 非特权端口（默认 127.0.0.1:8080），与队号无关；
+    /// - 普通自动：队号派生 10.T.E.1:80（radio 网关）。manualIP 是 roboRIO 地址，
+    ///   不参与 radio 选址（2026-10-31：填手动 roboRIO IP 曾让 radio 灯误亮）；
+    /// - 队号未设置：nil（本轮不探测）。
+    public static func autoTarget(autoSim: Bool,
+                                  teamNumber: Int,
+                                  teamPort: UInt16 = 80,
+                                  simHost: String = "127.0.0.1",
+                                  simPort: UInt16 = 8080) -> (host: String, port: UInt16)? {
+        if autoSim { return (simHost, simPort) }
+        guard teamNumber > 0 else { return nil }
+        return (String(format: "10.%d.%d.1", teamNumber / 100, teamNumber % 100), teamPort)
     }
 
     /// 返回 nil = 本轮不探测（队伍号未设置等）
@@ -115,10 +132,18 @@ public final class RadioProbe {
     private func probeOnce() {
         guard let target = hostProvider() else { setResult(false); return }
         lock.lock(); attemptsValue += 1; lock.unlock()
-        let fd = DSClient.blockingTCPConnect(to: target.host, port: target.port, timeout: configuration.timeout)
-        let ok = fd >= 0
-        if fd >= 0 { close(fd) }
-        setResult(ok)
+        // connected / refused（RST）= radio 主机在线；timedOut / unreachable / error = 离线。
+        // connect 由 boundedTCPConnect 用 poll 截止时间限时，黑洞链路不再卡探测队列
+        // （2026-10-31 断线漏报 ~75s 的直接原因）。
+        switch DSClient.boundedTCPConnect(to: target.host, port: target.port, timeout: configuration.timeout) {
+        case .connected(let fd):
+            close(fd)
+            setResult(true)
+        case .refused:
+            setResult(true)
+        case .timedOut, .unreachable, .error:
+            setResult(false)
+        }
     }
 
     private func setResult(_ ok: Bool) {

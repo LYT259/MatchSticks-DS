@@ -386,14 +386,15 @@ func radioProbeTests() {
     let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.5, timeout: 0.5, port: 18_123))
     probe.hostProvider = { return (host: "127.0.0.1", port: 18_123) }
     probe.start()
-    Thread.sleep(forTimeInterval: 1.6)
-    check(probe.isReachable, "监听时可达（attempts " + String(probe.probeAttempts) + "）")
+    check(waitUntil(8.0) { probe.isReachable }, "监听时可达（attempts " + String(probe.probeAttempts) + "）")
 
-    // 关闭监听 → 不可达
+    // 关闭监听 → RST（Connection refused）。2026-10-31 真机实测 OM5P:80 活着但拒绝：
+    // ECONNREFUSED 证明 radio 主机在线，必须仍判可达；黑洞/超时路径的不可达判定
+    // 由 OM5PReadinessTests.radioProbeClassification 覆盖。
+    let attemptsBeforeClose = probe.probeAttempts
     close(listener)
-    Thread.sleep(forTimeInterval: 1.6)
-    check(!probe.isReachable, "监听关闭后不可达")
-    check(probe.probeAttempts >= 4, "探测按间隔进行（" + String(probe.probeAttempts) + " 次）")
+    check(waitUntil(8.0) { probe.probeAttempts >= attemptsBeforeClose + 2 }, "关闭后新探测已运行")
+    check(probe.isReachable, "监听关闭（RST）→ radio 主机仍在线")
     probe.stop()
 }
 
@@ -561,6 +562,8 @@ import DSCore
 @discardableResult
 func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: Bool = false, what: String) -> Bool {
     guard sock >= 0 else { check(false, "\(what)：套接字创建失败"); return false }
+    // DS 现在按真机要求 bind 1150；测试应答器保持临时源端口，避免同机抢端口。
+    if soft && port == NICodec.udpResponsePort { return true }
     var addr = sockaddr_in()
     addr.sin_family = sa_family_t(AF_INET)
     addr.sin_port = port.bigEndian
@@ -613,8 +616,9 @@ final class MRCResponder {
     func start() {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
+        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "MRC 应答器 控制口") else { return }
-        // 应答口 1150 只是真机形态；被占时不绑（内核给临时源端口）——DS 按源端口收包，语义不变
+        // soft 恒不绑 1150（DS 按真机要求占用该口）；应答器从临时源端口回送 DS 1150，语义不变
         _ = bindChecked(txSock, port: NICodec.udpResponsePort, soft: true,
                         what: "MRC 应答器 应答口（未绑上则退回临时源端口，不影响本场景）")
         Thread.detachNewThread { [weak self] in self?.loop() }
@@ -630,7 +634,7 @@ final class MRCResponder {
                     recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
                 }
             }
-            guard n > 0 else { continue }
+            if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             rawPackets += 1
             guard let packet = MRCPackets.decodeControl(Data(buf[0..<n])) else { continue }
             packets += 1
@@ -657,7 +661,7 @@ final class MRCResponder {
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { close(rxSock) }
+        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
         if txSock >= 0 { close(txSock) }
     }
 }
@@ -697,6 +701,7 @@ final class ScenarioServer {
     func start() -> Bool {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
+        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
         var reuse: Int32 = 1
         setsockopt(rxSock, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
         guard bindChecked(rxSock, port: controlPort, what: "场景应答器 控制口") else { return false }
@@ -717,7 +722,8 @@ final class ScenarioServer {
                     recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
                 }
             }
-            guard n > 0, let packet = NICodec.decodeControl(Data(buf[0..<n])) else { continue }
+            if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
+            guard let packet = NICodec.decodeControl(Data(buf[0..<n])) else { continue }
             lock.lock()
             packets += 1
             if packet.control.enabled { sawEnabled = true }
@@ -768,7 +774,7 @@ final class ScenarioServer {
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { close(rxSock) }
+        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
         if txSock >= 0 { close(txSock) }
     }
 }

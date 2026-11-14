@@ -9,7 +9,7 @@ import DSCore
 // MARK: - GHDSSim：roboRIO 1.0/2.0 模拟器
 //
 // 用途：无实体机器人时对 DS 做端到端验证（协议回归 + UI 链路）。
-// 行为：UDP 1110 收控制包 → 以 1150 端口应答（与真实 roboRIO 相同的「回送源端口」语义）；
+// 行为：UDP 1110 收控制包 → 回送 DS 1150（模拟器不占用 1150，避免与 DS 监听冲突）；
 //       TCP 1740 提供版本信息 / 周期 stdout / 错误消息 / 故障计数。
 // 安全说明：这是模拟器，只在本机/局域网内回应答包，不存在任何执行机构。
 
@@ -300,18 +300,11 @@ func runUDP(_ a: Args) {
     rxAddr.sin_port = a.udpPort.bigEndian
     rxAddr.sin_addr = in_addr(s_addr: INADDR_ANY)
 
-    var txAddr = sockaddr_in()
-    txAddr.sin_family = sa_family_t(AF_INET)
-    txAddr.sin_port = NICodec.udpResponsePort.bigEndian
-    txAddr.sin_addr = in_addr(s_addr: INADDR_ANY)
-
     let rxBind = withUnsafePointer(to: &rxAddr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(rxSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
     }
-    let txBind = withUnsafePointer(to: &txAddr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(txSock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-    }
-    guard rxBind == 0, txBind == 0 else { simLog("udp bind failed (port \(a.udpPort)/1150 in use?)"); exit(1) }
+    // DS 按真机要求 bind 1150；模拟器 txSock 保持临时源端口，避免同机抢占。
+    guard rxBind == 0 else { simLog("udp bind failed (port \(a.udpPort) in use?)"); exit(1) }
 
     DispatchQueue.global(qos: .userInitiated).async {
         var buffer = [UInt8](repeating: 0, count: 4096)
@@ -392,7 +385,7 @@ func runUDP(_ a: Args) {
             let reply = robot.response(for: src)
             guard !reply.isEmpty else { continue }
 
-            // 以 1150 端口回送到 DS 源地址:源端口（真实 roboRIO 语义）
+            // 从临时源端口回送 DS 源地址:1150（真实 roboRIO 应答目标端口；模拟器不占用 1150）
             let sent = withUnsafePointer(to: &dst) { dstPtr in
                 dstPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
                     reply.withUnsafeBytes { raw in
@@ -575,7 +568,7 @@ print("""
 │  GHDSSim v\(version) — roboRIO 模拟器（GH Driver Station）  │
 └─────────────────────────────────────────────────────┘
   协议模式     : \(args.mrc ? "MRC V2（SystemCore）" : "NI（roboRIO 1.0/2.0）")
-  UDP 控制通道 : 0.0.0.0:\(args.udpPort) → 应答源端口 1150
+  UDP 控制通道 : 0.0.0.0:\(args.udpPort) → 回送 DS 1150（模拟器源端口临时）
   TCP 慢速通道 : 0.0.0.0:\(args.tcpPort)
   MOCK 摄像头  : \(args.cameraPort == 0 ? "关闭" : "127.0.0.1:\(args.cameraPort)/frame.jpg")
   等待 Driver Station 连接…（DS 侧 team 模式或手动 IP 127.0.0.1）

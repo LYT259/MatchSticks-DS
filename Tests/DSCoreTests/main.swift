@@ -15,9 +15,10 @@ final class LoopbackResponder {
     func start() {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
+        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "回环应答器 控制口") else { return }
         _ = bindChecked(txSock, port: NICodec.udpResponsePort, soft: true,
-                        what: "回环应答器 应答口（未绑上则退回临时源端口）")
+                        what: "回环应答器 应答口（soft 恒不绑 1150，避免占用 DS 监听端口）")
         Thread.detachNewThread { [weak self] in self?.loop() }
     }
 
@@ -32,7 +33,8 @@ final class LoopbackResponder {
                     recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
                 }
             }
-            guard n > 0, let packet = NICodec.decodeControl(Data(buf[0..<n])) else { continue }
+            if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
+            guard let packet = NICodec.decodeControl(Data(buf[0..<n])) else { continue }
             packetsSeen += 1
             if packet.control.enabled { sawEnabled = true }
             if packet.control.estop { sawEstop = true }
@@ -67,7 +69,7 @@ final class LoopbackResponder {
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { close(rxSock) }
+        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
         if txSock >= 0 { close(txSock) }
     }
 }
@@ -374,6 +376,7 @@ runTest("axisEncodingSaturation", axisEncodingSaturation)
 runTest("loopbackIntegration", loopbackIntegrationTest)
 runAllPhase2Tests()
 runAllPhase4Tests()
+runAllOM5PReadinessTests()
 
 print("\n\(checks) checks, \(failures.count) failures")
 for f in failures { print("  ✗ \(f)") }

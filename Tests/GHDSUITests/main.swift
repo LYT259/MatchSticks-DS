@@ -164,6 +164,158 @@ struct UIStateTests {
         flow3.downloadCompleted(version: "x")
         if case .blocked(let r) = flow3.requestRestart() { check(r.contains("未接入"), "missing gate provider blocks conservatively") } else { check(false, "expected conservative block") }
 
+        // ===== OM5P UI stall / 控制环性能回归（2026-11-14）=====
+
+        // ① Diag 常驻输出句柄 + HeartbeatBox 停滞探针
+        let diagPath = NSTemporaryDirectory() + "ghds-diag-\(UUID().uuidString).log"
+        check(Diag.setFileOutput(path: diagPath), "diag file output opens")
+        Diag.write("line-one")
+        Diag.write("line-two")
+        let diagText = (try? String(contentsOf: URL(fileURLWithPath: diagPath), encoding: .utf8)) ?? ""
+        check(diagText.contains("line-one\nline-two"), "diag appends lines in order without truncation")
+        try? FileManager.default.removeItem(atPath: diagPath)
+        Diag.write("after-unlink")
+        check(!FileManager.default.fileExists(atPath: diagPath), "diag handle persists instead of reopening per line")
+
+        let hb = HeartbeatBox()
+        let stallPath = NSTemporaryDirectory() + "ghds-diag-stall-\(UUID().uuidString).log"
+        Diag.setFileOutput(path: stallPath)
+        hb.beat()
+        Thread.sleep(forTimeInterval: 0.15)
+        hb.beat()
+        let stallText = (try? String(contentsOf: URL(fileURLWithPath: stallPath), encoding: .utf8)) ?? ""
+        check(stallText.contains("UI stall"), "heartbeat stall probe still fires after a >100ms gap")
+        check(hb.ageSeconds() < 0.05, "heartbeat age resets on beat")
+
+        // 并发追加原子性：两线程各 200 行，O_APPEND 单次 write(2) 不丢行、不撕裂
+        let linesBefore = stallText.split(separator: "\n").count
+        let writeGroup = DispatchGroup()
+        for t in 0..<2 {
+            writeGroup.enter()
+            DispatchQueue.global().async {
+                defer { writeGroup.leave() }
+                for i in 0..<200 { Diag.write("thread\(t) line\(i)") }
+            }
+        }
+        check(writeGroup.wait(timeout: .now() + 10) == .success, "concurrent diag writes complete without deadlock")
+        let afterText = (try? String(contentsOf: URL(fileURLWithPath: stallPath), encoding: .utf8)) ?? ""
+        let afterLines = afterText.split(separator: "\n")
+        check(afterLines.count == linesBefore + 400, "concurrent appends lose no lines (atomic append)")
+        check(afterLines.allSatisfy { $0.hasPrefix("UI stall") || $0.hasPrefix("thread") }, "no torn lines under concurrent append")
+
+        // 并发 beat 风暴（快速连打，不触阈）：无死锁、ageSeconds 仍即时可读
+        let hb2 = HeartbeatBox()
+        let stormGroup = DispatchGroup()
+        for _ in 0..<2 {
+            stormGroup.enter()
+            DispatchQueue.global().async {
+                defer { stormGroup.leave() }
+                for _ in 0..<2000 { hb2.beat() }
+            }
+        }
+        check(stormGroup.wait(timeout: .now() + 10) == .success, "concurrent beat storm completes without deadlock")
+        check(hb2.ageSeconds() < 0.5, "ageSeconds answers after the beat storm")
+
+        // 逐跳越阈：每个 >100ms 的 beat 都留一行 stall 记录（探针行为回归）
+        let hb3 = HeartbeatBox()
+        hb3.beat()
+        for _ in 0..<30 {
+            Thread.sleep(forTimeInterval: 0.105)
+            hb3.beat()
+        }
+        let finalStallText = (try? String(contentsOf: URL(fileURLWithPath: stallPath), encoding: .utf8)) ?? ""
+        let stallLines = finalStallText.split(separator: "\n").filter { $0.hasPrefix("UI stall") }
+        check(stallLines.count >= 31, "every over-threshold beat leaves a stall line")
+        check(stallLines.allSatisfy { $0.hasSuffix("ms") }, "stall lines keep their format")
+
+        // ② 手柄：控制快照逐 tick（50Hz）刷新；SwiftUI 可见值 ~10Hz 节流
+        final class StickFeed {
+            var primary: Float = 0
+            var secondary: Float?
+            var devices: [HIDDeviceSnapshot] {
+                var list = [HIDDeviceSnapshot(uniqueID: "a1:11:s", name: "Bench Stick", vendorID: 0x045E, productID: 0x028E,
+                                              axes: [primary], axisUsages: [0x30], buttons: 1, buttonCount: 1,
+                                              povs: [], isXbox: true)]
+                if let secondary {
+                    list.append(HIDDeviceSnapshot(uniqueID: "b2:22:s", name: "Second Stick", vendorID: 0x046D, productID: 0xC215,
+                                                  axes: [secondary], axisUsages: [0x30], buttons: 0, buttonCount: 0,
+                                                  povs: [], isXbox: false))
+                }
+                return list
+            }
+        }
+
+        let jm = DSModel()
+        let feed = StickFeed()
+        jm.hidPoller = { feed.devices }
+        feed.primary = 0.1
+        jm.pollAndPublishSnapshot()
+        check(jm.joystickSlots.count == 1 && jm.joystickSlots[0].axes.first == 0.1, "first poll publishes the visible slot immediately")
+        check(jm.latestPublishedJoysticks.first?.axes.first == 0.1, "control snapshot follows the first poll")
+        feed.primary = 0.9
+        jm.pollAndPublishSnapshot()
+        check(jm.latestPublishedJoysticks.first?.axes.first == 0.9, "control snapshot refreshes on every poll (50Hz control path intact)")
+        check(jm.joystickSlots[0].axes.first == 0.1, "visible joystick value is throttled inside the 100ms window")
+        Thread.sleep(forTimeInterval: 0.11)
+        feed.primary = 0.5
+        jm.pollAndPublishSnapshot()
+        check(jm.joystickSlots[0].axes.first == 0.5, "visible value catches up after the throttle window")
+        check(jm.latestPublishedJoysticks.first?.axes.first == 0.5, "control snapshot stays current after the window")
+
+        // 结构操作不受值节流影响：设备加入与槽位锁定立即发布（过了 0.5s 重扫防抖后）
+        Thread.sleep(forTimeInterval: 0.55)
+        feed.secondary = 0.2
+        jm.pollAndPublishSnapshot()
+        check(jm.joystickSlots.count == 2, "device arrival publishes structure immediately")
+        jm.toggleLock(0)
+        check(jm.joystickSlots[0].lockedDeviceID != nil, "slot locking is immediately visible")
+
+        // 发布速率边界：~20ms 节拍连打 25 次，可见值 ~10Hz、控制快照 25/25
+        let jmRate = DSModel()
+        let feedRate = StickFeed()
+        jmRate.hidPoller = { feedRate.devices }
+        var visibleChanges = 0
+        var lastVisible: Float?
+        let rateStart = Date()
+        for i in 0..<25 {
+            feedRate.primary = Float(i)
+            jmRate.pollAndPublishSnapshot()
+            if jmRate.joystickSlots.first?.axes.first != lastVisible {
+                visibleChanges += 1
+                lastVisible = jmRate.joystickSlots.first?.axes.first
+            }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let rateElapsed = max(Date().timeIntervalSince(rateStart), 0.001)
+        let visibleRate = Double(visibleChanges) / rateElapsed
+        check(visibleRate <= 20, "visible joystick publish rate stays capped near 10Hz (was 50Hz)")
+        check(visibleRate >= 3, "visible joystick values keep refreshing")
+        check(jmRate.latestPublishedJoysticks.first?.axes.first == 24, "control snapshot tracked all 25 polls")
+
+        // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
+        let sampler = MacStatusMonitor.BackgroundSampler()
+        sampler.start()
+        Thread.sleep(forTimeInterval: 1.3)
+        let macSnap = sampler.latest
+        check(macSnap != nil, "mac status sampled while the main thread stayed blocked")
+        check(macSnap.map { $0.systemCPUPercent >= 0 && $0.systemCPUPercent <= 100 } == true, "cpu percent stays a valid percentage")
+        sampler.stop()
+
+        // ④ 定时器直连主线程（不再逐 tick 包 Task）：runloop 驱动 轮询→快照→节流发布 全链路
+        let jmRun = DSModel()
+        jmRun.dslogEnabled = false   // 测试不落盘会话日志
+        let feedRun = StickFeed()
+        feedRun.primary = 0.25
+        jmRun.hidPoller = { feedRun.devices }
+        jmRun.installTimers()
+        let runDeadline = Date().addingTimeInterval(0.3)
+        while Date() < runDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        check(jmRun.joystickSlots.count == 1 && jmRun.joystickSlots[0].axes.first == 0.25, "timer-driven polling populates the visible slot")
+        check(jmRun.latestPublishedJoysticks.first?.axes.first == 0.25, "timer-driven polling feeds the control snapshot")
+        try? FileManager.default.removeItem(atPath: stallPath)
+
         print("GHDS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)

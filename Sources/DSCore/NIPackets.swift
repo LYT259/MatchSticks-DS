@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - NI 协议（roboRIO 1.0 / 2.0）编解码
 // 依据：frcnetworking.readthedocs.io（ds_to_rio / rio_to_ds，2026-09-15 核查快照）。
-// 事实约定：UDP 控制包每 20ms（DS→1110，FMS 下 1115；robot→1150 回送源端口）；
+// 事实约定：UDP 控制包每 20ms（DS→1110，FMS 下 1115；robot→DS 固定 1150，2026-11-14 roboRIO 2.0 真机验证）；
 // UDP tag 框架 = Size(u8, 含 ID 字节) + ID(u8) + Data；TCP 1740 帧 = Size(u16, 含 ID) + ID(u8)。
 // 协议年份差异（2014–2026 packet 变体）按报告 §3.1 处理：本实现覆盖现行 0x01 comm version 主干。
 
@@ -247,9 +247,12 @@ public enum NICodec {
             tag.u8(UInt8(axes.count))
             for a in axes { tag.i8(a) }
 
-            let buttonBits = max(js.buttonCount, 0)
-            tag.u8(UInt8(min(buttonBits, 64)))
-            let buttonBytes = buttonBits == 0 ? 0 : (buttonBits + 7) / 8
+            // 声明数与字节数必须同源：声明数截到 64，字节数按截断后的声明数算。
+            // 旧实现字节数用未截断 n：n>64 时多写按钮字节，对端按声明数读完 8 字节后
+            // 把第 9 个按钮字节误当 POV 计数（root cause ⑥，n>64 手柄必现）
+            let declaredButtons = min(max(js.buttonCount, 0), 64)
+            tag.u8(UInt8(declaredButtons))
+            let buttonBytes = declaredButtons == 0 ? 0 : (declaredButtons + 7) / 8
             for byteIndex in 0 ..< buttonBytes {
                 var byte: UInt8 = 0
                 for bit in 0 ..< 8 {
