@@ -143,6 +143,21 @@ final class HIDInputManager {
         )
     }
 
+    /// IOHIDDeviceGetValue 的 out 参数在 macOS 27 SDK 导入为非 Optional 指针
+    /// （UnsafeMutablePointer<Unmanaged<IOHIDValue>>）：直接把 IUO 变量以 & 传入，
+    /// Swift 会在调用前隐式强解包，nil 即 Trap 5——2026-11-14 F310 真机首崩点。
+    /// 以 Optional 存储 + 内存重绑定传递（Optional<Unmanaged<T>> 与 Unmanaged<T>
+    /// 同尺寸，指针 nil 位即 .none），失败/未写入一律返回 nil。
+    private static func hidValue(_ device: IOHIDDevice, _ element: IOHIDElement) -> Unmanaged<IOHIDValue>? {
+        var value: Unmanaged<IOHIDValue>? = nil
+        let result = withUnsafeMutablePointer(to: &value) { ptr in
+            ptr.withMemoryRebound(to: Unmanaged<IOHIDValue>.self, capacity: 1) {
+                IOHIDDeviceGetValue(device, element, $0)
+            }
+        }
+        return result == kIOReturnSuccess ? value : nil
+    }
+
     /// 全量轮询（控制环对齐：每 UI 帧或每快照调用一次）
     func pollAll() -> [HIDDeviceSnapshot] {
         enumerateDeviceListIfNeeded()
@@ -150,9 +165,7 @@ final class HIDInputManager {
         for record in deviceRecords {
             var axes: [Float] = []
             for (element, _, minV, maxV) in record.axisElements {
-                var value: Unmanaged<IOHIDValue>!
-                let ok = IOHIDDeviceGetValue(record.device, element, &value)
-                if ok == kIOReturnSuccess, let v = value {
+                if let v = Self.hidValue(record.device, element) {
                     let raw = Int(IOHIDValueGetIntegerValue(v.takeUnretainedValue()))
                     let lo = Int(minV), hi = Int(maxV)
                     let span = hi - lo
@@ -166,8 +179,7 @@ final class HIDInputManager {
             var buttons: UInt64 = 0
             var highestButton = 0
             for (element, number) in record.buttonElements {
-                var value: Unmanaged<IOHIDValue>!
-                if IOHIDDeviceGetValue(record.device, element, &value) == kIOReturnSuccess, let v = value {
+                if let v = Self.hidValue(record.device, element) {
                     if IOHIDValueGetIntegerValue(v.takeUnretainedValue()) != 0, number >= 1, number <= 64 {
                         buttons |= 1 << UInt64(number - 1)
                     }
@@ -177,8 +189,7 @@ final class HIDInputManager {
 
             var povs: [Int16] = []
             for (element, hatMin, hatMax) in record.hatElements {
-                var value: Unmanaged<IOHIDValue>!
-                if IOHIDDeviceGetValue(record.device, element, &value) == kIOReturnSuccess, let v = value {
+                if let v = Self.hidValue(record.device, element) {
                     let raw = Int(IOHIDValueGetIntegerValue(v.takeUnretainedValue()))
                     povs.append(JoystickData.povAngle(raw: raw, logicalMin: hatMin, logicalMax: hatMax))
                 } else {
