@@ -268,6 +268,12 @@ func manualResponseSourceTests() {
           "自动发现允许合法新来源")
     check(!DSClient.shouldAcceptResponse(srcIP: "10.110.19.2", connectedHost: "127.0.0.1", manualIP: nil),
           "已连接后拒绝其他主机")
+    check(!DSClient.shouldAcceptResponse(srcIP: "10.110.19.2", connectedHost: nil, manualIP: nil,
+                                          allowedHosts: ["10.88.10.2", "172.22.11.2"]),
+          "切到 8810 后忽略旧 11019 机器人的残留应答")
+    check(DSClient.shouldAcceptResponse(srcIP: "10.88.10.2", connectedHost: nil, manualIP: nil,
+                                        allowedHosts: ["10.88.10.2", "172.22.11.2"]),
+          "自动发现接受新候选内的主机")
 }
 
 func sendRotationTests() {

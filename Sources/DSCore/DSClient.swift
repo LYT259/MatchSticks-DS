@@ -216,6 +216,11 @@ public final class DSClient {
         currentTarget = nil
         candidateIndex = 0
         if tcpConnected { closeTCPLocked() }
+        if isConnectedLocked {
+            commState = .searching
+            emit(.commState(.searching))
+            emit(.autoDisabled(reason: "connection target changed"))
+        }
     }
 
     /// 发送候选构造（纯函数，可测）：手动模式只发 manualIP；自动模式 = 队号 .2 + USB。
@@ -334,7 +339,9 @@ public final class DSClient {
 
             let srcIP = Self.ipString(from: src)
             let connectedHost: String? = { if case .connected(let h) = commState { return h }; return nil }()
-            guard Self.shouldAcceptResponse(srcIP: srcIP, connectedHost: connectedHost, manualIP: config.manualIP) else { continue }
+            let allowedHosts = Self.sendRotation(staticCandidates: candidates, resolvedMDNS: resolvedMDNS)
+            guard Self.shouldAcceptResponse(srcIP: srcIP, connectedHost: connectedHost,
+                                            manualIP: config.manualIP, allowedHosts: allowedHosts) else { continue }
             let decoded: NICodec.ResponsePacket?
             switch config.protocolKind {
             case .ni:
@@ -414,9 +421,11 @@ public final class DSClient {
     }
 
     /// 已连接时只收当前主机；手动 IP 模式只收指定主机；自动发现才接受其他合法来源。
-    public static func shouldAcceptResponse(srcIP: String, connectedHost: String?, manualIP: String?) -> Bool {
+    public static func shouldAcceptResponse(srcIP: String, connectedHost: String?, manualIP: String?,
+                                             allowedHosts: [String]? = nil) -> Bool {
         if let connectedHost { return srcIP == connectedHost }
         if let manualIP { return srcIP == manualIP }
+        if let allowedHosts { return allowedHosts.contains(srcIP) }
         return true
     }
 
