@@ -254,7 +254,53 @@ public final class DSClient {
         guard fd >= 0 else { emit(.log("UDP socket create failed")); return }
         let flags = fcntl(fd, F_GETFL, 0)
         _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        var reuse: Int32 = 1
+        _ = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        // 2026-11-14 roboRIO 2.0 真机验证：应答固定发往 DS UDP 1150。
+        // 旧实现不 bind，内核分配临时端口，真机应答因此全部收不到。
+        var local = sockaddr_in()
+        local.sin_family = sa_family_t(AF_INET)
+        local.sin_port = NICodec.udpResponsePort.bigEndian
+        local.sin_addr.s_addr = 0
+        let bound = withUnsafePointer(to: &local) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                bind(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard bound == 0 else {
+            emit(.log("UDP bind 1150 failed: errno \(errno)"))
+            close(fd)
+            return
+        }
         udpSock = fd
+        flushStaleUDPPacketsLocked()
+    }
+
+    private func flushStaleUDPPacketsLocked() {
+        guard udpSock >= 0 else { return }
+        while true {
+            var src = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            let n = withUnsafeMutablePointer(to: &src) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    recvfrom(udpSock, &buffer, buffer.count, 0, sa, &len)
+                }
+            }
+            if n <= 0 { break }
+        }
+    }
+
+    public var localUDPPortForTest: UInt16? {
+        queue.sync {
+            guard udpSock >= 0 else { return nil }
+            var addr = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            guard getsockname(udpSock, withUnsafeMutablePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in sa }
+            }, &len) == 0 else { return nil }
+            return UInt16(bigEndian: addr.sin_port)
+        }
     }
 
     private func closeUDPLocked() {
@@ -287,8 +333,8 @@ public final class DSClient {
             count += 1
 
             let srcIP = Self.ipString(from: src)
-            // 已连接：严格只收当前目标；搜索中：接受任何能解出合法应答的来源（LAN 上即机器人）
-            if case .connected(let host) = commState, srcIP != host { continue }
+            let connectedHost: String? = { if case .connected(let h) = commState { return h }; return nil }()
+            guard Self.shouldAcceptResponse(srcIP: srcIP, connectedHost: connectedHost, manualIP: config.manualIP) else { continue }
             let decoded: NICodec.ResponsePacket?
             switch config.protocolKind {
             case .ni:
@@ -365,6 +411,13 @@ public final class DSClient {
             }
             emit(.response(packet))
         }
+    }
+
+    /// 已连接时只收当前主机；手动 IP 模式只收指定主机；自动发现才接受其他合法来源。
+    public static func shouldAcceptResponse(srcIP: String, connectedHost: String?, manualIP: String?) -> Bool {
+        if let connectedHost { return srcIP == connectedHost }
+        if let manualIP { return srcIP == manualIP }
+        return true
     }
 
     static func ipString(from addr: sockaddr_in) -> String {
@@ -552,7 +605,7 @@ public final class DSClient {
         case error(errno: Int32)
     }
 
-    /// 非阻塞 connect + poll 截止时间 + SO_ERROR 分类。
+    /// 非阻塞 connect + select 截止时间 + SO_ERROR 分类。
     /// 旧实现（blockingTCPConnect，已移除）设 SO_SNDTIMEO/RCVTIMEO 后直接阻塞 connect——
     /// 这两个选项不约束 connect 本身，黑洞链路会挂到内核 TCP 超时（~75s），且把
     /// ECONNREFUSED 与其他失败一并吞成 -1，OM5P 在线时的 RST 被误判离线
@@ -592,8 +645,15 @@ public final class DSClient {
             let spentMs = Int(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
             let remainingMs = deadlineMs - spentMs
             if remainingMs <= 0 { close(fd); return .timedOut }
-            var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-            let prc = poll(&pfd, 1, Int32(remainingMs))
+            // macOS 的 OM5P 实网 RST 下 poll(POLLOUT 可能不醒；select 的写/异常集合能可靠返回。
+            var writeSet = fd_set()
+            var errorSet = fd_set()
+            bzero(&writeSet, MemoryLayout<fd_set>.size)
+            bzero(&errorSet, MemoryLayout<fd_set>.size)
+            __darwin_fd_set(fd, &writeSet)
+            __darwin_fd_set(fd, &errorSet)
+            var wait = timeval(tv_sec: remainingMs / 1000, tv_usec: Int32((remainingMs % 1000) * 1000))
+            let prc = select(fd + 1, nil, &writeSet, &errorSet, &wait)
             if prc > 0 { break }
             if prc < 0, errno == EINTR { continue }
             if prc < 0 { let e = errno; close(fd); return .error(errno: e) }

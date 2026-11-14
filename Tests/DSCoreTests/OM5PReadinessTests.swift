@@ -85,6 +85,7 @@ final class GarbageResponder {
     func start() -> Bool {
         rxSock = socket(AF_INET, SOCK_DGRAM, 0)
         txSock = socket(AF_INET, SOCK_DGRAM, 0)
+        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "畸形应答器 控制口") else { return false }
         Thread.detachNewThread { [weak self] in self?.loop() }
         return true
@@ -100,7 +101,7 @@ final class GarbageResponder {
                     recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
                 }
             }
-            guard n > 0 else { continue }
+            if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             replies += 1
             withUnsafePointer(to: &src) { dst in
                 dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
@@ -114,7 +115,7 @@ final class GarbageResponder {
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { close(rxSock) }
+        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
         if txSock >= 0 { close(txSock) }
     }
 }
@@ -225,6 +226,8 @@ func radioProbeClassificationTests() {
 // MARK: ② radio 自动选址（纯函数）：队号 .1，与 roboRIO manualIP 无关
 
 func radioAutoTargetTests() {
+    check(RadioProbe.Configuration().timeout == 2.0, "OM5P 的 RST 实网约 1s，默认探测截止需 ≥2s")
+
     let sim = RadioProbe.autoTarget(autoSim: true, teamNumber: 11019)
     check(sim?.host == "127.0.0.1", "AUTO_SIM 固定本机模拟器 host（got \(sim?.host ?? "nil")）")
     check(sim?.port == 8080, "AUTO_SIM 用非特权模拟 radio 端口 8080（got \(sim?.port ?? 0)）")
@@ -254,6 +257,17 @@ func sendCandidatesTests() {
     check(!noTeam.contains { $0.hasSuffix(".local") }, "无队号也不含 .local")
 }
 
+func manualResponseSourceTests() {
+    check(!DSClient.shouldAcceptResponse(srcIP: "10.110.19.2", connectedHost: nil, manualIP: "127.0.0.1"),
+          "手动 127.0.0.1 时忽略真实 roboRIO 的其他地址，避免仿真误连")
+    check(DSClient.shouldAcceptResponse(srcIP: "127.0.0.1", connectedHost: nil, manualIP: "127.0.0.1"),
+          "手动指定地址本身可接受")
+    check(DSClient.shouldAcceptResponse(srcIP: "10.110.19.2", connectedHost: nil, manualIP: nil),
+          "自动发现允许合法新来源")
+    check(!DSClient.shouldAcceptResponse(srcIP: "10.110.19.2", connectedHost: "127.0.0.1", manualIP: nil),
+          "已连接后拒绝其他主机")
+}
+
 func sendRotationTests() {
     let rotation = DSClient.sendRotation(
         staticCandidates: ["10.25.90.2", "172.22.11.2"],
@@ -279,6 +293,8 @@ func startEmitsSearchingTest() {
     client.updateConfig { $0.manualIP = "127.0.0.1" }
     client.start()
     Thread.sleep(forTimeInterval: 0.4)
+    check(client.localUDPPortForTest == NICodec.udpResponsePort,
+          "roboRIO 2.0 真机应答固定发往 1150，UDP 本地端口不得再随机分配")
     client.stop()
 
     box.lock.lock(); defer { box.lock.unlock() }
@@ -392,6 +408,7 @@ func runAllOM5PReadinessTests() {
     runTest("radioProbeClassification", radioProbeClassificationTests)
     runTest("radioAutoTarget", radioAutoTargetTests)
     runTest("sendCandidatesNoHostname", sendCandidatesTests)
+    runTest("manualResponseSource", manualResponseSourceTests)
     runTest("sendRotationUnique", sendRotationTests)
     runTest("startEmitsSearching", startEmitsSearchingTest)
     runTest("malformedResponseLogging", malformedResponseLoggingTests)

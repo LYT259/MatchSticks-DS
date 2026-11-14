@@ -59,7 +59,7 @@ public final class RadioProbe {
         public var timeout: TimeInterval
         public var port: UInt16
 
-        public init(interval: TimeInterval = 2.0, timeout: TimeInterval = 0.6, port: UInt16 = 80) {
+        public init(interval: TimeInterval = 2.0, timeout: TimeInterval = 2.0, port: UInt16 = 80) {
             self.interval = interval
             self.timeout = timeout
             self.port = port

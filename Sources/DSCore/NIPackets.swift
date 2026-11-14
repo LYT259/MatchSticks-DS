@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - NI 协议（roboRIO 1.0 / 2.0）编解码
 // 依据：frcnetworking.readthedocs.io（ds_to_rio / rio_to_ds，2026-09-15 核查快照）。
-// 事实约定：UDP 控制包每 20ms（DS→1110，FMS 下 1115；robot→1150 回送源端口）；
+// 事实约定：UDP 控制包每 20ms（DS→1110，FMS 下 1115；robot→DS 固定 1150，2026-11-14 roboRIO 2.0 真机验证）；
 // UDP tag 框架 = Size(u8, 含 ID 字节) + ID(u8) + Data；TCP 1740 帧 = Size(u16, 含 ID) + ID(u8)。
 // 协议年份差异（2014–2026 packet 变体）按报告 §3.1 处理：本实现覆盖现行 0x01 comm version 主干。
 
