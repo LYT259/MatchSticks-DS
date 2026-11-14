@@ -386,14 +386,15 @@ func radioProbeTests() {
     let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.5, timeout: 0.5, port: 18_123))
     probe.hostProvider = { return (host: "127.0.0.1", port: 18_123) }
     probe.start()
-    Thread.sleep(forTimeInterval: 1.6)
-    check(probe.isReachable, "监听时可达（attempts " + String(probe.probeAttempts) + "）")
+    check(waitUntil(8.0) { probe.isReachable }, "监听时可达（attempts " + String(probe.probeAttempts) + "）")
 
-    // 关闭监听 → 不可达
+    // 关闭监听 → RST（Connection refused）。2026-10-31 真机实测 OM5P:80 活着但拒绝：
+    // ECONNREFUSED 证明 radio 主机在线，必须仍判可达；黑洞/超时路径的不可达判定
+    // 由 OM5PReadinessTests.radioProbeClassification 覆盖。
+    let attemptsBeforeClose = probe.probeAttempts
     close(listener)
-    Thread.sleep(forTimeInterval: 1.6)
-    check(!probe.isReachable, "监听关闭后不可达")
-    check(probe.probeAttempts >= 4, "探测按间隔进行（" + String(probe.probeAttempts) + " 次）")
+    check(waitUntil(8.0) { probe.probeAttempts >= attemptsBeforeClose + 2 }, "关闭后新探测已运行")
+    check(probe.isReachable, "监听关闭（RST）→ radio 主机仍在线")
     probe.stop()
 }
 

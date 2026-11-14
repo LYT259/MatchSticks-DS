@@ -13,14 +13,46 @@ struct MacStatusSnapshot: Sendable {
 }
 
 enum MacStatusMonitor {
-    private static var lastTicks: (idle: UInt64, total: UInt64)?
+    /// 后台重采样器：IOKit.ps / mach 采样按节拍在私有串行队列执行（系统 CPU 占用是
+    /// 相邻两次 tick 的差分，采样状态只属于该队列）；主线程只经 latest 读缓存快照，
+    /// 不再在 1Hz UI tick 里承担采样成本。日志写器（.dslog/.wpilog）线程语义不变。
+    final class BackgroundSampler: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "gh.driverstation.macstatus", qos: .utility)
+        private let lock = NSLock()
+        private var cached: MacStatusSnapshot?
+        private var timer: DispatchSourceTimer?
+        // 采样差分状态（仅 queue 上访问）
+        private var lastTicks: (idle: UInt64, total: UInt64)?
 
-    static func snapshot() -> MacStatusSnapshot {
-        var s = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
-        (s.batteryPercent, s.onAC) = battery()
-        s.systemCPUPercent = systemCPU()
-        s.processMemoryMB = processMemory()
-        return s
+        /// 最近一次后台采样结果（尚未采到时为 nil）
+        var latest: MacStatusSnapshot? {
+            lock.lock(); defer { lock.unlock() }
+            return cached
+        }
+
+        /// start/stop 与 latest 可跨线程；timer 句柄只在属主（主线程）碰
+        func start(interval: TimeInterval = 1.0) {
+            guard timer == nil else { return }
+            let t = DispatchSource.makeTimerSource(queue: queue)
+            // 立即首采样：latest 尽快可用，此后每 interval 一跳
+            t.schedule(deadline: .now(), repeating: interval)
+            t.setEventHandler { [weak self] in self?.sample() }
+            t.resume()
+            timer = t
+        }
+
+        func stop() {
+            timer?.cancel()
+            timer = nil
+        }
+
+        private func sample() {
+            var s = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
+            (s.batteryPercent, s.onAC) = MacStatusMonitor.battery()
+            s.systemCPUPercent = MacStatusMonitor.systemCPU(&lastTicks)
+            s.processMemoryMB = MacStatusMonitor.processMemory()
+            lock.lock(); cached = s; lock.unlock()
+        }
     }
 
     private static func battery() -> (Int?, Bool?) {
@@ -40,8 +72,8 @@ enum MacStatusMonitor {
         return (nil, nil)
     }
 
-    /// 全系统 CPU 占用（两次采样 tick 差值；首次返回粗略值）
-    private static func systemCPU() -> Double {
+    /// 全系统 CPU 占用（两次采样 tick 差值；首次返回 0）
+    private static func systemCPU(_ lastTicks: inout (idle: UInt64, total: UInt64)?) -> Double {
         var cpuLoad = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.size / MemoryLayout<integer_t>.size)
         let result = withUnsafeMutablePointer(to: &cpuLoad) {

@@ -132,6 +132,11 @@ public final class DSClient {
     private var watchdogTripStart: Double = 0
     private var statsWindowConnected = false
 
+    /// 坏应答限流状态（loop queue 所有；按来源 IP 一份）
+    private var malformedLogState: [String: (at: Double, suppressed: Int)] = [:]
+    private static let malformedLogWindow = 10.0
+    private static let malformedLogMaxSources = 32
+
     private let resolverQueue = DispatchQueue(label: "gh.driverstation.resolver", qos: .utility)
     private var resolvedMDNS: [String] = []
     private var lastResolveAt: Double = 0
@@ -162,6 +167,11 @@ public final class DSClient {
             self.running = true
             self.rebuildCandidatesLocked()
             self.openUDPLocked()
+            // 启动即宣告搜索态：否则无应答时 UI 停在 idle，看不出正在找机器人（root cause ④）
+            if !self.isConnectedLocked {
+                self.commState = .searching
+                self.emit(.commState(.searching))
+            }
             let t = DispatchSource.makeTimerSource(queue: self.queue)
             t.schedule(deadline: .now(), repeating: self.config.controlPeriod, leeway: .microseconds(200))
             t.setEventHandler { [weak self] in self?.tick() }
@@ -201,22 +211,39 @@ public final class DSClient {
     }
 
     private func rebuildCandidatesLocked() {
-        var list: [String] = []
-        if let manual = config.manualIP, !manual.isEmpty {
-            list.append(manual)
-        } else {
-            let team = max(config.teamNumber, 0)
-            if team > 0 {
-                list.append("roboRIO-\(team)-FRC.local")
-                list.append(String(format: "10.%d.%d.2", team / 100, team % 100))
-            }
-            list.append("172.22.11.2") // USB
-        }
-        candidates = list
+        candidates = Self.sendCandidates(manualIP: config.manualIP, teamNumber: config.teamNumber)
         resolvedMDNS = []
         currentTarget = nil
         candidateIndex = 0
         if tcpConnected { closeTCPLocked() }
+    }
+
+    /// 发送候选构造（纯函数，可测）：手动模式只发 manualIP；自动模式 = 队号 .2 + USB。
+    /// mDNS 主机名（roboRIO-<team>-FRC.local）只作解析输入（scheduleMDNSResolveLocked），
+    /// 不进发送轮换——sockaddrFor 只收数字 IP，.local 槽位等于整窗空发（root cause ③，
+    /// 每 3 槽一窗 500ms 全废，发包速率天花板 ~33Hz）。
+    public static func sendCandidates(manualIP: String?, teamNumber: Int) -> [String] {
+        var list: [String] = []
+        if let manual = manualIP, !manual.isEmpty {
+            list.append(manual)
+        } else {
+            let team = max(teamNumber, 0)
+            if team > 0 {
+                list.append(String(format: "10.%d.%d.2", team / 100, team % 100))
+            }
+            list.append("172.22.11.2") // USB
+        }
+        return list
+    }
+
+    /// 发送轮换 = 静态候选 + mDNS 解析结果（可测纯函数；保持顺序、去重）。
+    public static func sendRotation(staticCandidates: [String], resolvedMDNS: [String]) -> [String] {
+        var seen = Set<String>()
+        var rotation: [String] = []
+        for candidate in staticCandidates + resolvedMDNS where seen.insert(candidate).inserted {
+            rotation.append(candidate)
+        }
+        return rotation
     }
 
     // MARK: UDP
@@ -303,9 +330,20 @@ public final class DSClient {
                 }
             }
             guard let packet = decoded else {
-                // 搜索期静默丢弃异协议应答（避免 NI/MRC 混布误建链）；已连接时的坏包才记日志
-                if isConnectedLocked {
-                    emit(.log("malformed response packet from \(srcIP), dropped"))
+                // 坏包留痕但按源限流（root cause ⑤）：真实「零应答」台架排查要能区分
+                // 「链路静默」与「协议版本漂移」；证据含来源 IP、字节数与前缀 hex。
+                // 坏包不建链、不进录制流（.dsrec 方向/schema 不变）。
+                if malformedLogState.count > Self.malformedLogMaxSources { malformedLogState.removeAll() }
+                var entry = malformedLogState[srcIP] ?? (at: -Self.malformedLogWindow, suppressed: 0)
+                if now - entry.at >= Self.malformedLogWindow {
+                    let prefix = Data(buffer[0 ..< min(n, 8)]).map { String(format: "%02x", $0) }.joined()
+                    var line = "无法解码应答（来自 \(srcIP)，\(n) 字节，前缀 \(prefix)）——已丢弃，不建立连接"
+                    if entry.suppressed > 0 { line += "（本窗口另抑制 \(entry.suppressed) 条同类包）" }
+                    emit(.log(line))
+                    malformedLogState[srcIP] = (at: now, suppressed: 0)
+                } else {
+                    entry.suppressed += 1
+                    malformedLogState[srcIP] = entry
                 }
                 continue
             }
@@ -427,9 +465,9 @@ public final class DSClient {
     }
 
     private func nextCandidateLocked() -> String {
-        guard !candidates.isEmpty else { return "" }
-        let merged = candidates + resolvedMDNS.filter { !candidates.contains($0) }
-        let target = merged[candidateIndex % merged.count]
+        let rotation = Self.sendRotation(staticCandidates: candidates, resolvedMDNS: resolvedMDNS)
+        guard !rotation.isEmpty else { return "" }
+        let target = rotation[candidateIndex % rotation.count]
         candidateIndex += 1
         return target
     }
@@ -468,8 +506,8 @@ public final class DSClient {
     private func ensureTCPLocked(now: Double) {
         guard isConnectedLocked, let host = currentTarget else { return }
         if tcpConnected { drainTCPLocked(); serviceTCPTagsLocked(now: now); return }
-        // 后台阻塞式连接（2s 超时）；in-flight 守卫 + 失败 1s 退避，
-        // 防止未建立期间每 tick 排队新连接（连接风暴）
+        // 后台有界连接（2s 截止，与 RadioProbe 同一 boundedTCPConnect）；in-flight 守卫 +
+        // 失败 1s 退避，防止未建立期间每 tick 排队新连接（连接风暴）
         guard tcpSock < 0, !tcpConnectInFlight, now >= tcpRetryAfter else { return }
         tcpConnectInFlight = true
         tcpConnectAttempts += 1
@@ -477,21 +515,19 @@ public final class DSClient {
         let port = config.tcpPort
         resolverQueue.async { [weak self] in
             guard let self else { return }
-            let fd = Self.blockingTCPConnect(to: target, port: port, timeout: 2.0)
+            let outcome = Self.boundedTCPConnect(to: target, port: port, timeout: 2.0)
             self.queue.async {
                 self.tcpConnectInFlight = false
                 guard self.running, self.isConnectedLocked(to: target), self.currentTarget == target else {
-                    if fd >= 0 { close(fd) }
+                    if case .connected(let fd) = outcome { close(fd) }
                     self.tcpRetryAfter = self.monotonicNow() + 1.0
                     return
                 }
-                guard fd >= 0 else {
+                guard case .connected(let fd) = outcome else {
                     self.tcpRetryAfter = self.monotonicNow() + 1.0
                     return
                 }
-                let flags = fcntl(fd, F_GETFL, 0)
-                _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-                self.tcpSock = fd
+                self.tcpSock = fd // boundedTCPConnect 返回的 fd 已是非阻塞
                 self.tcpConnected = true
                 self.tcpBuffer = Data()
                 self.lastDescriptorHash = 0 // 触发描述符重发
@@ -500,28 +536,85 @@ public final class DSClient {
         }
     }
 
-    static func blockingTCPConnect(to ip: String, port: UInt16, timeout: Double) -> Int32 {
-        guard let addr = { () -> sockaddr_in? in
-            var a = sockaddr_in()
-            a.sin_family = sa_family_t(AF_INET)
-            a.sin_port = port.bigEndian
-            guard inet_pton(AF_INET, ip, &a.sin_addr) == 1 else { return nil }
-            return a
-        }() else { return -1 }
+    /// 有界 TCP 连接的结局分类：
+    /// - connected：已建立（fd 已是非阻塞，归调用者所有，用毕须 close）
+    /// - refused：ECONNREFUSED——主机在线但端口关（2026-10-31 实测 OM5P:80 形态）
+    /// - timedOut：poll 截止时间到（黑洞链路/物理断线；阻塞式 connect 会挂到内核超时，
+    ///   回环实测 ~7.8s、真机 en4 实测 ~75s）
+    /// - unreachable：ENETUNREACH / EHOSTUNREACH
+    /// - error：其余错误（含非数字 IP，errno=EINVAL）
+    /// 非 connected 路径均已关闭 fd。
+    public enum TCPConnectOutcome: Equatable, Sendable {
+        case connected(fd: Int32)
+        case refused
+        case timedOut
+        case unreachable
+        case error(errno: Int32)
+    }
+
+    /// 非阻塞 connect + poll 截止时间 + SO_ERROR 分类。
+    /// 旧实现（blockingTCPConnect，已移除）设 SO_SNDTIMEO/RCVTIMEO 后直接阻塞 connect——
+    /// 这两个选项不约束 connect 本身，黑洞链路会挂到内核 TCP 超时（~75s），且把
+    /// ECONNREFUSED 与其他失败一并吞成 -1，OM5P 在线时的 RST 被误判离线
+    /// （engineering-log/2026.10.31.md root cause ①）。
+    public static func boundedTCPConnect(to ip: String, port: UInt16, timeout: Double) -> TCPConnectOutcome {
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        guard inet_pton(AF_INET, ip, &addr.sin_addr) == 1 else { return .error(errno: EINVAL) }
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return -1 }
-        var tv = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout * 1_000_000).truncatingRemainder(dividingBy: 1_000_000)))
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        guard fd >= 0 else { return .error(errno: errno) }
+        let flags = fcntl(fd, F_GETFL, 0)
+        guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            let e = errno; close(fd); return .error(errno: e)
+        }
 
         let rc = withUnsafePointer(to: addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
                 connect(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
-        if rc != 0 { close(fd); return -1 }
-        return fd
+        if rc == 0 { return .connected(fd: fd) } // 回环可立即完成
+        guard errno == EINPROGRESS else {
+            let e = errno
+            close(fd)
+            switch e {
+            case ECONNREFUSED: return .refused
+            case ENETUNREACH, EHOSTUNREACH: return .unreachable
+            default: return .error(errno: e)
+            }
+        }
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        let deadlineMs = max(1, Int(timeout * 1000))
+        while true {
+            let spentMs = Int(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+            let remainingMs = deadlineMs - spentMs
+            if remainingMs <= 0 { close(fd); return .timedOut }
+            var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+            let prc = poll(&pfd, 1, Int32(remainingMs))
+            if prc > 0 { break }
+            if prc < 0, errno == EINTR { continue }
+            if prc < 0 { let e = errno; close(fd); return .error(errno: e) }
+            close(fd)
+            return .timedOut
+        }
+        var soError: Int32 = 0
+        var len = socklen_t(MemoryLayout<Int32>.size)
+        _ = getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len)
+        switch soError {
+        case 0:
+            return .connected(fd: fd)
+        case ECONNREFUSED:
+            close(fd); return .refused
+        case ETIMEDOUT:
+            close(fd); return .timedOut
+        case ENETUNREACH, EHOSTUNREACH:
+            close(fd); return .unreachable
+        default:
+            close(fd); return .error(errno: soError)
+        }
     }
 
     private func closeTCPLocked() {
