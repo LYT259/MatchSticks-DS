@@ -237,6 +237,7 @@ func radioAutoTargetTests() {
     check(normal?.port == 80, "普通自动端口 80")
 
     check(RadioProbe.autoTarget(autoSim: false, teamNumber: 2590)?.host == "10.25.90.1", "队号 2590 → 10.25.90.1")
+    check(RadioProbe.autoTarget(autoSim: false, teamNumber: 8810)?.host == "10.88.10.1", "队号 8810 → Radio 10.88.10.1")
     check(RadioProbe.autoTarget(autoSim: false, teamNumber: 0) == nil, "队号未设置 → 不探测")
 }
 
@@ -251,6 +252,7 @@ func sendCandidatesTests() {
 
     let manual = DSClient.sendCandidates(manualIP: "10.110.19.2", teamNumber: 11019)
     check(manual == ["10.110.19.2"], "手动模式只发 manualIP（got \(manual)）")
+    check(DSClient.sendCandidates(manualIP: nil, teamNumber: 8810).contains("10.88.10.2"), "队号 8810 → roboRIO 10.88.10.2")
 
     let noTeam = DSClient.sendCandidates(manualIP: nil, teamNumber: 0)
     check(noTeam == ["172.22.11.2"], "无队号只保留 USB 候选（got \(noTeam)）")
