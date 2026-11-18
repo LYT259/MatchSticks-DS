@@ -81,6 +81,7 @@ robot → DS：
 - 失联判定 >1.25s；UI 心跳看门狗 >200ms 冻结使能（OpenDS 模式，报告 §6 决策 2）
 - **Request 字节（0x08 重启 roboRIO / 0x04 重启代码）**：2026-09-18 二次核对 frcnetworking 原文（`....x...` = Reboot RoboRIO、`.....x..` = Restart Code），与本档案一致；可行性研究报告 v1.1 §3.1 曾误写「bit4 重启代码」，已在 v1.2 更正（代码实现自始按 0x04 落地，无行为变更）
 - **手柄按钮元素取值约定**：只接受 usage page = Button(0x09) 或 GenericDesktop(0x01) 且编号 1…64 的输入按钮；Consumer 页（0x0C，音量/媒体键）的 usage 是千位级功能码，若当按钮号使用会使 0x0C tag 声明的按键数（按 64 位截断）与实际字节数（按原值 ⌈n/8⌉ 计算）不一致——真机核对该约定对 Logitech Attack3 / Extreme 3D Pro 的实际影响（见下「待实测（手柄）」）
+- **XInput 布局手柄轴序归一**（2026-11-18 真机联调定案）：Xbox 系手柄（名称含 xbox 或厂商 045E）命中「六轴签名」（usage 升序恰为 X,Y,Z,Rx,Ry,Rz；Z/Rz 为 0…255 类非对称扳机量程；其余四轴对称量程）时，按官方 FRC DS 的 XInput 手柄轴序下发——usage 序 `[左X, 左Y, 左扳机, 右X, 右Y, 右扳机]` → XInput 序 `[左X, 左Y, 左扳机, 右扳机, 右X, 右Y]`，且 Y 族翻转符号（实测样本飞智冰原狼 4 USB 模式自报 Xbox 360 签名 045E:028E，Y 族「上=+1」与 FRC 约定「上=-1」相反）。实测教训：按 usage 序原样透传时，机器人侧 WPILib `XboxController` 读 axis4（RightX）得到的是右摇杆 Y——旋转绑到「上下拨」、右摇杆 X 误入右扳机槽位（推过半即触发绑在 RightTrigger 上的动作）。非六轴签名或非 Xbox 自报的设备维持 usage 序透传（官方 DS 对 HID Joystick 类亦如此）。实现 Sources/DSCore/XInputAxisOrder.swift（单测 DSCoreTests xinputAxisOrder*）；蓝牙模式布局未实测，命中不了签名时自动退回透传
 
 ## MRC（SystemCore / MrcCommDaemon，Comm Version 2）— 已核查（编码器已实现）
 
@@ -119,4 +120,4 @@ robot → DS：
 - [ ] **hatswitch 角度次序**：本项目按「有效位从 1 起、顺时针 0° 起（1 = 正北，+45°/位）」直序映射；HID Usage Tables 的 8 位帽用法表次序为 NE,NW,SW,SE,N,W,S,E（1=NE），两者不同。中立态判定（0…8 与 1…8 描述器的 0 = 未按）已按声明逻辑范围实现并有单测（DSCoreTests povHatTests），**角度次序需实物设备矩阵核对后才改判**，不凭文档记忆
 - [ ] 每款手柄的 POV 上报值与 NI DS / First DS 显示一致性（Attack3 的 hat、Extreme 3D Pro 的 POV）
 - [ ] 按钮过滤约定（只取 Button/GenericDesktop 页 ≤64）在带媒体键的手柄上的实际按键编号连续性
-- [ ] 0x0C tag 的轴 usage 顺序（本项目按 usage 升序 X,Y,Z,Rx,Ry,Rz,Slider,Dial,Wheel）与 roboRIO 侧 `setAxis` 索引语义对应
+- [x] ~~0x0C tag 的轴 usage 顺序（本项目按 usage 升序 X,Y,Z,Rx,Ry,Rz,Slider,Dial,Wheel）与 roboRIO 侧 `setAxis` 索引语义对应~~ **2026-11-18 已核查**：真机（roboRIO + WPILib XboxController）期待 XInput 轴序，与 usage 序不一致；对 XInput 六轴签名设备已按官方 DS 归一（见上「语义决策·XInput 布局手柄轴序归一」），其余布局维持 usage 序待实物矩阵核对
