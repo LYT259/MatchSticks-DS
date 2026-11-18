@@ -37,6 +37,9 @@ final class HIDInputManager {
         let buttonElements: [(element: IOHIDElement, number: Int)]
         let hatElements: [(element: IOHIDElement, min: Int, max: Int)]
         let isXbox: Bool
+        // 命中 XInput 六轴签名时非 nil：usage 序 → 官方 FRC DS XInput 轴序的重排映射
+        // （含 Y 族符号翻转）。见 XInputAxisOrder 的布局实测说明。
+        let xinputMap: [XInputAxisOrder.Slot]?
     }
 
     private init() {}
@@ -135,11 +138,17 @@ final class HIDInputManager {
         buttonElements.sort { $0.1 < $1.1 }
 
         let isXbox = name.lowercased().contains("xbox") || vendorID == 0x045E
+        let xinputMap = XInputAxisOrder.map(
+            usages: axisElements.map { $0.1 },
+            logicalMins: axisElements.map { $0.2 },
+            logicalMaxs: axisElements.map { $0.3 },
+            isXbox: isXbox
+        )
         return DeviceRecord(
             device: device, uniqueID: uniqueID, name: name,
             vendorID: vendorID, productID: productID,
             axisElements: axisElements, buttonElements: buttonElements, hatElements: hatElements,
-            isXbox: isXbox
+            isXbox: isXbox, xinputMap: xinputMap
         )
     }
 
@@ -197,10 +206,22 @@ final class HIDInputManager {
                 }
             }
 
+            // XInput 签名设备：重排为官方 FRC DS 的 XInput 轴序（含 Y 族符号翻转），
+            // 机器人侧 XboxController 的轴索引才与官方 DS 直连时一致
+            let emittedAxes: [Float]
+            let emittedUsages: [UInt32]
+            if let xinputMap = record.xinputMap {
+                emittedAxes = XInputAxisOrder.apply(xinputMap, to: axes)
+                emittedUsages = xinputMap.map { record.axisElements[$0.sourceIndex].usage }
+            } else {
+                emittedAxes = axes
+                emittedUsages = record.axisElements.map(\.usage)
+            }
+
             result.append(HIDDeviceSnapshot(
                 uniqueID: record.uniqueID, name: record.name,
                 vendorID: record.vendorID, productID: record.productID,
-                axes: axes, axisUsages: record.axisElements.map(\.usage),
+                axes: emittedAxes, axisUsages: emittedUsages,
                 buttons: buttons, buttonCount: max(highestButton, record.buttonElements.count),
                 povs: povs, isXbox: record.isXbox
             ))
