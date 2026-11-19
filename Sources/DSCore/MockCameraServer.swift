@@ -44,7 +44,7 @@ public final class MockCameraServer {
 
     private func listenLoop() {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { onLog?("MOCK 摄像头 socket 创建失败"); return }
+        guard fd >= 0 else { onLog?(tr("MOCK 摄像头 socket 创建失败")); return }
         var yes: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
         var addr = sockaddr_in()
@@ -55,7 +55,7 @@ public final class MockCameraServer {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
         guard bound == 0, listen(fd, 4) == 0 else {
-            onLog?("MOCK 摄像头监听失败 :\(port)（errno \(errno)）")
+            onLog?(tr("MOCK 摄像头监听失败 :%d（errno %d）", port, errno))
             close(fd)
             lock.lock(); runningFlag = false; lock.unlock()
             return
@@ -67,7 +67,7 @@ public final class MockCameraServer {
         }
         if gs == 0 { realPort = UInt16(bigEndian: got.sin_port) }
         lock.lock(); listenSock = fd; boundPortValue = realPort; lock.unlock()
-        onLog?("MOCK 摄像头通道：http://127.0.0.1:\(realPort)/frame.jpg")
+        onLog?(tr("MOCK 摄像头通道：http://127.0.0.1:%d/frame.jpg", realPort))
 
         while true {
             lock.lock(); let active = runningFlag; lock.unlock()

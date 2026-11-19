@@ -381,6 +381,11 @@ runTest("loopbackIntegration", loopbackIntegrationTest)
 runAllPhase2Tests()
 runAllPhase4Tests()
 runAllOM5PReadinessTests()
+// 双语（放最后：enTableTests 会临时切 shared 语言并在 defer 恢复 system）
+runTest("languageResolve", languageResolveTests)
+runTest("languageManager", languageManagerTests)
+runTest("enTable", enTableTests)
+runTest("webuiLanguage", webuiLanguageTests)
 
 print("\n\(checks) checks, \(failures.count) failures")
 for f in failures { print("  ✗ \(f)") }

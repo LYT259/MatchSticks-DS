@@ -21,13 +21,13 @@ struct ChartsView: View {
 private struct CurrentReadingsPanel: View {
     let model: DSModel
     var body: some View {
-                DSPanel(title: "当前读数", subtitle: model.commConnected ? "来自机器人回传" : "未连接机器人；下方保留已采集的历史") {
+                DSPanel(title: tr("当前读数"), subtitle: model.commConnected ? tr("来自机器人回传") : tr("未连接机器人；下方保留已采集的历史")) {
                     HStack(spacing: 24) {
-                        DSMetric(title: "电池电压", value: model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "—",
+                        DSMetric(title: tr("电池电压"), value: model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "—",
                                  symbol: "battery.100percent", color: model.robotStatus.brownout && model.commConnected ? .red : .primary)
-                        DSMetric(title: "丢包率", value: model.commConnected ? String(format: "%.1f%%", model.lossPercent) : "—",
+                        DSMetric(title: tr("丢包率"), value: model.commConnected ? String(format: "%.1f%%", model.lossPercent) : "—",
                                  symbol: "waveform.path")
-                        DSMetric(title: "累计接收", value: "\(model.rxCount)", symbol: "arrow.down")
+                        DSMetric(title: tr("累计接收"), value: "\(model.rxCount)", symbol: "arrow.down")
                     }
                 }
     }
@@ -36,20 +36,20 @@ private struct CurrentReadingsPanel: View {
 private struct BatteryHistoryPanel: View {
     let model: DSModel
     var body: some View {
-        DSPanel(title: "电池电压", subtitle: "最近 300 个回传采样 · 单位 V") {
+        DSPanel(title: tr("电池电压"), subtitle: tr("最近 300 个回传采样 · 单位 V")) {
             if model.batteryHistory.count > 1 {
                 Chart(Array(model.batteryHistory.suffix(300).enumerated()), id: \.offset) { index, value in
-                    LineMark(x: .value("采样序号", index + 1), y: .value("电压", value))
+                    LineMark(x: .value(tr("采样序号"), index + 1), y: .value(tr("电压"), value))
                         .foregroundStyle(Color.accentColor)
                         .lineStyle(StrokeStyle(lineWidth: 2))
                 }
-                .chartXAxisLabel("采样序号（由早到晚）")
+                .chartXAxisLabel(tr("采样序号（由早到晚）"))
                 .chartYAxis { AxisMarks(position: .leading) }
                 .frame(height: 180)
-                Text("电压采样未记录时间戳，横轴表示收到数据的顺序。")
+                Text(tr("电压采样未记录时间戳，横轴表示收到数据的顺序。"))
                     .font(.caption).foregroundStyle(.secondary)
             } else {
-                emptyState("等待电池电压采样", detail: "连接机器人后显示电压变化。")
+                emptyState(tr("等待电池电压采样"), detail: tr("连接机器人后显示电压变化。"))
             }
         }
     }
@@ -71,7 +71,7 @@ private struct LiveCPULabel: View {
 private struct CPUHistoryPanel: View {
     let model: DSModel
     var body: some View {
-        DSPanel(title: "机器人 CPU", subtitle: "每个核心分别显示 · 最近保留的采样") {
+        DSPanel(title: tr("机器人 CPU"), subtitle: tr("每个核心分别显示 · 最近保留的采样")) {
             LiveCPULabel(model: model)
             if model.cpuHistory.contains(where: { !$0.loads.isEmpty }) {
                 cpuHistoryChart
@@ -94,7 +94,7 @@ private struct CPUHistoryPanel: View {
                     }
                     .frame(height: 180)
             } else {
-                emptyState("等待 CPU 采样", detail: "控制器回传核心负载后显示历史曲线。")
+                emptyState(tr("等待 CPU 采样"), detail: tr("控制器回传核心负载后显示历史曲线。"))
             }
         }
     }
@@ -105,14 +105,14 @@ private struct CPUHistoryPanel: View {
             ForEach(0..<coreCount, id: \.self) { core in
                 let points = model.cpuHistory.filter { core < $0.loads.count }
                 ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                    LineMark(x: .value("时间", point.t), y: .value("占用率", point.loads[core]),
-                             series: .value("核心", core))
-                        .foregroundStyle(by: .value("核心", "CPU \(core)"))
+                    LineMark(x: .value(tr("时间"), point.t), y: .value(tr("占用率"), point.loads[core]),
+                             series: .value(tr("核心"), core))
+                        .foregroundStyle(by: .value(tr("核心"), "CPU \(core)"))
                         .lineStyle(StrokeStyle(lineWidth: 1.8))
                 }
                 ForEach(Array(points.prefix(points.count == 1 ? 1 : 0).enumerated()), id: \.offset) { _, point in
-                    PointMark(x: .value("时间", point.t), y: .value("占用率", point.loads[core]))
-                        .foregroundStyle(by: .value("核心", "CPU \(core)"))
+                    PointMark(x: .value(tr("时间"), point.t), y: .value(tr("占用率"), point.loads[core]))
+                        .foregroundStyle(by: .value(tr("核心"), "CPU \(core)"))
                 }
             }
         }
@@ -124,10 +124,10 @@ private struct CPUHistoryPanel: View {
 private struct LinkHistoryPanel: View {
     let model: DSModel
     var body: some View {
-        DSPanel(title: "通信质量", subtitle: "丢包率 · 最近 180 个采样") {
+        DSPanel(title: tr("通信质量"), subtitle: tr("丢包率 · 最近 180 个采样")) {
             if model.lossHistory.count > 1 {
                 Chart(Array(model.lossHistory.suffix(180).enumerated()), id: \.offset) { _, point in
-                    LineMark(x: .value("时间", point.t), y: .value("丢包率", point.loss))
+                    LineMark(x: .value(tr("时间"), point.t), y: .value(tr("丢包率"), point.loss))
                         .foregroundStyle(Color.orange)
                         .lineStyle(StrokeStyle(lineWidth: 1.8))
                 }
@@ -148,9 +148,9 @@ private struct LinkHistoryPanel: View {
                 }
                 .frame(height: 140)
             } else {
-                emptyState("等待通信采样", detail: "开始连接后显示链路统计。")
+                emptyState(tr("等待通信采样"), detail: tr("开始连接后显示链路统计。"))
             }
-            Text("累计发送 \(model.txCount) 个数据包 · 接收 \(model.rxCount) 个数据包")
+            Text(tr("累计发送 %d 个数据包 · 接收 %d 个数据包", Int(model.txCount), Int(model.rxCount)))
                 .font(.caption).monospacedDigit().foregroundStyle(.secondary)
         }
     }

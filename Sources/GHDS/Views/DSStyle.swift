@@ -99,22 +99,22 @@ final class ConnectionDraft {
 extension DSModel {
     var connectionDetail: String {
         switch commState {
-        case .idle: return "尚未连接"
-        case .searching: return "正在寻找机器人"
+        case .idle: return tr("尚未连接")
+        case .searching: return tr("正在寻找机器人")
         case .connected(let host): return host
         }
     }
 
     var uiStatus: String {
-        if estopEngaged || robotStatus.estop { return "急停已锁定" }
-        if !watchdogHealthy { return "控制已冻结" }
-        if !commConnected { return "未连接机器人" }
-        if robotStatus.brownout { return "电池欠压" }
-        if robotStatus.codeStarting { return "机器人程序启动中" }
-        if enabled && !robotStatus.enabled { return "等待机器人使能" }
-        if !enabled && robotStatus.enabled { return "等待机器人失能" }
-        if robotStatus.enabled { return "已使能 · \(mode.displayName)" }
-        return "已失能"
+        if estopEngaged || robotStatus.estop { return tr("急停已锁定") }
+        if !watchdogHealthy { return tr("控制已冻结") }
+        if !commConnected { return tr("未连接机器人") }
+        if robotStatus.brownout { return tr("电池欠压") }
+        if robotStatus.codeStarting { return tr("机器人程序启动中") }
+        if enabled && !robotStatus.enabled { return tr("等待机器人使能") }
+        if !enabled && robotStatus.enabled { return tr("等待机器人失能") }
+        if robotStatus.enabled { return tr("已使能 · %@", mode.displayName) }
+        return tr("已失能")
     }
 
     var uiStatusColor: Color {
@@ -128,12 +128,12 @@ extension DSModel {
     }
 
     var enableExplanation: String {
-        if estopEngaged { return "急停已锁定；复位将请求重启机器人程序。" }
-        if remoteEstopReported { return "机器人仍报告急停；请在诊断页检查或重启机器人程序。" }
-        if !watchdogHealthy { return "界面心跳异常，使能输出已冻结。" }
-        if !commConnected { return "先在「连接与设置」中配置机器人。" }
-        if enabled { return "运行中。按 Return 失能，按空格急停。" }
-        return "使能后机器人可能运动，请先确认周围安全。"
+        if estopEngaged { return tr("急停已锁定；复位将请求重启机器人程序。") }
+        if remoteEstopReported { return tr("机器人仍报告急停；请在诊断页检查或重启机器人程序。") }
+        if !watchdogHealthy { return tr("界面心跳异常，使能输出已冻结。") }
+        if !commConnected { return tr("先在「连接与设置」中配置机器人。") }
+        if enabled { return tr("运行中。按 Return 失能，按空格急停。") }
+        return tr("使能后机器人可能运动，请先确认周围安全。")
     }
 
     /// 机器人侧回传的急停（区别于本地锁存 estopEngaged）。

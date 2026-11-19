@@ -91,7 +91,7 @@ final class HIDInputManager {
 
     private func buildRecord(_ device: IOHIDDevice) -> DeviceRecord? {
         func prop(_ key: String) -> Any? { IOHIDDeviceGetProperty(device, key as CFString) }
-        let name = (prop(kIOHIDProductKey) as? String) ?? "未命名设备"
+        let name = (prop(kIOHIDProductKey) as? String) ?? tr("未命名设备")
         let vendorID = (prop(kIOHIDVendorIDKey) as? Int) ?? 0
         let productID = (prop(kIOHIDProductIDKey) as? Int) ?? 0
         let serial = (prop(kIOHIDSerialNumberKey) as? String) ?? ""

@@ -56,7 +56,7 @@ final class UpdateCenter {
         // 仅 .app bundle 内启用（.build 裸跑 / UI 干测试不打扰）；可用环境变量显式关闭
         guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
         guard ProcessInfo.processInfo.environment["GHDS_DISABLE_UPDATE"] != "1" else {
-            logLine?("更新组件已禁用（GHDS_DISABLE_UPDATE=1）")
+            logLine?(tr("更新组件已禁用（GHDS_DISABLE_UPDATE=1）"))
             return
         }
         let delegate = UpdateDelegate(center: self)
@@ -85,14 +85,14 @@ final class UpdateCenter {
         do {
             try updater.start()
             let feed = ProcessInfo.processInfo.environment["GHDS_FEED_URL"]
-                ?? (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? "未配置")
-            logLine?("更新组件就绪（当前版本 \(currentVersion)，feed \(feed)）")
+                ?? (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? tr("未配置"))
+            logLine?(tr("更新组件就绪（当前版本 %@，feed %@）", currentVersion, feed))
             // 启动即静默检查（不等 24h 周期；后台低打扰，无更新完全无感）
             updater.checkForUpdatesInBackground()
             flow.beganCheck()
         } catch {
             // 配置缺失（feed URL/公钥未配置）等：静默跳过，不影响使用
-            logLine?("更新组件未启动：\(error.localizedDescription)（不影响使用）")
+            logLine?(tr("更新组件未启动：%@（不影响使用）", error.localizedDescription))
         }
     }
 
@@ -107,9 +107,9 @@ final class UpdateCenter {
         case .notReady:
             break
         case .blocked(let reason):
-            logLine?("重启更新被安全门阻断：\(reason)")
+            logLine?(tr("重启更新被安全门阻断：%@", reason))
         case .initiated:
-            logLine?("重启更新：安全门放行（\(currentVersion) → \(pendingVersion)），立即安装并重启")
+            logLine?(tr("重启更新：安全门放行（%@ → %@），立即安装并重启", currentVersion, pendingVersion))
             triggerInstall()
         }
     }
@@ -129,7 +129,7 @@ final class UpdateCenter {
 
     fileprivate func driverFoundUpdate(version: String) {
         pendingVersion = version
-        logLine?("发现新版本 \(version)（开始后台静默下载）")
+        logLine?(tr("发现新版本 %@（开始后台静默下载）", version))
         flow.downloadStarted(version: version)
     }
 
@@ -140,17 +140,17 @@ final class UpdateCenter {
     fileprivate func driverReadyToInstall(reply: @escaping (SPUUserUpdateChoice) -> Void) {
         readyReply = reply
         flow.downloadCompleted(version: pendingVersion)
-        logLine?("新版本 \(pendingVersion) 下载就绪（点击角标重启安装；使能/连接/急停锁存期间点击无效）")
+        logLine?(tr("新版本 %@ 下载就绪（点击角标重启安装；使能/连接/急停锁存期间点击无效）", pendingVersion))
         if autoTap {
             if autoTapDelay > 0 {
-                logLine?("AUTOTAP：\(Int(autoTapDelay))s 后替操作员点击重启更新（安全门照常现场求值）")
+                logLine?(tr("AUTOTAP：%ds 后替操作员点击重启更新（安全门照常现场求值）", Int(autoTapDelay)))
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(autoTapDelay))
                     // 延时窗口内可能已被人工安装/状态已变——requestRestartAndRelaunch 自身幂等把关
                     requestRestartAndRelaunch()
                 }
             } else {
-                logLine?("AUTOTAP：替操作员点击重启更新（安全门照常现场求值）")
+                logLine?(tr("AUTOTAP：替操作员点击重启更新（安全门照常现场求值）"))
                 requestRestartAndRelaunch()
             }
         }
@@ -162,7 +162,7 @@ final class UpdateCenter {
     }
 
     fileprivate func driverFoundNoUpdate() {
-        logLine?("更新检查完成：已是最新版本")
+        logLine?(tr("更新检查完成：已是最新版本"))
         flow.updateNotFound()
     }
 
@@ -170,7 +170,7 @@ final class UpdateCenter {
         // 国内可达性：下载失败静默跳过、下次启动再试、永不阻塞使用（报告 §5.5）。
         // 静默 ≠ 无诊断：错误镜像到事件日志（不弹窗）。
         let detail = error.map { "：\($0.localizedDescription)" } ?? ""
-        logLine?("更新检查/下载失败（静默跳过，下次启动再试）\(detail)")
+        logLine?(tr("更新检查/下载失败（静默跳过，下次启动再试）%@", detail))
         flow.failedQuietly()
     }
 
@@ -284,6 +284,6 @@ private final class UpdateDelegate: NSObject, SPUUpdaterDelegate {
     func updaterShouldRelaunchApplication(_ updater: SPUUpdater) -> Bool { true }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        center?.logLine?("更新：应用即将重启（安装器接管）")
+        center?.logLine?(tr("更新：应用即将重启（安装器接管）"))
     }
 }

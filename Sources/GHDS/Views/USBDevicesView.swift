@@ -11,19 +11,19 @@ struct USBDevicesView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .center) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("\(model.joystickSlots.count) 个手柄")
+                            Text(tr("%d 个手柄", model.joystickSlots.count))
                                 .font(.headline)
-                            Text("槽位从 0 开始，与机器人程序中的编号对应。")
+                            Text(tr("槽位从 0 开始，与机器人程序中的编号对应。手动调整的顺序在重新扫描和插拔后保持不变，新接入的手柄排到最后。"))
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button {
                             model.rescanJoysticks()
                         } label: {
-                            Label("重新扫描", systemImage: "arrow.clockwise")
+                            Label(tr("重新扫描"), systemImage: "arrow.clockwise")
                         }
                         .buttonStyle(DSActionStyle())
-                        .help("重新扫描已连接的手柄。应用在前台且未编辑文本时，也可按 F1。")
+                        .help(tr("重新扫描已连接的手柄。应用在前台且未编辑文本时，也可按 F1。"))
                     }
 
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
@@ -36,8 +36,8 @@ struct USBDevicesView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(slot == nil)
-                            .accessibilityLabel("槽位 \(index)，\(slot?.name ?? "空闲")")
-                            .help(slot.map { "查看 \($0.name) 的实时输入" } ?? "连接手柄后自动分配槽位")
+                            .accessibilityLabel(tr("槽位 %d，%@", index, slot?.name ?? tr("空闲")))
+                            .help(slot.map { tr("查看 %@ 的实时输入", $0.name) } ?? tr("连接手柄后自动分配槽位"))
                         }
                     }
 
@@ -45,7 +45,7 @@ struct USBDevicesView: View {
                         emptyState
                     } else {
                         if model.joystickSlots.count > 6 {
-                            Label("只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。", systemImage: "info.circle")
+                            Label(tr("只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。"), systemImage: "info.circle")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                         ForEach(Array(model.joystickSlots.enumerated()), id: \.element.id) { index, slot in
@@ -62,14 +62,14 @@ struct USBDevicesView: View {
     private func slotSummary(index: Int, slot: JoystickSlot?) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
-                Text("槽位 \(index)")
+                Text(tr("槽位 %d", index))
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                 Spacer(minLength: 4)
-                Image(systemName: slot?.lockedDeviceID != nil ? "lock.fill" : "gamecontroller")
+                Image(systemName: "gamecontroller")
                     .font(.system(size: 12))
                     .foregroundStyle(slot == nil ? Color.secondary : Color.accentColor)
             }
-            Text(slot?.name ?? "空闲")
+            Text(slot?.name ?? tr("空闲"))
                 .font(.system(size: 12))
                 .foregroundStyle(slot == nil ? Color.secondary : Color.primary)
                 .lineLimit(2)
@@ -87,9 +87,9 @@ struct USBDevicesView: View {
                 Image(systemName: "gamecontroller")
                     .font(.system(size: 34, weight: .light))
                     .foregroundStyle(.secondary)
-                Text("连接你的手柄")
+                Text(tr("连接你的手柄"))
                     .font(.title3.weight(.semibold))
-                Text("通过 USB 连接 HID 手柄或游戏控制器，设备会自动出现。\n如果没有出现，请检查连接线，然后重新扫描。")
+                Text(tr("通过 USB 连接 HID 手柄或游戏控制器，设备会自动出现。\n如果没有出现，请检查连接线，然后重新扫描。"))
                     .font(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -112,7 +112,7 @@ struct JoystickCard: View {
 
             if !slot.axes.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("摇杆轴 · \(slot.axes.count)")
+                    Text(tr("摇杆轴 · %d", slot.axes.count))
                         .font(.subheadline.weight(.semibold))
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 24), GridItem(.flexible(), spacing: 24)], spacing: 12) {
                         ForEach(slot.axes.indices, id: \.self) { axisIndex in
@@ -125,10 +125,10 @@ struct JoystickCard: View {
             if slot.buttonCount > 0 {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text("按键 · \(slot.buttonCount)")
+                        Text(tr("按键 · %d", slot.buttonCount))
                             .font(.subheadline.weight(.semibold))
                         Spacer()
-                        Text("按下时高亮")
+                        Text(tr("按下时高亮"))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     FlowButtons(count: min(slot.buttonCount, 64), pressed: slot.buttons)
@@ -139,7 +139,7 @@ struct JoystickCard: View {
 
             if !slot.povs.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("方向帽 · POV")
+                    Text(tr("方向帽 · POV"))
                         .font(.subheadline.weight(.semibold))
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 8)], alignment: .leading, spacing: 8) {
                         ForEach(slot.povs.indices, id: \.self) { povIndex in
@@ -147,7 +147,7 @@ struct JoystickCard: View {
                             HStack {
                                 Text("POV \(povIndex)").foregroundStyle(.secondary)
                                 Spacer()
-                                Text(angle >= 0 ? "\(angle)°" : "未按下")
+                                Text(angle >= 0 ? "\(angle)°" : tr("未按下"))
                                     .foregroundStyle(angle >= 0 ? Color.accentColor : Color.secondary)
                             }
                             .font(.system(size: 12)).monospacedDigit()
@@ -166,30 +166,30 @@ struct JoystickCard: View {
         let outputs = model.joystickOutputs
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("机器人输出 · 0x2E").font(.subheadline.weight(.semibold))
+                Text(tr("机器人输出 · 0x2E")).font(.subheadline.weight(.semibold))
                 Spacer()
-                Text(outputs.isEmpty ? "尚未收到" : "实时")
+                Text(outputs.isEmpty ? tr("尚未收到") : tr("实时"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             if outputs.isEmpty {
-                Text("连接 SystemCore（MRC V2）后，机器人程序可通过 0x2E 下发震动/LED。")
+                Text(tr("连接 SystemCore（MRC V2）后，机器人程序可通过 0x2E 下发震动/LED。"))
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 6) {
                     ForEach(outputs.indices, id: \.self) { i in
                         let o = outputs[i]
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("槽 \(i)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text(tr("槽 %d", i)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             Text("L \(o.leftRumble) · R \(o.rightRumble)")
                                 .font(.caption.monospacedDigit())
-                            Text("扳机 L \(o.leftTriggerRumble) · R \(o.rightTriggerRumble) · LED #\(String(o.ledRGB, radix: 16))")
+                            Text(tr("扳机 L %d · R %d · LED #%@", Int(o.leftTriggerRumble), Int(o.rightTriggerRumble), String(o.ledRGB, radix: 16)))
                                 .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                         }
                         .padding(6)
                         .background(RoundedRectangle(cornerRadius: 6).fill(DSTheme.canvas))
                     }
                 }
-                Text("值为协议解码结果；到物理手柄的震动映射待真机核查（待实测清单）。")
+                Text(tr("值为协议解码结果；到物理手柄的震动映射待真机核查（待实测清单）。"))
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -204,7 +204,7 @@ struct JoystickCard: View {
                     .foregroundStyle(index < 6 ? Color.accentColor : Color.secondary)
                     .frame(width: 44, height: 44)
                     .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 10))
-                    .accessibilityLabel("槽位 \(index)")
+                    .accessibilityLabel(tr("槽位 %d", index))
                 VStack(alignment: .leading, spacing: 5) {
                     Text(slot.name).font(.headline).textSelection(.enabled)
                     Text(String(format: "VID %04X · PID %04X", slot.vendorID, slot.productID))
@@ -212,38 +212,27 @@ struct JoystickCard: View {
                 }
                 Spacer()
                 if slot.isXbox { DSBadge(text: "Xbox", symbol: "gamecontroller") }
-                if index >= 6 { DSBadge(text: "未发送", color: .orange, symbol: "info.circle") }
+                if index >= 6 { DSBadge(text: tr("未发送"), color: .orange, symbol: "info.circle") }
             }
 
             HStack(spacing: 8) {
                 Button {
                     model.moveSlot(index, up: true)
                 } label: {
-                    Label("上移", systemImage: "arrow.up")
+                    Label(tr("上移"), systemImage: "arrow.up")
                 }
                 .disabled(index == 0)
-                .accessibilityLabel("将 \(slot.name) 上移一个槽位")
-                .help("将手柄移到前一个槽位")
+                .accessibilityLabel(tr("将 %@ 上移一个槽位", slot.name))
+                .help(tr("将手柄移到前一个槽位"))
 
                 Button {
                     model.moveSlot(index, up: false)
                 } label: {
-                    Label("下移", systemImage: "arrow.down")
+                    Label(tr("下移"), systemImage: "arrow.down")
                 }
                 .disabled(index == model.joystickSlots.count - 1)
-                .accessibilityLabel("将 \(slot.name) 下移一个槽位")
-                .help("将手柄移到后一个槽位")
-
-                Spacer()
-
-                Button {
-                    model.toggleLock(index)
-                } label: {
-                    Label(slot.lockedDeviceID == nil ? "锁定槽位" : "解锁槽位",
-                          systemImage: slot.lockedDeviceID == nil ? "lock.open" : "lock.fill")
-                }
-                .accessibilityLabel("\(slot.lockedDeviceID == nil ? "锁定" : "解锁") \(slot.name) 的槽位")
-                .help("锁定后，重新扫描会优先保留此设备的槽位")
+                .accessibilityLabel(tr("将 %@ 下移一个槽位", slot.name))
+                .help(tr("将手柄移到后一个槽位"))
             }
             .buttonStyle(DSActionStyle(color: .primary))
         }
@@ -251,7 +240,7 @@ struct JoystickCard: View {
 
     private func axisRow(_ axisIndex: Int) -> some View {
         HStack(spacing: 10) {
-            Text("轴 \(axisIndex)")
+            Text(tr("轴 %d", axisIndex))
                 .font(.system(size: 12)).monospacedDigit()
                 .foregroundStyle(.secondary)
                 .frame(width: 34, alignment: .leading)
@@ -278,7 +267,7 @@ struct JoystickCard: View {
                 .frame(width: 46, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("轴 \(axisIndex)")
+        .accessibilityLabel(tr("轴 %d", axisIndex))
         .accessibilityValue(String(format: "%+.2f", slot.axes[axisIndex]))
     }
 }
@@ -296,8 +285,8 @@ struct FlowButtons: View {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .foregroundStyle(isPressed ? Color.white : Color.secondary)
                     .background(isPressed ? Color.accentColor : DSTheme.canvas, in: RoundedRectangle(cornerRadius: 6))
-                    .accessibilityLabel("按键 \(index + 1)")
-                    .accessibilityValue(isPressed ? "已按下" : "已松开")
+                    .accessibilityLabel(tr("按键 %d", index + 1))
+                    .accessibilityValue(isPressed ? tr("已按下") : tr("已松开"))
             }
         }
     }

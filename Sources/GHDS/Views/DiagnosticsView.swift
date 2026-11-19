@@ -23,33 +23,33 @@ struct DiagnosticsView: View {
             }
             .padding(24)
         }
-        .confirmationDialog("确认重启机器人控制器？", isPresented: $confirmReboot, titleVisibility: .visible) {
-            Button("重启控制器", role: .destructive) { model.rebootRoboRIO() }
+        .confirmationDialog(tr("确认重启机器人控制器？"), isPresented: $confirmReboot, titleVisibility: .visible) {
+            Button(tr("重启控制器"), role: .destructive) { model.rebootRoboRIO() }
         } message: {
-            Text("机器人将暂时断开连接。请确认当前已失能。")
+            Text(tr("机器人将暂时断开连接。请确认当前已失能。"))
         }
-        .confirmationDialog("确认重启机器人程序？", isPresented: $confirmRestart, titleVisibility: .visible) {
-            Button("重启程序", role: .destructive) { model.restartRobotCode() }
+        .confirmationDialog(tr("确认重启机器人程序？"), isPresented: $confirmRestart, titleVisibility: .visible) {
+            Button(tr("重启程序"), role: .destructive) { model.restartRobotCode() }
         } message: {
-            Text("重启会中断当前程序。请先确认机器人已失能。")
+            Text(tr("重启会中断当前程序。请先确认机器人已失能。"))
         }
     }
 
     private var networkPanel: some View {
-        DSPanel(title: "连接检查") {
+        DSPanel(title: tr("连接检查")) {
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 14) {
-                    connectionRow("机器人通信", detail: model.connectionDetail,
+                    connectionRow(tr("机器人通信"), detail: model.connectionDetail,
                                   symbol: "antenna.radiowaves.left.and.right", active: model.commConnected)
-                    connectionRow("机器人无线电", detail: model.radioReachable ? "已响应" : "尚未检测到响应",
+                    connectionRow(tr("机器人无线电"), detail: model.radioReachable ? tr("已响应") : tr("尚未检测到响应"),
                                   symbol: "wifi", active: model.radioReachable)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Divider()
                 VStack(alignment: .leading, spacing: 12) {
-                    DSMetric(title: "当前丢包率", value: model.commConnected ? String(format: "%.1f%%", model.lossPercent) : "—",
+                    DSMetric(title: tr("当前丢包率"), value: model.commConnected ? String(format: "%.1f%%", model.lossPercent) : "—",
                              symbol: "waveform.path")
-                    Text("累计发送 \(model.txCount) · 接收 \(model.rxCount)")
+                    Text(tr("累计发送 %d · 接收 %d", Int(model.txCount), Int(model.rxCount)))
                         .font(.caption).monospacedDigit().foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,16 +57,16 @@ struct DiagnosticsView: View {
             .fixedSize(horizontal: false, vertical: true)
             Divider()
             HStack(alignment: .top) {
-                Label(model.manualIP == "172.22.11.2" ? "已配置 USB 直连地址" : "USB 直连地址未手动指定", systemImage: "cable.connector")
+                Label(model.manualIP == "172.22.11.2" ? tr("已配置 USB 直连地址") : tr("USB 直连地址未手动指定"), systemImage: "cable.connector")
                 Spacer()
-                Text("FMS：不提供连接")
+                Text(tr("FMS：不提供连接"))
             }
             .font(.caption).foregroundStyle(.secondary)
         }
     }
 
     private var resourcesPanel: some View {
-        DSPanel(title: "机器人资源", subtitle: model.commConnected ? "控制器回传" : "连接后显示实时数据") {
+        DSPanel(title: tr("机器人资源"), subtitle: model.commConnected ? tr("控制器回传") : tr("连接后显示实时数据")) {
             if model.commConnected && !model.cpuCores.isEmpty {
                 ForEach(model.cpuCores.indices, id: \.self) { core in
                     let load = coreLoad(model.cpuCores[core])
@@ -77,12 +77,12 @@ struct DiagnosticsView: View {
                     }
                 }
                 Divider()
-                metricRow("内存", value: model.ramTotal > 0
+                metricRow(tr("内存"), value: model.ramTotal > 0
                           ? String(format: "%.0f / %.0f MB", Double(model.ramUsed) / 1e6, Double(model.ramTotal) / 1e6) : "—")
                 if model.ramTotal > 0 {
                     ProgressView(value: min(Double(model.ramUsed) / Double(model.ramTotal), 1))
                 }
-                metricRow("可用磁盘", value: String(format: "%.1f GB", Double(model.diskFree) / 1e9))
+                metricRow(tr("可用磁盘"), value: String(format: "%.1f GB", Double(model.diskFree) / 1e9))
             } else {
                 emptyTelemetry
             }
@@ -90,38 +90,38 @@ struct DiagnosticsView: View {
     }
 
     private var canPanel: some View {
-        DSPanel(title: "CAN 总线") {
-            metricRow("总线利用率", value: telemetry(String(format: "%.1f%%", model.can.utilizationPercent * 100)))
+        DSPanel(title: tr("CAN 总线")) {
+            metricRow(tr("总线利用率"), value: telemetry(String(format: "%.1f%%", model.can.utilizationPercent * 100)))
             Divider()
-            metricRow("总线离线次数", value: telemetry("\(model.can.busOffCount)"))
-            metricRow("发送缓冲区已满", value: telemetry("\(model.can.txFullCount)"))
-            metricRow("接收错误", value: telemetry("\(model.can.rxErrorCount)"))
-            metricRow("发送错误", value: telemetry("\(model.can.txErrorCount)"))
+            metricRow(tr("总线离线次数"), value: telemetry("\(model.can.busOffCount)"))
+            metricRow(tr("发送缓冲区已满"), value: telemetry("\(model.can.txFullCount)"))
+            metricRow(tr("接收错误"), value: telemetry("\(model.can.rxErrorCount)"))
+            metricRow(tr("发送错误"), value: telemetry("\(model.can.txErrorCount)"))
         }
     }
 
     private var powerPanel: some View {
-        DSPanel(title: "电源与故障计数") {
-            metricRow("电池电压", value: telemetry(String(format: "%.2f V", model.batteryVolts)))
-            metricRow("通信失能故障", value: telemetry("\(model.disableFaults.comms)"))
-            metricRow("12 V 失能故障", value: telemetry("\(model.disableFaults.twelveV)"))
+        DSPanel(title: tr("电源与故障计数")) {
+            metricRow(tr("电池电压"), value: telemetry(String(format: "%.2f V", model.batteryVolts)))
+            metricRow(tr("通信失能故障"), value: telemetry("\(model.disableFaults.comms)"))
+            metricRow(tr("12 V 失能故障"), value: telemetry("\(model.disableFaults.twelveV)"))
             Divider()
-            metricRow("6 V 电源故障", value: telemetry("\(model.railFaults.sixV)"))
-            metricRow("5 V 电源故障", value: telemetry("\(model.railFaults.fiveV)"))
-            metricRow("3.3 V 电源故障", value: telemetry("\(model.railFaults.threeV)"))
+            metricRow(tr("6 V 电源故障"), value: telemetry("\(model.railFaults.sixV)"))
+            metricRow(tr("5 V 电源故障"), value: telemetry("\(model.railFaults.fiveV)"))
+            metricRow(tr("3.3 V 电源故障"), value: telemetry("\(model.railFaults.threeV)"))
         }
     }
 
     private var computerPanel: some View {
-        DSPanel(title: "这台 Mac") {
+        DSPanel(title: tr("这台 Mac")) {
             if let pct = model.macStatus.batteryPercent {
-                metricRow("电池", value: "\(pct)%")
-                metricRow("供电方式", value: model.macStatus.onAC == true ? "外接电源" : "电池供电")
+                metricRow(tr("电池"), value: "\(pct)%")
+                metricRow(tr("供电方式"), value: model.macStatus.onAC == true ? tr("外接电源") : tr("电池供电"))
             } else {
-                metricRow("供电方式", value: "外接电源")
+                metricRow(tr("供电方式"), value: tr("外接电源"))
             }
-            metricRow("系统 CPU", value: String(format: "%.0f%%", model.macStatus.systemCPUPercent))
-            metricRow("应用内存", value: String(format: "%.0f MB", model.macStatus.processMemoryMB))
+            metricRow(tr("系统 CPU"), value: String(format: "%.0f%%", model.macStatus.systemCPUPercent))
+            metricRow(tr("应用内存"), value: String(format: "%.0f MB", model.macStatus.processMemoryMB))
             Divider()
             Text(model.localNetworkSummary)
                 .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
@@ -129,31 +129,31 @@ struct DiagnosticsView: View {
     }
 
     private var versionsPanel: some View {
-        DSPanel(title: "设备版本", subtitle: model.commConnected ? nil : "未连接；如有记录，显示上次收到的版本") {
+        DSPanel(title: tr("设备版本"), subtitle: model.commConnected ? nil : tr("未连接；如有记录，显示上次收到的版本")) {
             if model.versionEntries.isEmpty {
-                Text("尚未收到版本信息。连接后由机器人程序提供。")
+                Text(tr("尚未收到版本信息。连接后由机器人程序提供。"))
                     .font(.callout).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(model.versionEntries.enumerated()), id: \.offset) { _, entry in
-                    metricRow("\(entry.name) · 类型 \(entry.deviceType)", value: entry.version)
+                    metricRow(tr("%@ · 类型 %d", entry.name, Int(entry.deviceType)), value: entry.version)
                 }
             }
         }
     }
 
     private var cameraMockPanel: some View {
-        DSPanel(title: "摄像头", subtitle: "模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）") {
+        DSPanel(title: tr("摄像头"), subtitle: tr("模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）")) {
             CameraMockPanel()
         }
     }
 
     private var maintenancePanel: some View {
-        DSPanel(title: "机器人维护", subtitle: "重启会中断控制。请先确认机器人已失能。") {
+        DSPanel(title: tr("机器人维护"), subtitle: tr("重启会中断控制。请先确认机器人已失能。")) {
             HStack(spacing: 12) {
-                Button("重启机器人程序", systemImage: "arrow.clockwise") { confirmRestart = true }
+                Button(tr("重启机器人程序"), systemImage: "arrow.clockwise") { confirmRestart = true }
                     .buttonStyle(DSActionStyle())
                     .disabled(!model.commConnected)
-                Button("重启控制器", systemImage: "power") { confirmReboot = true }
+                Button(tr("重启控制器"), systemImage: "power") { confirmReboot = true }
                     .buttonStyle(DSActionStyle(color: .secondary))
                     .disabled(!model.commConnected)
                 Spacer(minLength: 0)
@@ -183,7 +183,7 @@ struct DiagnosticsView: View {
     }
 
     private var emptyTelemetry: some View {
-        Label(model.commConnected ? "等待控制器回传资源数据" : "尚未连接机器人", systemImage: "waveform.path")
+        Label(model.commConnected ? tr("等待控制器回传资源数据") : tr("尚未连接机器人"), systemImage: "waveform.path")
             .font(.callout).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
     }

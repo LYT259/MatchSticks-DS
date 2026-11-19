@@ -34,15 +34,15 @@ func updateSafetyGateReasonPrecedence() {
     guard case .blocked(let r1) = UpdateSafetyGate.evaluate(.init(enabled: true, commConnected: true, estopEngaged: true)) else {
         check(false, "三态全真应阻断"); return
     }
-    check(r1.contains("使能"), "优先报使能中（得到：\(r1)）")
+    check(r1.contains("使能") || r1.contains("enabled"), "优先报使能中（得到：\(r1)）")
     guard case .blocked(let r2) = UpdateSafetyGate.evaluate(.init(enabled: false, commConnected: true, estopEngaged: true)) else {
         check(false, "连接+锁存应阻断"); return
     }
-    check(r2.contains("通信"), "其次报通信活跃（得到：\(r2)）")
+    check(r2.contains("通信") || r2.contains("Comms"), "其次报通信活跃（得到：\(r2)）")
     guard case .blocked(let r3) = UpdateSafetyGate.evaluate(.init(enabled: false, commConnected: false, estopEngaged: true)) else {
         check(false, "仅锁存应阻断"); return
     }
-    check(r3.contains("急停"), "最后报急停锁存（得到：\(r3)）")
+    check(r3.contains("急停") || r3.contains("E-Stop"), "最后报急停锁存（得到：\(r3)）")
 }
 
 func updateSafetyGateBlockingDrivesUiState() {

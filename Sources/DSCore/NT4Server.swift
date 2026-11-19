@@ -75,7 +75,7 @@ public final class NT4Server: @unchecked Sendable {
 
     private func listenLoop() {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { onLog?("NT4 socket 创建失败"); return }
+        guard fd >= 0 else { onLog?(tr("NT4 socket 创建失败")); return }
         var yes: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
 
@@ -87,14 +87,14 @@ public final class NT4Server: @unchecked Sendable {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
         guard bound == 0, listen(fd, 8) == 0 else {
-            onLog?("NT4 监听失败 :\(port)（errno \(errno)）")
+            onLog?(tr("NT4 监听失败 :%d（errno %d）", port, errno))
             close(fd)
             return
         }
         lock.lock()
         listenSock = fd
         lock.unlock()
-        onLog?("NT4 server 监听 :\(port)")
+        onLog?(tr("NT4 server 监听 :%d", port))
 
         while true {
             lock.lock()
@@ -131,7 +131,7 @@ public final class NT4Server: @unchecked Sendable {
             close(fd)
             return
         }
-        onLog?("NT4 客户端已连接")
+        onLog?(tr("NT4 客户端已连接"))
 
         lock.lock()
         clients.append((fd, [], [:]))

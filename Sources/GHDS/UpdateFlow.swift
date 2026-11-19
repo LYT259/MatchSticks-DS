@@ -37,7 +37,7 @@ final class UpdateFlowModel {
     func requestRestart() -> RestartOutcome {
         guard case .ready = phase else { return .notReady }
         guard let state = gateStateProvider?() else {
-            lastBlockReason = "驾驶台状态未接入（安全门保守阻断）"
+            lastBlockReason = tr("驾驶台状态未接入（安全门保守阻断）")
             return .blocked(reason: lastBlockReason!)
         }
         switch UpdateSafetyGate.evaluate(state) {

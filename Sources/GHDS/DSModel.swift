@@ -165,7 +165,7 @@ final class DSModel {
     private(set) var watchdogNotFed = false
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
-    var localNetworkSummary = "检测中…"
+    var localNetworkSummary = tr("检测中…")
     private let networkMonitor = NetworkPathMonitor()
     private let macStatusSampler = MacStatusMonitor.BackgroundSampler()
     private var wpilogWriter: WPILogWriter?
@@ -216,13 +216,13 @@ final class DSModel {
 
     // MARK: 手柄
 
-    /// UI 可见槽位镜像（@Observable）：结构变化（增删/移动/锁定）立即发布；轴/按键
+    /// UI 可见槽位镜像（@Observable）：结构变化（增删/移动）立即发布；轴/按键
     /// 实时值由 publishVisibleSlotsIfDue 以 ≥100ms 节流刷新——50Hz 逐 tick 写
     /// @Observable 数组会让 USB 页每 20ms 整页失效重建。控制路径不读它（见 controlSlots）。
     var joystickSlots: [JoystickSlot] = []
     var lastHIDScanAt: Date?
     /// 控制槽位（非 UI 发布）：50Hz 每 tick 刷新最新手柄值并进控制快照。结构真值在此，
-    /// rebuildSlots/moveSlot/toggleLock 先改它，再按需发布到 joystickSlots。
+    /// rebuildSlots/moveSlot 先改它，再按需发布到 joystickSlots。
     private var controlSlots: [JoystickSlot] = []
     private var lastSlotsPublishAt: TimeInterval = 0
     /// HID 轮询源（默认真实 IOKit 主线程轮询；测试注入假设备流）。
@@ -256,6 +256,15 @@ final class DSModel {
     }
     var soundsEnabled = true {
         didSet { settings.set("soundsEnabled", soundsEnabled) }
+    }
+
+    // MARK: 界面语言（中英双语：默认跟随系统，可手动覆盖；查找逻辑在 DSCore/Localization.swift）
+
+    var languageMode = LanguageMode.system {
+        didSet {
+            settings.set("language", languageMode.rawValue)
+            LanguageManager.shared.setMode(languageMode)
+        }
     }
 
     // MARK: 事件日志
@@ -309,6 +318,10 @@ final class DSModel {
     var persistenceEnabled: Bool { !DSModel.isAutoSim }
 
     func loadPersistedSettings() {
+        // 语言不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
+        if let raw = settings.string("language"), let mode = LanguageMode(rawValue: raw) {
+            languageMode = mode
+        }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }
@@ -387,7 +400,7 @@ final class DSModel {
                     guard let self else { return }
                     nt4ValueCount += 1
                     if nt4ValueCount == 1 {
-                        self.log("NT4 首个机器人写入：\(name)")
+                        self.log(tr("NT4 首个机器人写入：%@", name))
                     }
                 }
             }
@@ -417,15 +430,15 @@ final class DSModel {
 
         startWebUI()
         client.start()
-        log("GH DS 控制环已启动（20ms）")
+        log(tr("GH DS 控制环已启动（20ms）"))
 
         if DSModel.isAutoSim {
             manualIP = "127.0.0.1"
-            log("GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1")
+            log(tr("GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
         }
         if ProcessInfo.processInfo.environment["GHDS_AUTO_MRC"] == "1" {
             protocolKind = .mrc
-            log("GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）")
+            log(tr("GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
         }
     }
 
@@ -547,7 +560,7 @@ final class DSModel {
                 }
             },
             applySetting: { [weak self] key, value in
-                guard let self else { return "应用未就绪" }
+                guard let self else { return tr("应用未就绪") }
                 return DispatchQueue.main.sync {
                     MainActor.assumeIsolated { self.applyWebSetting(key: key, value: value) }
                 }
@@ -580,6 +593,7 @@ final class DSModel {
             "practiceDelayTime": String(practiceDelayTime),
             "soundsEnabled": soundsEnabled ? "true" : "false",
             "dslogEnabled": dslogEnabled ? "true" : "false",
+            "language": languageMode.rawValue,
         ]
     }
 
@@ -587,39 +601,43 @@ final class DSModel {
     func applyWebSetting(key: String, value: String) -> String? {
         switch key {
         case "teamNumber":
-            guard let t = Int(value), (0...99999).contains(t) else { return "队伍号须为 0–99999 的整数" }
+            guard let t = Int(value), (0...99999).contains(t) else { return tr("队伍号须为 0–99999 的整数") }
             teamNumber = t
         case "manualIP":
-            guard value.count <= 45 else { return "地址过长" }
+            guard value.count <= 45 else { return tr("地址过长") }
             manualIP = value
         case "protocolKind":
-            guard let kind = DSClient.ProtocolKind(rawValue: value) else { return "未知协议：\(value)" }
+            guard let kind = DSClient.ProtocolKind(rawValue: value) else { return tr("未知协议：%@", value) }
             protocolKind = kind
         case "alliance":
-            guard let raw = UInt8(value), let a = AllianceStation(rawValue: raw) else { return "非法站位值" }
+            guard let raw = UInt8(value), let a = AllianceStation(rawValue: raw) else { return tr("非法站位值") }
             alliance = a
         case "dashboardKind":
-            guard let d = DashboardKind(rawValue: value) else { return "未知 Dashboard：\(value)" }
+            guard let d = DashboardKind(rawValue: value) else { return tr("未知 Dashboard：%@", value) }
             dashboardKind = d
         case "practiceAutoTime":
-            guard let v = Double(value), v >= 1 else { return "自动阶段时长须 ≥1 秒" }
+            guard let v = Double(value), v >= 1 else { return tr("自动阶段时长须 ≥1 秒") }
             practiceAutoTime = v
         case "practiceTeleopTime":
-            guard let v = Double(value), v >= 15 else { return "遥控阶段时长须 ≥15 秒" }
+            guard let v = Double(value), v >= 15 else { return tr("遥控阶段时长须 ≥15 秒") }
             practiceTeleopTime = v
         case "practiceDelayTime":
-            guard let v = Double(value), v >= 0 else { return "延迟须 ≥0 秒" }
+            guard let v = Double(value), v >= 0 else { return tr("延迟须 ≥0 秒") }
             practiceDelayTime = v
         case "soundsEnabled":
-            guard value == "true" || value == "false" else { return "须为 true/false" }
+            guard value == "true" || value == "false" else { return tr("须为 true/false") }
             soundsEnabled = (value == "true")
         case "dslogEnabled":
-            guard value == "true" || value == "false" else { return "须为 true/false" }
+            guard value == "true" || value == "false" else { return tr("须为 true/false") }
             dslogEnabled = (value == "true")
+        case "language":
+            // system / chinese / english（LanguageMode.rawValue）；改动经 didSet 即时生效并落盘
+            guard let mode = LanguageMode(rawValue: value) else { return tr("语言须为 system/chinese/english") }
+            languageMode = mode
         default:
-            return "未知设置项：\(key)"
+            return tr("未知设置项：%@", key)
         }
-        log("WebUI 设置覆盖：\(key) = \(value)")
+        log(tr("WebUI 设置覆盖：%@ = %@", key, value))
         return nil
     }
 
@@ -677,7 +695,7 @@ final class DSModel {
             )
             let decision = SafetyGate.evaluateEnable(state)
             guard case .allow = decision else {
-                if case .deny(let reason) = decision { log("拒绝使能：\(reason)") }
+                if case .deny(let reason) = decision { log(tr("拒绝使能：%@", reason)) }
                 return
             }
         }
@@ -694,7 +712,7 @@ final class DSModel {
         enabledSince = nil
         // 同步刷新控制快照：否则快照盒里还是 ≤20ms 前的 estop=0，急停位上线被拖延
         pollAndPublishSnapshot()
-        log("E-STOP 触发（Space）")
+        log(tr("E-STOP 触发（Space）"))
     }
 
     /// FDS 语义复位：重启 robot code 解除 E-Stop 锁存
@@ -707,19 +725,19 @@ final class DSModel {
         // MainActor 回合之后，此处同步刷新保证脉冲窗口内的每个包都已是 estop=0。
         pollAndPublishSnapshot()
         client.sendRequestPulse(RequestWord(rebootRoboRIO: false, restartCode: true))
-        log("E-Stop 复位请求已发送（重启 robot code）")
+        log(tr("E-Stop 复位请求已发送（重启 robot code）"))
     }
 
     func rebootRoboRIO() {
-        guard commConnected else { log("Reboot 拒绝：无连接"); return }
+        guard commConnected else { log(tr("Reboot 拒绝：无连接")); return }
         client.sendRequestPulse(RequestWord(rebootRoboRIO: true, restartCode: false))
-        log("已请求 roboRIO 重启")
+        log(tr("已请求 roboRIO 重启"))
     }
 
     func restartRobotCode() {
-        guard commConnected else { log("Restart Code 拒绝：无连接"); return }
+        guard commConnected else { log(tr("Restart Code 拒绝：无连接")); return }
         client.sendRequestPulse(RequestWord(rebootRoboRIO: false, restartCode: true))
-        log("已请求重启 robot code")
+        log(tr("已请求重启 robot code"))
     }
 
     // MARK: 模式
@@ -738,7 +756,7 @@ final class DSModel {
     func selectOpMode(_ op: MRCOpModeInfo) {
         selectedOpModeHash = op.hash
         opModeHashBox.set(op.hash)
-        log("OpMode 选择：\(op.name)（hash 0x\(String(op.hash, radix: 16))）")
+        log(tr("OpMode 选择：%@（hash 0x%@）", op.name, String(op.hash, radix: 16)))
     }
 
     // MARK: Practice 时序
@@ -789,11 +807,11 @@ final class DSModel {
             case .disable: setEnabled(false)
             case .finished:
                 practicePhase = .finished
-                log("Practice 结束")
+                log(tr("Practice 结束"))
                 beep()
             case .aborted:
                 practicePhase = .finished
-                log("A-STOP：Practice 中止")
+                log(tr("A-STOP：Practice 中止"))
             }
         }
     }
@@ -824,12 +842,12 @@ final class DSModel {
             // 逐应答执行（不随显示节流）：喂狗核算 + 电池历史采样（5Hz 内部节流）
             if p.watchdogFed {
                 watchdogMissCount = 0
-                if watchdogNotFed { watchdogNotFed = false; log("Watchdog 恢复喂狗") }
+                if watchdogNotFed { watchdogNotFed = false; log(tr("Watchdog 恢复喂狗")) }
             } else {
                 watchdogMissCount += 1
                 if watchdogMissCount == 5 {
                     watchdogNotFed = true
-                    log("⚠️ Watchdog Not Fed（连续 5 应答未喂狗）")
+                    log(tr("⚠️ Watchdog Not Fed（连续 5 应答未喂狗）"))
                 }
             }
             appendBattery(p.batteryVoltage)
@@ -840,7 +858,7 @@ final class DSModel {
         case .opModes(let list):
             if list != opModes {
                 opModes = list
-                log("收到 OpMode 列表（\(list.count) 项）")
+                log(tr("收到 OpMode 列表（%d 项）", list.count))
             }
         case .stats(let loss, _, let tx, let rx):
             lossPercent = loss
@@ -852,7 +870,7 @@ final class DSModel {
             let nowT = Date().timeIntervalSinceReferenceDate
             if statsTickCount % 5 == 0, let last = lastThroughputTick, nowT > last.at {
                 let hz = Double(tx &- last.tx) / (nowT - last.at)
-                Diag.write(String(format: "控制环吞吐：%.1f Hz（tx=%d rx=%d loss=%.1f%%）", hz, tx, rx, loss))
+                Diag.write(tr("控制环吞吐：%.1f Hz（tx=%d rx=%d loss=%.1f%%）", hz, tx, rx, loss))
             }
             if statsTickCount % 5 == 0 { lastThroughputTick = (tx, nowT) }
             lossHistory.append(LossPoint(t: Date(), loss: loss))
@@ -866,14 +884,14 @@ final class DSModel {
             watchdogHealthy = false
             enabled = false
             enabledSince = nil
-            log("看门狗触发：UI 冻结 >200ms，已冻结使能输出")
+            log(tr("看门狗触发：UI 冻结 >200ms，已冻结使能输出"))
         case .watchdogRecovered:
             watchdogHealthy = true
-            log("看门狗恢复：控制环心跳正常")
+            log(tr("看门狗恢复：控制环心跳正常"))
         case .autoDisabled(let reason):
             enabled = false
             enabledSince = nil
-            log("自动失能：\(reason)")
+            log(tr("自动失能：%@", reason))
         case .log(let line):
             log(line)
         }
@@ -902,7 +920,7 @@ final class DSModel {
         case .versions(let v):
             if v != versionEntries {
                 versionEntries = v
-                log("收到版本信息（\(v.count) 项）")
+                log(tr("收到版本信息（%d 项）", v.count))
             }
         case .error(var m):
             m.rowID = nextRowID()          // 协议 seq 会回绕，行身份由 DS 侧分配
@@ -920,36 +938,22 @@ final class DSModel {
         }
     }
 
-    // MARK: 手柄槽位（锁定 = 设备钉住槽位索引）
+    // MARK: 手柄槽位（手动座次权威：重扫/插拔不重排，新手柄追加到末尾）
+
+    /// 座次记忆：全部见过的设备按座次记录。离线设备保留原座次（重连回原位），
+    /// 全新手柄追加到最后。封顶防频繁插拔无限增长。
+    private var seatMemory: [String] = []
 
     func rescanJoysticks() {
         rebuildSlots(from: hidPoller())
     }
 
     private func rebuildSlots(from snapshots: [HIDDeviceSnapshot]) {
-        var slots = [JoystickSlot?](repeating: nil, count: max(snapshots.count, controlSlots.count))
-
-        var used = Set<String>()
-        for slot in controlSlots {
-            guard let lockID = slot.lockedDeviceID,
-                  let device = snapshots.first(where: { $0.uniqueID == lockID }) else { continue }
-            let index = min(slot.index, slots.count - 1)
-            slots[index] = JoystickSlot(index: index, device: device, lockedDeviceID: lockID)
-            used.insert(lockID)
-        }
-
-        var fill = snapshots.filter { !used.contains($0.uniqueID) }.makeIterator()
-        for i in slots.indices where slots[i] == nil {
-            if let device = fill.next() {
-                var s = controlSlots.first { $0.uniqueID == device.uniqueID }
-                    ?? JoystickSlot(index: i, device: device)
-                s.index = i
-                s.apply(device)
-                s.lockedDeviceID = nil
-                slots[i] = s
-            }
-        }
-        controlSlots = slots.compactMap { $0 }
+        controlSlots = snapshots
+            .sorted { seatRank($0.uniqueID) < seatRank($1.uniqueID) }
+            .enumerated()
+            .map { JoystickSlot(index: $0.offset, device: $0.element) }
+        rememberNewcomers(snapshots)
         lastHIDScanAt = Date()
         // 结构变化不等节流窗口：立即发布到可见槽位
         publishVisibleSlotsNow()
@@ -959,16 +963,31 @@ final class DSModel {
         let target = up ? index - 1 : index + 1
         guard controlSlots.indices.contains(index), controlSlots.indices.contains(target) else { return }
         controlSlots.swapAt(index, target)
-        for (i, _) in controlSlots.enumerated() { controlSlots[i].index = i }
+        for i in controlSlots.indices { controlSlots[i].index = i }
+        rewriteSeats()
         publishVisibleSlotsNow()
     }
 
-    func toggleLock(_ index: Int) {
-        guard controlSlots.indices.contains(index) else { return }
-        controlSlots[index].lockedDeviceID = controlSlots[index].lockedDeviceID == nil
-            ? controlSlots[index].uniqueID
-            : nil
-        publishVisibleSlotsNow()
+    /// 座次键：记忆中的名次；没见过的设备排最后，彼此按 uniqueID（即快照序）定先后
+    private func seatRank(_ id: String) -> (Int, String) {
+        (seatMemory.firstIndex(of: id) ?? Int.max, id)
+    }
+
+    /// 结构变化只追加新面孔；离线设备留在原座次上（重连回原位），不打乱他人
+    private func rememberNewcomers(_ snapshots: [HIDDeviceSnapshot]) {
+        for d in snapshots where !seatMemory.contains(d.uniqueID) {
+            seatMemory.append(d.uniqueID)
+        }
+        if seatMemory.count > 16 { seatMemory.removeFirst(seatMemory.count - 16) }
+    }
+
+    /// 手动调整座次：在场设备按新座次记录，离线设备退到末尾（彼此保留相对先后）
+    private func rewriteSeats() {
+        let present = controlSlots.map(\.uniqueID)
+        let presentSet = Set(present)
+        var memory = present
+        memory.append(contentsOf: seatMemory.filter { !presentSet.contains($0) })
+        seatMemory = Array(memory.prefix(16))
     }
 
     // MARK: .dslog 采样（1Hz）
@@ -986,9 +1005,9 @@ final class DSModel {
                 dslogWriter = try DSLogWriter(fileURL: dir.appendingPathComponent(base + ".dslog"))
                 wpilogWriter = try WPILogWriter(fileURL: dir.appendingPathComponent(base + ".wpilog"))
                 startWPILogEntries()
-                log("会话日志记录开始（.dslog + .wpilog）")
+                log(tr("会话日志记录开始（.dslog + .wpilog）"))
             } catch {
-                log("日志启动失败：\(error.localizedDescription)")
+                log(tr("日志启动失败：%@", error.localizedDescription))
                 dslogEnabled = false
             }
         } else {
@@ -1098,7 +1117,6 @@ struct JoystickSlot: Identifiable {
     var buttons: UInt64
     var buttonCount: Int
     var povs: [Int16]
-    var lockedDeviceID: String?
     var isXbox: Bool
 
     var data: JoystickData {
@@ -1116,7 +1134,7 @@ struct JoystickSlot: Identifiable {
         return d
     }
 
-    init(index: Int, device: HIDDeviceSnapshot, lockedDeviceID: String? = nil) {
+    init(index: Int, device: HIDDeviceSnapshot) {
         self.index = index
         self.uniqueID = device.uniqueID
         self.name = device.name
@@ -1126,7 +1144,6 @@ struct JoystickSlot: Identifiable {
         self.buttons = device.buttons
         self.buttonCount = device.buttonCount
         self.povs = device.povs
-        self.lockedDeviceID = lockedDeviceID
         self.isXbox = device.isXbox
     }
 
@@ -1157,7 +1174,7 @@ extension DSModel {
                 formatter.dateFormat = "yyyyMMdd-HHmmss"
                 return url.appendingPathComponent("capture-\(formatter.string(from: Date())).dsrec")
             }
-            if let name = recorderBox.currentFileName { log("抓包录制开始：\(name)") }
+            if let name = recorderBox.currentFileName { log(tr("抓包录制开始：%@", name)) }
         } else {
             recorderBox.stop()
         }

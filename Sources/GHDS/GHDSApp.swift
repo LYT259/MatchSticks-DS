@@ -30,7 +30,7 @@ struct GHDSApp: App {
             CommandGroup(replacing: .newItem) {}
         }
 
-        Window("迷你驾驶台", id: "mini") {
+        Window(tr("迷你驾驶台"), id: "mini") {
             MiniView(model: model)
                 .frame(minWidth: 400, minHeight: 220)
         }
@@ -49,29 +49,31 @@ struct RootView: View {
     @State private var simProcess: Process?
     @State private var connectionDraft = ConnectionDraft()
     @Environment(\.openWindow) private var openWindow
+    // 语言切换 → body 末尾 .id(effective) 让整棵子树按新语言重建（RootView 自身 @State 保留）
+    @ObservedObject private var language = LanguageManager.shared
 
     enum Page: String, CaseIterable, Hashable {
         case operation, setup, usb, diagnostics, charts, messages, permissions
         var title: String {
             switch self {
-            case .operation: return "驾驶"
-            case .setup: return "连接与设置"
-            case .usb: return "手柄"
-            case .diagnostics: return "诊断"
-            case .charts: return "数据图表"
-            case .messages: return "控制台"
-            case .permissions: return "权限与帮助"
+            case .operation: return tr("驾驶")
+            case .setup: return tr("连接与设置")
+            case .usb: return tr("手柄")
+            case .diagnostics: return tr("诊断")
+            case .charts: return tr("数据图表")
+            case .messages: return tr("控制台")
+            case .permissions: return tr("权限与帮助")
             }
         }
         var subtitle: String {
             switch self {
-            case .operation: return "确认连接与模式，然后开始操作。"
-            case .setup: return "连接机器人，配置练习和记录偏好。"
-            case .usb: return "检查输入，安排机器人接收的手柄顺序。"
-            case .diagnostics: return "检查链路、机器人资源和故障信息。"
-            case .charts: return "观察电池、处理器和通信质量的变化。"
-            case .messages: return "查看机器人输出、错误与驾驶台事件。"
-            case .permissions: return "排查连接问题，了解当前快捷键的使用范围。"
+            case .operation: return tr("确认连接与模式，然后开始操作。")
+            case .setup: return tr("连接机器人，配置练习和记录偏好。")
+            case .usb: return tr("检查输入，安排机器人接收的手柄顺序。")
+            case .diagnostics: return tr("检查链路、机器人资源和故障信息。")
+            case .charts: return tr("观察电池、处理器和通信质量的变化。")
+            case .messages: return tr("查看机器人输出、错误与驾驶台事件。")
+            case .permissions: return tr("排查连接问题，了解当前快捷键的使用范围。")
             }
         }
         var symbol: String {
@@ -99,7 +101,7 @@ struct RootView: View {
                     }
                     Spacer()
                     Button { openWindow(id: "mini") } label: {
-                        Label("迷你驾驶台", systemImage: "pip")
+                        Label(tr("迷你驾驶台"), systemImage: "pip")
                     }
                     .buttonStyle(DSActionStyle(color: .primary))
                     UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
@@ -117,6 +119,7 @@ struct RootView: View {
         .background(DSTheme.canvas)
         .tint(.accentColor)
         .buttonStyle(DSActionStyle())
+        .id(language.effective)
     }
 
     private var sidebar: some View {
@@ -124,19 +127,19 @@ struct RootView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("GH").font(.system(size: 29, weight: .bold, design: .rounded))
                 Text("Driver Station").font(.system(size: 14, weight: .semibold))
-                Text("机器人驾驶台").font(.caption).foregroundStyle(.secondary)
+                Text(tr("机器人驾驶台")).font(.caption).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 32)
-            navGroup("操作", pages: [.operation, .setup, .usb])
-            navGroup("监测", pages: [.diagnostics, .charts, .messages])
+            navGroup(tr("操作"), pages: [.operation, .setup, .usb])
+            navGroup(tr("监测"), pages: [.diagnostics, .charts, .messages])
                 .padding(.top, 22)
             Spacer(minLength: 24)
             navRow(.permissions)
             Divider().padding(.vertical, 16).padding(.horizontal, 10)
             VStack(alignment: .leading, spacing: 5) {
-                Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "尚未设置队伍")
+                Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : tr("尚未设置队伍"))
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                Text("仅供练习与调试").font(.caption).foregroundStyle(.secondary)
+                Text(tr("仅供练习与调试")).font(.caption).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 12).padding(.bottom, 22)
         }
@@ -190,7 +193,7 @@ struct SafetyControlBar: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(model.enabled ? "运行时间" : "驾驶控制").font(.caption).foregroundStyle(.secondary)
+                    Text(model.enabled ? tr("运行时间") : tr("驾驶控制")).font(.caption).foregroundStyle(.secondary)
                     Text(model.enabled ? String(format: "%02d:%04.1f", Int(model.enabledElapsed) / 60, model.enabledElapsed.truncatingRemainder(dividingBy: 60)) : model.uiStatus)
                         .font(.system(size: 15, weight: .semibold)).monospacedDigit()
                         .foregroundStyle(model.uiStatusColor)
@@ -198,19 +201,19 @@ struct SafetyControlBar: View {
                 .frame(minWidth: 110, alignment: .leading)
                 Spacer(minLength: 8)
                 Button { model.setEnabled(true) } label: {
-                    controlLabel("使能", hint: "[ + ] + \\", symbol: "play.fill")
+                    controlLabel(tr("使能"), hint: "[ + ] + \\", symbol: "play.fill")
                 }
                 .buttonStyle(DSActionStyle(color: .green, prominent: true))
                 .disabled(!model.canEnable || model.remoteEstopReported)
-                .help(model.remoteEstopReported ? "机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。" : "使能机器人（需已连接且无急停）")
+                .help(model.remoteEstopReported ? tr("机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。") : tr("使能机器人（需已连接且无急停）"))
                 // Intentionally no keyboardShortcut: only ShortcutManager's three-key chord enables.
                 Button { model.setEnabled(false) } label: {
-                    controlLabel("失能", hint: "Return", symbol: "stop.fill")
+                    controlLabel(tr("失能"), hint: "Return", symbol: "stop.fill")
                 }
                 .buttonStyle(DSActionStyle(color: .primary))
                 Divider().frame(height: 36).padding(.horizontal, 3)
                 Button { model.triggerEstop() } label: {
-                    controlLabel(model.estopEngaged ? "急停已锁定" : "急停", hint: "Space", symbol: "exclamationmark.octagon.fill")
+                    controlLabel(model.estopEngaged ? tr("急停已锁定") : tr("急停"), hint: "Space", symbol: "exclamationmark.octagon.fill")
                 }
                 .buttonStyle(DSActionStyle(color: .red, prominent: true))
                 .disabled(model.estopEngaged)
@@ -218,12 +221,12 @@ struct SafetyControlBar: View {
             HStack(alignment: .center, spacing: 10) {
                 Text(model.enableExplanation).font(.system(size: 12)).foregroundStyle(.secondary)
                 if model.estopEngaged {
-                    Button("复位急停") { model.resetEstop() }
-                        .help("请求重启机器人程序以解除急停锁存。快捷键：Esc + I。")
+                    Button(tr("复位急停")) { model.resetEstop() }
+                        .help(tr("请求重启机器人程序以解除急停锁存。快捷键：Esc + I。"))
                 }
                 Spacer(minLength: 0)
                 if !model.estopEngaged {
-                    Text("快捷键仅在前台、非文本输入时生效")
+                    Text(tr("快捷键仅在前台、非文本输入时生效"))
                         .font(.system(size: 10)).foregroundStyle(.secondary)
                 }
             }
