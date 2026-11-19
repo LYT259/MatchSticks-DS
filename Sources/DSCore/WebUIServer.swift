@@ -91,7 +91,7 @@ public final class WebUIServer {
 
     private func listenLoop() {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { onLog?("WebUI socket 创建失败"); return }
+        guard fd >= 0 else { onLog?(tr("WebUI socket 创建失败")); return }
         var yes: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
 
@@ -106,7 +106,7 @@ public final class WebUIServer {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
         guard bound == 0, listen(fd, 8) == 0 else {
-            onLog?("WebUI 监听失败 :\(port)（errno \(errno)）")
+            onLog?(tr("WebUI 监听失败 :%d（errno %d）", port, errno))
             close(fd)
             lock.lock(); runningFlag = false; lock.unlock()
             return
@@ -121,7 +121,7 @@ public final class WebUIServer {
         listenSock = fd
         boundPortValue = realPort
         lock.unlock()
-        onLog?("WebUI 服务已启动：http://127.0.0.1:\(realPort)（仅本机）")
+        onLog?(tr("WebUI 服务已启动：http://127.0.0.1:%d（仅本机）", realPort))
 
         while true {
             lock.lock()
@@ -245,8 +245,10 @@ public final class WebUIServer {
 
         switch (method, decodedPath) {
         case ("GET", "/"), ("GET", "/index.html"):
+            // 页面语言：?lang=zh|en 覆盖，否则跟随 App 当前生效语言（系统/手动）
+            let language = queryLanguageOverride(query) ?? LanguageManager.shared.currentEffective
             return Response(status: 200, reason: "OK", contentType: "text/html; charset=utf-8",
-                            body: Data(indexHTML.utf8))
+                            body: Data(indexHTML(language: language).utf8))
         case ("GET", "/api/status"):
             return .json(jsonObject(env.status()))
         case ("GET", "/api/logs"):
@@ -362,21 +364,52 @@ public final class WebUIServer {
         return out.removingPercentEncoding ?? nil
     }
 
-    static let indexHTML = """
-    <!doctype html><html><head><meta charset="utf-8"><title>GH Driver Station</title>
-    <style>body{font-family:-apple-system;font-size:14px;margin:24px;color:#1d1d1f}
-    h1{font-size:20px}code{background:#f2f2f4;padding:2px 5px;border-radius:4px}
-    a{color:#0066cc}</style></head><body>
-    <h1>GH Driver Station · WebUI</h1>
-    <p>本机调试与支持页（仅 127.0.0.1 可访问）。</p>
-    <ul>
-    <li><a href="/api/status">/api/status</a> — 连接/使能/急停/更新门状态</li>
-    <li><a href="/api/logs">/api/logs</a> — 日志文件列表（.dslog/.wpilog/.dsrec）</li>
-    <li>/logs/&lt;文件名&gt; — 下载日志文件</li>
-    <li><a href="/api/settings">/api/settings</a> — 查看设置</li>
-    <li><code>POST /api/settings</code> — 覆盖设置（JSON 字符串键值，逐键校验）</li>
-    </ul></body></html>
-    """
+    /// ?lang= 覆盖：zh/zh-hans/chinese → 中文，en/english → 英文；非法/缺省返回 nil（回落 App 当前语言）
+    public static func queryLanguageOverride(_ query: [String: String]) -> AppLanguage? {
+        switch query["lang"]?.lowercased() {
+        case "zh", "zh-hans", "chinese": return .chinese
+        case "en", "english": return .english
+        default: return nil
+        }
+    }
+
+    /// 首页模板（双语）：文案成对维护，结构与样式保持一致
+    public static func indexHTML(language: AppLanguage) -> String {
+        switch language {
+        case .chinese:
+            return """
+            <!doctype html><html><head><meta charset="utf-8"><title>GH Driver Station</title>
+            <style>body{font-family:-apple-system;font-size:14px;margin:24px;color:#1d1d1f}
+            h1{font-size:20px}code{background:#f2f2f4;padding:2px 5px;border-radius:4px}
+            a{color:#0066cc}</style></head><body>
+            <h1>GH Driver Station · WebUI</h1>
+            <p>本机调试与支持页（仅 127.0.0.1 可访问）。</p>
+            <ul>
+            <li><a href="/api/status">/api/status</a> — 连接/使能/急停/更新门状态</li>
+            <li><a href="/api/logs">/api/logs</a> — 日志文件列表（.dslog/.wpilog/.dsrec）</li>
+            <li>/logs/&lt;文件名&gt; — 下载日志文件</li>
+            <li><a href="/api/settings">/api/settings</a> — 查看设置</li>
+            <li><code>POST /api/settings</code> — 覆盖设置（JSON 字符串键值，逐键校验）</li>
+            </ul></body></html>
+            """
+        case .english:
+            return """
+            <!doctype html><html><head><meta charset="utf-8"><title>GH Driver Station</title>
+            <style>body{font-family:-apple-system;font-size:14px;margin:24px;color:#1d1d1f}
+            h1{font-size:20px}code{background:#f2f2f4;padding:2px 5px;border-radius:4px}
+            a{color:#0066cc}</style></head><body>
+            <h1>GH Driver Station · WebUI</h1>
+            <p>Local debugging and support page (127.0.0.1 only).</p>
+            <ul>
+            <li><a href="/api/status">/api/status</a> — connection / enable / E-Stop / update-gate status</li>
+            <li><a href="/api/logs">/api/logs</a> — log file list (.dslog/.wpilog/.dsrec)</li>
+            <li>/logs/&lt;file name&gt; — download a log file</li>
+            <li><a href="/api/settings">/api/settings</a> — view settings</li>
+            <li><code>POST /api/settings</code> — override settings (flat JSON strings, per-key validation)</li>
+            </ul></body></html>
+            """
+        }
+    }
 }
 
 // String 小扩展（仅本文件用）

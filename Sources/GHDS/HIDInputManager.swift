@@ -16,6 +16,9 @@ struct HIDDeviceSnapshot: Sendable {
     var buttonCount: Int
     var povs: [Int16]
     var isXbox: Bool
+    /// true = 轴已按 FRC 约定归一（Y 族上=-1，XInputAxisOrder 重排）；false = HID 原生（上=+1）。
+    /// 皮肤绘制用它统一摇杆方向显示。
+    var yFlipped: Bool
 }
 
 @MainActor
@@ -91,7 +94,7 @@ final class HIDInputManager {
 
     private func buildRecord(_ device: IOHIDDevice) -> DeviceRecord? {
         func prop(_ key: String) -> Any? { IOHIDDeviceGetProperty(device, key as CFString) }
-        let name = (prop(kIOHIDProductKey) as? String) ?? "未命名设备"
+        let name = (prop(kIOHIDProductKey) as? String) ?? tr("未命名设备")
         let vendorID = (prop(kIOHIDVendorIDKey) as? Int) ?? 0
         let productID = (prop(kIOHIDProductIDKey) as? Int) ?? 0
         let serial = (prop(kIOHIDSerialNumberKey) as? String) ?? ""
@@ -223,7 +226,7 @@ final class HIDInputManager {
                 vendorID: record.vendorID, productID: record.productID,
                 axes: emittedAxes, axisUsages: emittedUsages,
                 buttons: buttons, buttonCount: max(highestButton, record.buttonElements.count),
-                povs: povs, isXbox: record.isXbox
+                povs: povs, isXbox: record.isXbox, yFlipped: record.xinputMap != nil
             ))
         }
         return result

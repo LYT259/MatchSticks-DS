@@ -10,7 +10,9 @@ import DSCore
 struct CameraMockPanel: View {
     @State private var host = "127.0.0.1:6769"
     @State private var image: NSImage?
-    @State private var statusText = "未刷新"
+    @State private var statusText = ""
+    // 首帧渲染时按当前语言初始化（避免语言切换后残留旧语言状态串）
+    @State private var statusInitialized = false
     @State private var lastFetchedAt: Date?
     private let limiter = RateLimiter(minInterval: 1.0)
 
@@ -21,13 +23,13 @@ struct CameraMockPanel: View {
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Capsule().fill(Color.orange.opacity(0.2)))
                     .foregroundStyle(.orange)
-                Text("摄像头画面（模拟器图像源）").font(.callout.weight(.medium))
+                Text(tr("摄像头画面（模拟器图像源）")).font(.callout.weight(.medium))
                 Spacer()
                 Text(statusText).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 Button {
                     refresh()
                 } label: {
-                    Label("刷新", systemImage: "arrow.clockwise")
+                    Label(tr("刷新"), systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(DSActionStyle())
             }
@@ -39,43 +41,47 @@ struct CameraMockPanel: View {
                 } else {
                     VStack(spacing: 6) {
                         Image(systemName: "video.slash").font(.system(size: 26)).foregroundStyle(.secondary)
-                        Text("点「刷新」从 MOCK 通道取一帧").font(.caption).foregroundStyle(.secondary)
+                        Text(tr("点「刷新」从 MOCK 通道取一帧")).font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, minHeight: 170)
                 }
             }
             .frame(height: 190)
-            Text("真实 SystemCore 摄像头流协议尚未核查（无实机）——本通道仅为模拟器自定义 MOCK，接入真机时按抓包事实替换（协议档案「待实测」清单）。")
+            Text(tr("真实 SystemCore 摄像头流协议尚未核查（无实机）——本通道仅为模拟器自定义 MOCK，接入真机时按抓包事实替换（协议档案「待实测」清单）。"))
                 .font(.caption).foregroundStyle(.secondary)
+        }
+        .onAppear {
+            // 状态串按当前语言初始化（语言切换整树重建后同样按新语言显示）
+            if !statusInitialized { statusInitialized = true; statusText = tr("未刷新") }
         }
     }
 
     private func refresh() {
         guard limiter.allow() else {
-            statusText = String(format: "限流中（%.0fs 后可再刷）", limiter.retryAfterSeconds())
+            statusText = tr("限流中（%.0fs 后可再刷）", limiter.retryAfterSeconds())
             return
         }
         let target = host.hasPrefix("http") ? host : "http://\(host)"
         let url = URL(string: target.hasSuffix("/frame.jpg") ? target : target + "/frame.jpg")
-        guard let url else { statusText = "地址无效"; return }
-        statusText = "获取中…"
+        guard let url else { statusText = tr("地址无效"); return }
+        statusText = tr("获取中…")
         var request = URLRequest(url: url, timeoutInterval: 4)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let error {
-                    statusText = "失败：\(error.localizedDescription)"
+                    statusText = tr("失败：%@", error.localizedDescription)
                     return
                 }
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                       let data, data.count > 4, data.prefix(2) == Data([0xFF, 0xD8]),
                       let fetched = NSImage(data: data) else {
-                    statusText = "失败：非 JPEG 响应"
+                    statusText = tr("失败：非 JPEG 响应")
                     return
                 }
                 image = fetched
                 lastFetchedAt = Date()
-                statusText = "已更新（\(data.count / 1024) KB）"
+                statusText = tr("已更新（%d KB）", data.count / 1024)
             }
         }.resume()
     }

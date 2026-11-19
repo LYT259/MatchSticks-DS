@@ -348,7 +348,7 @@ public final class DSClient {
                 decoded = NICodec.decodeResponse(Data(buffer[0 ..< n]))
             case .mrc:
                 if let errorCode = MRCPackets.decodeErrorPacket(Data(buffer[0..<n])) {
-                    emit(.log("MRC 错误包：code \(errorCode)（版本不匹配？）"))
+                    emit(.log(tr("MRC 错误包：code %d（版本不匹配？）", Int(errorCode))))
                     continue
                 }
                 decoded = MRCPackets.decodeReply(Data(buffer[0..<n])).map { reply in
@@ -390,8 +390,8 @@ public final class DSClient {
                 var entry = malformedLogState[srcIP] ?? (at: -Self.malformedLogWindow, suppressed: 0)
                 if now - entry.at >= Self.malformedLogWindow {
                     let prefix = Data(buffer[0 ..< min(n, 8)]).map { String(format: "%02x", $0) }.joined()
-                    var line = "无法解码应答（来自 \(srcIP)，\(n) 字节，前缀 \(prefix)）——已丢弃，不建立连接"
-                    if entry.suppressed > 0 { line += "（本窗口另抑制 \(entry.suppressed) 条同类包）" }
+                    var line = tr("无法解码应答（来自 %@，%d 字节，前缀 %@）——已丢弃，不建立连接", srcIP, Int(n), prefix)
+                    if entry.suppressed > 0 { line += tr("（本窗口另抑制 %d 条同类包）", entry.suppressed) }
                     emit(.log(line))
                     malformedLogState[srcIP] = (at: now, suppressed: 0)
                 } else {

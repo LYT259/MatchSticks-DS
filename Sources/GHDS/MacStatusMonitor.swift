@@ -2,6 +2,7 @@ import Foundation
 import IOKit.ps
 import Network
 import Darwin
+import DSCore
 
 // MARK: - Mac 状态监控（NI DS 的 PC 电量/CPU 对应项，§7 功能矩阵「DS 自身监控」）
 
@@ -118,7 +119,7 @@ enum MacStatusMonitor {
 final class NetworkPathMonitor: @unchecked Sendable {
     private let monitor = NWPathMonitor()
     private let lock = NSLock()
-    private var _summary = "检测中…"
+    private var _summary = tr("检测中…")
     private var _satisfied = false
 
     var summary: String {
@@ -135,9 +136,9 @@ final class NetworkPathMonitor: @unchecked Sendable {
             guard let self else { return }
             let kind: String
             if path.usesInterfaceType(.wifi) { kind = "WiFi" }
-            else if path.usesInterfaceType(.wiredEthernet) { kind = "有线" }
-            else if path.status == .satisfied { kind = "其他接口" }
-            else { kind = "无连接" }
+            else if path.usesInterfaceType(.wiredEthernet) { kind = tr("有线") }
+            else if path.status == .satisfied { kind = tr("其他接口") }
+            else { kind = tr("无连接") }
             self.lock.lock()
             self._summary = kind
             self._satisfied = path.status == .satisfied

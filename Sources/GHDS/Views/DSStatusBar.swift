@@ -7,19 +7,19 @@ struct DSStatusBar: View {
     var body: some View {
         HStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("机器人状态").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(tr("机器人状态")).font(.system(size: 11)).foregroundStyle(.secondary)
                 Label(model.uiStatus, systemImage: statusSymbol)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(model.uiStatusColor)
             }
             .frame(minWidth: 170, alignment: .leading)
             Spacer(minLength: 0)
-            statusItem("通信", active: model.commConnected)
-            statusItem("程序", active: model.commConnected && model.robotTrace.hasRobotCode)
-            statusItem("手柄", active: !model.joystickSlots.isEmpty)
+            statusItem(tr("通信"), active: model.commConnected)
+            statusItem(tr("程序"), active: model.commConnected && model.robotTrace.hasRobotCode)
+            statusItem(tr("手柄"), active: !model.joystickSlots.isEmpty)
             Divider().frame(height: 30)
             VStack(alignment: .trailing, spacing: 5) {
-                Text("机器人电池").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(tr("机器人电池")).font(.system(size: 11)).foregroundStyle(.secondary)
                 Text(model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "— V")
                     .font(.system(size: 19, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(batteryColor)
@@ -44,7 +44,7 @@ struct DSStatusBar: View {
             Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(label)：\(active ? "已检测到" : "未检测到")")
+        .accessibilityLabel(tr("%@：%@", label, active ? tr("已检测到") : tr("未检测到")))
     }
 
     private var batteryColor: Color {
@@ -67,7 +67,7 @@ struct LED: View {
         Label(on ? label : (offText ?? label), systemImage: symbol)
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(on ? onColor : Color.secondary)
-            .accessibilityLabel("\(label)：\(on ? "已检测到" : (offText ?? "未检测到"))")
+            .accessibilityLabel(tr("%@：%@", label, on ? tr("已检测到") : (offText ?? tr("未检测到"))))
     }
 }
 

@@ -6,7 +6,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-0.1.0}"
-DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
+# SwiftUI 宏需要完整 Xcode：优先环境变量，其次探测 Xcode-beta / Xcode（本机装了哪个用哪个）
+if [ -z "${DEVELOPER_DIR:-}" ]; then
+    for CAND in /Applications/Xcode-beta.app /Applications/Xcode.app; do
+        [ -d "$CAND" ] && DEVELOPER_DIR="$CAND/Contents/Developer" && break
+    done
+fi
 export DEVELOPER_DIR
 
 APP_NAME="GH Driver Station"
@@ -33,6 +38,14 @@ fi
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$BUILD_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/GHDS"
+
+# 中英双语资源：SPM 资源 bundle（en.lproj 双语表所在）须进 Contents/Resources，
+# Bundle.module 才能在打包 app 内解析；缺失即失败——不出「英文系统却只有中文界面」的残缺包
+if [ ! -d "$BUILD_DIR/GHDriverStation_DSCore.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 GHDriverStation_DSCore.bundle——双语表缺失即失败" >&2
+    exit 1
+fi
+cp -R "$BUILD_DIR/GHDriverStation_DSCore.bundle" "$APP/Contents/Resources/"
 
 # 图标（缺失时跳过，不阻塞打包）
 if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
@@ -61,6 +74,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
          （运行期另有 ProcessInfo.beginActivity(.latencyCritical)，见 DSModel.start） -->
     <key>NSAppSleepDisabled</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <!-- 双语：开发区域 en（非中英系统回退英文）；Localizations 声明供系统与 Sparkle 识别 -->
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>zh-Hans</string>
+    </array>
     <key>NSLocalNetworkUsageDescription</key>
     <string>GH Driver Station 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。</string>
     <key>NSBonjourServices</key>
@@ -81,6 +101,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "PBPB" > "$APP/Contents/PkgInfo"
+
+# 权限弹窗与版权文案双语（Info.plist 键的 per-language 覆盖；中文为主表值，英文走 en.lproj）
+mkdir -p "$APP/Contents/Resources/en.lproj" "$APP/Contents/Resources/zh-Hans.lproj"
+cat > "$APP/Contents/Resources/en.lproj/InfoPlist.strings" <<'STRINGS'
+"NSLocalNetworkUsageDescription" = "GH Driver Station needs local network access to connect to roboRIO / SystemCore robots (UDP 1110/1150, TCP 1740, mDNS discovery). If the robot won't connect, first allow this app under Settings → Privacy & Security → Local Network.";
+"NSHumanReadableCopyright" = "© 2026 GH-FRC — Practice Only (third-party DS must not be used in official matches)";
+STRINGS
+cat > "$APP/Contents/Resources/zh-Hans.lproj/InfoPlist.strings" <<'STRINGS'
+"NSLocalNetworkUsageDescription" = "GH Driver Station 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。";
+"NSHumanReadableCopyright" = "© 2026 GH-FRC — Practice Only（第三方 DS 不得用于正式比赛）";
+STRINGS
 
 # ad-hoc 签名（打包红线：保留有效签名；未公证分发按报告 §5.5 方案 A）
 codesign --force --deep -s - "$APP"

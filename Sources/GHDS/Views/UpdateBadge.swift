@@ -16,15 +16,15 @@ struct UpdateBadge: View {
                 switch flow.phase {
                 case .checking:
                     icon("arrow.triangle.2.circlepath")
-                        .help("正在检查更新（后台静默，不影响使用）")
+                        .help(tr("正在检查更新（后台静默，不影响使用）"))
                 case .downloading(let progress, _):
                     progressRing(progress)
-                        .help("正在后台下载新版本 \(Int(progress * 100))%（低优先级，可忽略，不影响使用）")
+                        .help(tr("正在后台下载新版本 %d%%（低优先级，可忽略，不影响使用）", Int(progress * 100)))
                 case .ready:
                     readyButton
                 case .installing:
                     icon("arrow.down.circle.dotted") 
-                        .help("正在安装更新，应用即将重启…")
+                        .help(tr("正在安装更新，应用即将重启…"))
                 case .idle, .failed:
                     EmptyView()
                 }
@@ -39,7 +39,7 @@ struct UpdateBadge: View {
             HStack(spacing: 5) {
                 Image(systemName: blocked ? "lock.circle" : "arrow.clockwise.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
-                Text("重启更新").font(.system(size: 12, weight: .semibold))
+                Text(tr("重启更新")).font(.system(size: 12, weight: .semibold))
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(
@@ -49,8 +49,8 @@ struct UpdateBadge: View {
         }
         .buttonStyle(.plain)
         .help(blocked
-              ? "暂不能重启更新：\(flow.lastBlockReason ?? "")。角标保留；满足条件后即可点击。"
-              : "点击重启并安装新版本。机器人使能中、通信活跃或急停锁存期间点击无效（安全门）。")
+              ? tr("暂不能重启更新：%@。角标保留；满足条件后即可点击。", flow.lastBlockReason ?? "")
+              : tr("点击重启并安装新版本。机器人使能中、通信活跃或急停锁存期间点击无效（安全门）。"))
     }
 
     private func icon(_ name: String) -> some View {

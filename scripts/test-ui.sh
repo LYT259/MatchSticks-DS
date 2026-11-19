@@ -5,15 +5,21 @@
 # differs between the Xcode and native toolchains.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# 本机默认 Xcode-beta；其他环境沿用系统默认工具链
-if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode-beta.app ]; then
-  export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+# 本机默认 Xcode（CLT 无 SwiftUI 宏插件，编不过主工程）；其他环境沿用系统默认工具链
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app ]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
 swift build   # 先确认主工程可构建（常规门禁）
 mkdir -p .build/uitest
+# 手工编译无 SPM 资源代码生成：补一个 Bundle.module 替身（测试走中文路径，
+# 英文查询回退键值即可，不加载 en 表）
+cat > .build/uitest/BundleModuleShim.swift <<'EOF'
+import Foundation
+extension Bundle { static let module = Bundle.main }
+EOF
 swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   -emit-module-path .build/uitest/DSCore.swiftmodule \
-  Sources/DSCore/*.swift -o .build/uitest/libDSCore.dylib
+  Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
   Sources/GHDS/DSModel.swift Sources/GHDS/HIDInputManager.swift \

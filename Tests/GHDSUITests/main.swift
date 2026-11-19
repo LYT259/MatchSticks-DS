@@ -235,11 +235,11 @@ struct UIStateTests {
             var devices: [HIDDeviceSnapshot] {
                 var list = [HIDDeviceSnapshot(uniqueID: "a1:11:s", name: "Bench Stick", vendorID: 0x045E, productID: 0x028E,
                                               axes: [primary], axisUsages: [0x30], buttons: 1, buttonCount: 1,
-                                              povs: [], isXbox: true)]
+                                              povs: [], isXbox: true, yFlipped: false)]
                 if let secondary {
                     list.append(HIDDeviceSnapshot(uniqueID: "b2:22:s", name: "Second Stick", vendorID: 0x046D, productID: 0xC215,
                                                   axes: [secondary], axisUsages: [0x30], buttons: 0, buttonCount: 0,
-                                                  povs: [], isXbox: false))
+                                                  povs: [], isXbox: false, yFlipped: false))
                 }
                 return list
             }
@@ -262,13 +262,32 @@ struct UIStateTests {
         check(jm.joystickSlots[0].axes.first == 0.5, "visible value catches up after the throttle window")
         check(jm.latestPublishedJoysticks.first?.axes.first == 0.5, "control snapshot stays current after the window")
 
-        // 结构操作不受值节流影响：设备加入与槽位锁定立即发布（过了 0.5s 重扫防抖后）
+        // 结构操作不受值节流影响：设备加入立即发布（过了 0.5s 重扫防抖后）
         Thread.sleep(forTimeInterval: 0.55)
         feed.secondary = 0.2
         jm.pollAndPublishSnapshot()
         check(jm.joystickSlots.count == 2, "device arrival publishes structure immediately")
-        jm.toggleLock(0)
-        check(jm.joystickSlots[0].lockedDeviceID != nil, "slot locking is immediately visible")
+
+        // 手动座次权威：上移后过了 0.5s 重扫防抖窗口也不回弹（回归：曾按 uniqueID 整体重排）
+        jm.moveSlot(1, up: true)
+        check(jm.joystickSlots[0].uniqueID == "b2:22:s" && jm.joystickSlots[1].uniqueID == "a1:11:s",
+              "moveSlot swaps immediately")
+        Thread.sleep(forTimeInterval: 0.55)
+        jm.pollAndPublishSnapshot()
+        check(jm.joystickSlots[0].uniqueID == "b2:22:s" && jm.joystickSlots[1].uniqueID == "a1:11:s",
+              "manual seat order survives the rescan debounce window")
+
+        // 拔出再插回：离线设备保留座次（Second Stick 回 0 号），在场设备顺延
+        feed.secondary = nil
+        Thread.sleep(forTimeInterval: 0.55)
+        jm.pollAndPublishSnapshot()
+        check(jm.joystickSlots.count == 1 && jm.joystickSlots[0].uniqueID == "a1:11:s",
+              "device removal compacts slots without reshuffling")
+        feed.secondary = 0.3
+        Thread.sleep(forTimeInterval: 0.55)
+        jm.pollAndPublishSnapshot()
+        check(jm.joystickSlots.count == 2 && jm.joystickSlots[0].uniqueID == "b2:22:s" && jm.joystickSlots[1].uniqueID == "a1:11:s",
+              "returning device reclaims its remembered seat")
 
         // 发布速率边界：~20ms 节拍连打 25 次，可见值 ~10Hz、控制快照 25/25
         let jmRate = DSModel()

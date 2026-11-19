@@ -205,6 +205,17 @@
 - [ ] 按钮过滤约定（Button/GenericDesktop 页 ≤64）在带媒体键手柄上的按键编号连续性
 - [ ] 0x0C tag 轴 usage 顺序（X,Y,Z,Rx,Ry,Rz,Slider,Dial,Wheel）与 roboRIO
       `setAxis` 索引语义对应
+- [ ] **手柄造型按键号核对（2026-11-19 新增；皮肤悬停提示即显原始按键号）**：
+      映射表除冰原狼轴序（已核查）外均按公开惯例落种子，逐款实物逐键按下核对
+      「点亮位置 = 物理按键」——不对的记下按键号改 `GamepadLayout.layout(for:)` 表
+  - [ ] 冰原狼 4（USB，045E:028E）：A1/B2/X3/Y4、LB5/RB6、View7/Menu8、Guide9、L3/R3 10/11、
+        POV 方向键、M1/M2 背键的上报形态（现不落表，靠「未映射按键」芯片自揭示）
+  - [ ] F310（D 档，046D:C218）：北1/西2/南3/东4、L5/R6、LT7/RT8（数字）、Back9/Start10、
+        L3/R3 11/12、右摇杆 = Z/Rz 轴
+  - [ ] DualSense（054C:0CE6）：□1/✕2/○3/△4、L1 5/R1 6、L2 7/R2 8、Create9/Options10、
+        L3/R3 11/12、PS13、触控板14、轴形态（右摇杆 Z/Rz？扳机 Rx/Ry？方向键 POV？）
+  - [ ] Xbox Series（045E:0B12 等）：A1/B2/X3/Y4、LB5/RB6、View7/Menu8、L3/R3 9/10、
+        Share11（Guide 常不暴露）、方向键形态
 
 ## 4. 台架专项（安全链）
 

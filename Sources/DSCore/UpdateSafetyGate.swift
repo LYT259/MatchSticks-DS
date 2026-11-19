@@ -29,13 +29,13 @@ public enum UpdateSafetyGate {
     /// 阻断原因按安全显著性排序：使能中 > 通信活跃 > 急停锁存。
     public static func evaluate(_ state: State) -> Decision {
         if state.enabled {
-            return .blocked(reason: "机器人使能中——重启会中断控制包，先失能")
+            return .blocked(reason: tr("机器人使能中——重启会中断控制包，先失能"))
         }
         if state.commConnected {
-            return .blocked(reason: "通信活跃（已连接机器人）——重启会中断控制包，先断开连接")
+            return .blocked(reason: tr("通信活跃（已连接机器人）——重启会中断控制包，先断开连接"))
         }
         if state.estopEngaged {
-            return .blocked(reason: "急停锁存中——复位急停后才可重启更新")
+            return .blocked(reason: tr("急停锁存中——复位急停后才可重启更新"))
         }
         return .allow
     }

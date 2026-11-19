@@ -26,9 +26,9 @@ public enum SafetyGate {
 
     public static func evaluateEnable(_ s: State) -> Decision {
         if s.currentlyEnabled { return .allow } // 重复使能无害（幂等）
-        if s.estopEngaged { return .deny(reason: "E-Stop 已触发，先复位（Esc+I 或重启代码）") }
-        if !s.commConnected { return .deny(reason: "无机器人连接") }
-        if !s.watchdogHealthy { return .deny(reason: "控制环心跳异常") }
+        if s.estopEngaged { return .deny(reason: tr("E-Stop 已触发，先复位（Esc+I 或重启代码）")) }
+        if !s.commConnected { return .deny(reason: tr("无机器人连接")) }
+        if !s.watchdogHealthy { return .deny(reason: tr("控制环心跳异常")) }
         return .allow
     }
 
@@ -63,12 +63,12 @@ public struct PracticeSequencer: Sendable, Equatable {
 
         public var displayName: String {
             switch self {
-            case .idle: return "待机"
-            case .delayBeforeAuto: return "Auto 前延迟"
+            case .idle: return tr("待机")
+            case .delayBeforeAuto: return tr("Auto 前延迟")
             case .autonomous: return "Autonomous"
-            case .delayBeforeTeleop: return "Teleop 前延迟"
+            case .delayBeforeTeleop: return tr("Teleop 前延迟")
             case .teleoperated: return "Teleoperated"
-            case .finished: return "已结束"
+            case .finished: return tr("已结束")
             }
         }
     }

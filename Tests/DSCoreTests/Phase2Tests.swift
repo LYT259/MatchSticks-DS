@@ -1004,7 +1004,7 @@ func safetyGateTests() {
     s.commConnected = true
     s.watchdogHealthy = false
     if case .deny(let reason) = SafetyGate.evaluateEnable(s) {
-        check(reason.contains("心跳"), "看门狗异常拒绝并给原因")
+        check(reason.contains("心跳") || reason.contains("heartbeat"), "看门狗异常拒绝并给原因")
     } else { check(false, "看门狗应拒绝") }
 
     s.watchdogHealthy = true

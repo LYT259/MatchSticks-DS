@@ -7,18 +7,20 @@ struct MessagesView: View {
     @State private var search = ""
     @State private var followsNewMessages = true
 
+    // rawValue 仅作内部标识；显示名走 displayName（双语）
     private enum Source: String, CaseIterable, Identifiable {
         case console = "机器人输出"
         case errors = "错误与警告"
         case events = "应用事件"
         var id: String { rawValue }
+        var displayName: String { tr(rawValue) }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
-                Picker("消息来源", selection: $source) {
-                    ForEach(Source.allCases) { source in Text(source.rawValue).tag(source) }
+                Picker(tr("消息来源"), selection: $source) {
+                    ForEach(Source.allCases) { source in Text(source.displayName).tag(source) }
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 460)
@@ -27,12 +29,12 @@ struct MessagesView: View {
                 HStack(spacing: 12) {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("搜索当前消息", text: $search)
+                        TextField(tr("搜索当前消息"), text: $search)
                             .textFieldStyle(.plain)
                         if !search.isEmpty {
                             Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
                                 .buttonStyle(.plain).foregroundStyle(.secondary)
-                                .help("清除搜索").accessibilityLabel("清除搜索")
+                                .help(tr("清除搜索")).accessibilityLabel(tr("清除搜索"))
                         }
                     }
                     .padding(.horizontal, 10).padding(.vertical, 8)
@@ -44,11 +46,11 @@ struct MessagesView: View {
                         Button {
                             followsNewMessages.toggle()
                         } label: {
-                            Label(followsNewMessages ? "正在跟随" : "继续跟随", systemImage: followsNewMessages ? "pause" : "arrow.down.to.line")
+                            Label(followsNewMessages ? tr("正在跟随") : tr("继续跟随"), systemImage: followsNewMessages ? "pause" : "arrow.down.to.line")
                         }
                         .buttonStyle(DSActionStyle(color: followsNewMessages ? .accentColor : .secondary))
-                        .help(followsNewMessages ? "暂停自动滚动；仍继续接收消息" : "滚动到最新消息")
-                        Button("清空", systemImage: "trash") { clearCurrentLog() }
+                        .help(followsNewMessages ? tr("暂停自动滚动；仍继续接收消息") : tr("滚动到最新消息"))
+                        Button(tr("清空"), systemImage: "trash") { clearCurrentLog() }
                             .buttonStyle(DSActionStyle(color: .secondary))
                             .disabled(currentLines.isEmpty)
                     }
@@ -68,9 +70,9 @@ struct MessagesView: View {
                 Text(resultSummary)
                 Spacer()
                 if source != .errors && !followsNewMessages {
-                    Text("已暂停自动滚动，仍在接收消息")
+                    Text(tr("已暂停自动滚动，仍在接收消息"))
                 } else if !model.commConnected {
-                    Text("机器人未连接")
+                    Text(tr("机器人未连接"))
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
@@ -89,7 +91,7 @@ struct MessagesView: View {
     private var resultSummary: String {
         let total = source == .errors ? model.errorMessages.count : currentLines.count
         let count = source == .errors ? filteredErrors.count : filteredLines.count
-        return search.isEmpty ? "\(total) 条消息" : "找到 \(count) 条 · 共 \(total) 条"
+        return search.isEmpty ? tr("%d 条消息", total) : tr("找到 %d 条 · 共 %d 条", count, total)
     }
 
     private var logLines: some View {
@@ -152,9 +154,9 @@ struct MessagesView: View {
                     .font(.system(size: 18)).foregroundStyle(isError ? Color.red : Color.orange)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
-                        Text(isError ? "错误" : "警告").font(.callout.weight(.semibold))
+                        Text(isError ? tr("错误") : tr("警告")).font(.callout.weight(.semibold))
                         Spacer()
-                        Text("代码 \(entry.errorCode)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Text(tr("代码 %d", Int(entry.errorCode))).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     Text(entry.details).font(.callout).textSelection(.enabled)
                     if !entry.location.isEmpty {
@@ -162,7 +164,7 @@ struct MessagesView: View {
                             .foregroundStyle(.secondary).textSelection(.enabled)
                     }
                     if !entry.callStack.isEmpty {
-                        DisclosureGroup("调用详情") {
+                        DisclosureGroup(tr("调用详情")) {
                             Text(entry.callStack)
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(.secondary).textSelection(.enabled)
@@ -180,9 +182,9 @@ struct MessagesView: View {
         VStack(spacing: 12) {
             Image(systemName: search.isEmpty ? (source == .errors ? "checkmark.circle" : "text.alignleft") : "magnifyingglass")
                 .font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
-            Text(search.isEmpty ? (source == .errors ? "暂无错误或警告" : "暂无消息") : "没有匹配的消息")
+            Text(search.isEmpty ? (source == .errors ? tr("暂无错误或警告") : tr("暂无消息")) : tr("没有匹配的消息"))
                 .font(.headline)
-            Text(search.isEmpty ? (source == .console ? "机器人程序的输出会显示在这里。" : "新消息会自动显示在这里。") : "尝试更短的关键词，或清除搜索。")
+            Text(search.isEmpty ? (source == .console ? tr("机器人程序的输出会显示在这里。") : tr("新消息会自动显示在这里。")) : tr("尝试更短的关键词，或清除搜索。"))
                 .font(.callout).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, minHeight: 230)

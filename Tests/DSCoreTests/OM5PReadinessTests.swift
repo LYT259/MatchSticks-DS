@@ -343,7 +343,7 @@ func malformedResponseLoggingTests() {
     client.stop()
 
     sink.lock.lock(); defer { sink.lock.unlock() }
-    let malformed = sink.logs.filter { $0.contains("无法解码") }
+    let malformed = sink.logs.filter { $0.contains("无法解码") || $0.contains("Undecodable reply") }
     check(sink.connected == 0, "错误版本应答绝不建链（connected \(sink.connected) 次）")
     check(sink.recordedResponseIn == 0, "坏包不写入录制流（.dsrec 方向/schema 不变）")
     check(responder.replies >= 12, "收到足量控制包并回以坏应答（\(responder.replies) 条，慢速环境按 8Hz 下限）")
@@ -352,7 +352,7 @@ func malformedResponseLoggingTests() {
           "按源限流：整窗突发只落 ≤2 条日志（实际 \(malformed.count)，逐包刷屏会 ≈\(responder.replies) 条）")
     if let line = malformed.first {
         check(line.contains("127.0.0.1"), "证据含来源 IP")
-        check(line.contains("8 字节"), "证据含字节数")
+        check(line.contains("8 字节") || line.contains("8 bytes"), "证据含字节数")
         check(line.contains("00010200000c4000"), "证据含前缀 hex（00010200000c4000）")
     }
 }
