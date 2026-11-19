@@ -466,3 +466,29 @@
 
 /* ===== WebUI 语言键 ===== */
 "语言须为 system/chinese/english" = "Language must be system/chinese/english";
+
+/* ===== 手柄造型（GamepadProfile / GamepadSkinView / USBDevicesView）===== */
+"罗技 F310" = "Logitech F310";
+"飞智冰原狼 4" = "Flydigi Direwolf 4";
+"PS5 DualSense" = "PS5 DualSense";
+"Xbox Series 手柄" = "Xbox Series Controller";
+"通用手柄" = "Generic Gamepad";
+"手柄造型" = "Gamepad Layout";
+"手柄造型 · %@" = "Gamepad Layout · %@";
+"自动 · %@" = "Auto · %@";
+"手动 · %@" = "Manual · %@";
+"自动识别（当前：%@）" = "Auto-Detect (current: %@)";
+"选择手柄造型。自动按 VID/PID 与名称识别，识别不对可手动指定。" = "Choose the gamepad layout. Auto-detects by VID/PID and name; pick manually if detected wrong.";
+"未映射按键" = "Unmapped Buttons";
+"按键 %d 已按下，但当前造型映射表未引用" = "Button %d is pressed but not referenced by this layout's mapping table";
+"扳机 · 轴 %@" = "Trigger · Axis %@";
+"摇杆 · 轴 %@/%@ · 按下为按键 %d" = "Stick · Axes %@/%@ · press is Button %d";
+"方向键 · POV %d" = "D-Pad · POV %d";
+"方向键" = "D-Pad";
+"后退" = "Back";
+"开始" = "Start";
+"视图" = "View";
+"菜单" = "Menu";
+"创建" = "Create";
+"选项" = "Options";
+"分享" = "Share";

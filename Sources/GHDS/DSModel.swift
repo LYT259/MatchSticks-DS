@@ -968,6 +968,24 @@ final class DSModel {
         publishVisibleSlotsNow()
     }
 
+    // MARK: 手柄造型（VID/PID 自动识别 + 手动覆盖；覆盖按 uniqueID 持久化）
+
+    /// 生效造型：覆盖优先，否则按 VID/PID/名称识别（GamepadProfile.detect）。
+    func gamepadSkin(for slot: JoystickSlot) -> GamepadSkin {
+        GamepadProfile.effectiveSkin(
+            sample: GamepadSample(slot: slot),
+            override: gamepadSkinOverride(for: slot))
+    }
+
+    /// 手动覆盖（nil = 回自动识别）。key 含 uniqueID：同款两只手柄可分别指定。
+    func gamepadSkinOverride(for slot: JoystickSlot) -> GamepadSkin? {
+        settings.string("gamepadSkin." + slot.uniqueID).flatMap(GamepadSkin.init(rawValue:))
+    }
+
+    func setGamepadSkinOverride(_ skin: GamepadSkin?, for slot: JoystickSlot) {
+        settings.set("gamepadSkin." + slot.uniqueID, skin?.rawValue)
+    }
+
     /// 座次键：记忆中的名次；没见过的设备排最后，彼此按 uniqueID（即快照序）定先后
     private func seatRank(_ id: String) -> (Int, String) {
         (seatMemory.firstIndex(of: id) ?? Int.max, id)
@@ -1114,10 +1132,14 @@ struct JoystickSlot: Identifiable {
     var vendorID: Int
     var productID: Int
     var axes: [Float]
+    /// 与 axes 对齐的 HID usage（皮肤语义映射用；XInput 归一设备为重排后的 usage）。
+    var axisUsages: [UInt32]
     var buttons: UInt64
     var buttonCount: Int
     var povs: [Int16]
     var isXbox: Bool
+    /// 轴 Y 向约定：true = 已按 FRC 归一（上=-1），false = HID 原生（上=+1）。
+    var yFlipped: Bool
 
     var data: JoystickData {
         JoystickData(axes: axes, buttonCount: buttonCount, buttons: buttons, povs: povs)
@@ -1141,17 +1163,30 @@ struct JoystickSlot: Identifiable {
         self.vendorID = device.vendorID
         self.productID = device.productID
         self.axes = device.axes
+        self.axisUsages = device.axisUsages
         self.buttons = device.buttons
         self.buttonCount = device.buttonCount
         self.povs = device.povs
         self.isXbox = device.isXbox
+        self.yFlipped = device.yFlipped
     }
 
     mutating func apply(_ device: HIDDeviceSnapshot) {
         axes = device.axes
+        axisUsages = device.axisUsages
         buttons = device.buttons
         povs = device.povs
         name = device.name
+        yFlipped = device.yFlipped
+    }
+}
+
+extension GamepadSample {
+    /// 槽位 → 皮肤映射输入样本（纯转换，无状态）。
+    init(slot: JoystickSlot) {
+        self.init(name: slot.name, vendorID: slot.vendorID, productID: slot.productID,
+                  axes: slot.axes, axisUsages: slot.axisUsages,
+                  buttons: slot.buttons, povs: slot.povs, yFlipped: slot.yFlipped)
     }
 }
 

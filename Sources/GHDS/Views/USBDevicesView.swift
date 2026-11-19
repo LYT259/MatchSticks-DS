@@ -110,6 +110,8 @@ struct JoystickCard: View {
             header
             Divider()
 
+            skinSection
+
             if !slot.axes.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(tr("摇杆轴 · %d", slot.axes.count))
@@ -158,6 +160,85 @@ struct JoystickCard: View {
                 }
             }
         }
+    }
+
+    // MARK: 手柄造型（按下即点亮；映射真值在 DSCore/GamepadProfile）
+
+    private var effectiveSkin: GamepadSkin { model.gamepadSkin(for: slot) }
+
+    private var skinState: GamepadElementState {
+        GamepadLayout.layout(for: effectiveSkin).state(for: GamepadSample(slot: slot))
+    }
+
+    @ViewBuilder private var skinSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(tr("手柄造型"))
+                    .font(.subheadline.weight(.semibold))
+                if let override = model.gamepadSkinOverride(for: slot) {
+                    DSBadge(text: tr("手动 · %@", override.displayName), color: .orange, symbol: "paintbrush")
+                }
+                Spacer()
+                skinPicker
+            }
+            GamepadSkinScaled(skin: effectiveSkin, state: skinState)
+                .frame(maxWidth: .infinity)
+            if !skinState.unmapped.isEmpty {
+                HStack(spacing: 6) {
+                    Text(tr("未映射按键"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(skinState.unmapped, id: \.self) { number in
+                        Text("\(number)")
+                            .font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                            .help(tr("按键 %d 已按下，但当前造型映射表未引用", number))
+                    }
+                }
+            }
+        }
+    }
+
+    /// 造型选择：自动识别（VID/PID/名称）或手动指定（按设备持久化）。
+    private var skinPicker: some View {
+        Menu {
+            Button {
+                model.setGamepadSkinOverride(nil, for: slot)
+            } label: {
+                Label(tr("自动识别（当前：%@）", GamepadProfile.detect(
+                    vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName),
+                      systemImage: "wand.and.stars")
+            }
+            Divider()
+            ForEach(GamepadSkin.allCases, id: \.self) { skin in
+                Button {
+                    model.setGamepadSkinOverride(skin, for: slot)
+                } label: {
+                    if skin == effectiveSkin {
+                        Label(skin.displayName, systemImage: "checkmark")
+                    } else {
+                        Text(skin.displayName)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "gamecontroller")
+                Text(model.gamepadSkinOverride(for: slot) == nil
+                     ? tr("自动 · %@", effectiveSkin.displayName)
+                     : effectiveSkin.displayName)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(DSTheme.line.opacity(0.6)))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(tr("选择手柄造型。自动按 VID/PID 与名称识别，识别不对可手动指定。"))
     }
 
     /// 机器人回传的 0x2E 手柄输出（rumble/LED）：协议侧验证呈现。

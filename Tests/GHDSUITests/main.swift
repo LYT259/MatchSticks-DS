@@ -235,11 +235,11 @@ struct UIStateTests {
             var devices: [HIDDeviceSnapshot] {
                 var list = [HIDDeviceSnapshot(uniqueID: "a1:11:s", name: "Bench Stick", vendorID: 0x045E, productID: 0x028E,
                                               axes: [primary], axisUsages: [0x30], buttons: 1, buttonCount: 1,
-                                              povs: [], isXbox: true)]
+                                              povs: [], isXbox: true, yFlipped: false)]
                 if let secondary {
                     list.append(HIDDeviceSnapshot(uniqueID: "b2:22:s", name: "Second Stick", vendorID: 0x046D, productID: 0xC215,
                                                   axes: [secondary], axisUsages: [0x30], buttons: 0, buttonCount: 0,
-                                                  povs: [], isXbox: false))
+                                                  povs: [], isXbox: false, yFlipped: false))
                 }
                 return list
             }
