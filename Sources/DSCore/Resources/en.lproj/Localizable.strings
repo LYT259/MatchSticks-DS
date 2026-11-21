@@ -75,6 +75,8 @@
 "留空，自动寻找机器人" = "Leave empty to auto-find the robot";
 "手动 IP 地址，留空使用自动连接" = "Manual IP address; leave empty for auto-connect";
 "通常无需填写；仅在指定地址连接时使用。" = "Usually unnecessary; only for connecting to a specific address.";
+"已应用手动地址 %@：自动发现已关闭，仅向该地址发送。" = "Manual address %@ applied: auto-discovery is off; traffic goes only to this address.";
+"已应用手动地址 %@：该地址指向本机，而非真实机器人；自动发现已关闭，仅向该地址发送。" = "Manual address %@ applied: this address points to this Mac, not a real robot; auto-discovery is off and traffic goes only to this address.";
 "队伍号应为非负整数；仅用 USB 时填写 0。" = "Team number must be a non-negative integer; enter 0 for USB only.";
 "请输入有效的 IPv4 地址，例如 10.12.34.2；自动连接时留空。" = "Enter a valid IPv4 address such as 10.12.34.2; leave empty for auto-connect.";
 "应用后将尝试" = "After applying, will try";
@@ -112,9 +114,20 @@
 "Dashboard 应用" = "Dashboard App";
 "启动 Dashboard" = "Launch Dashboard";
 "打开已安装在 Mac 上的 Dashboard 应用。" = "Opens the Dashboard app installed on this Mac.";
+"比赛年份" = "Season";
+"官方时序" = "Official Timing";
+"应用官方时序" = "Apply Official Timing";
+"比赛时间线" = "Match Timeline";
+"过渡" = "Transition";
+"Transition Shift" = "Transition Shift";
+"每个 Alliance Shift" = "Each Alliance Shift";
+"Endgame" = "Endgame";
+"将开始前等待设为 0，并应用所选年份的官方比赛时长。" = "Sets Start Delay to 0 and applies the selected season's official match timing.";
 "自动阶段" = "Autonomous";
 "遥控阶段" = "Teleoperated";
 "阶段间等待" = "Delay Between Phases";
+"Auto → Teleop 过渡" = "Auto → Teleop Transition";
+"开始前等待" = "Start Delay";
 "播放阶段提示音" = "Play Phase Sounds";
 "在「驾驶」页面开始练习；时长设置用于下一次练习。" = "Start practice on the Drive page; durations apply to the next practice run.";
 "练习时序" = "Practice Timing";
@@ -443,6 +456,9 @@
 "GH DS 控制环已启动（20ms）" = "GH DS control loop started (20 ms)";
 "GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1" = "GHDS_AUTO_SIM=1: auto-connecting to local simulator 127.0.0.1";
 "GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）" = "GHDS_AUTO_MRC=1: switching to MRC V2 protocol (SystemCore)";
+"Radio 状态：已响应" = "Radio status: responding";
+"Radio 状态：无响应" = "Radio status: no response";
+"本机网络状态：%@" = "Local network status: %@";
 
 /* ===== MacStatusMonitor / HIDInputManager ===== */
 "有线" = "Wired";

@@ -130,6 +130,26 @@ final class DSModel {
         return f
     }()
 
+    /// 设置域解析：非空有效的 `GHDS_SETTINGS_SUITE` → 独立 UserDefaults suite
+    /// （测试 / 并行会话隔离），否则标准域。无效名字（UserDefaults 拒绝创建）同样回退标准域。
+    nonisolated static func resolvedSettingsDefaults(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> UserDefaults {
+        let name = (environment["GHDS_SETTINGS_SUITE"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let defaults = UserDefaults(suiteName: name) else {
+            return .standard
+        }
+        return defaults
+    }
+
+    /// `DSModel()` 保持原行为（环境变量解析设置域，AUTO_SIM 禁用持久化）。
+    /// 测试可注入临时 suite 与持久化开关；manualIP 等写入必须真实经过 didSet。
+    init(settingsDefaults: UserDefaults? = nil, persistenceEnabled: Bool? = nil) {
+        settings = SettingsStore(defaults: settingsDefaults ?? Self.resolvedSettingsDefaults())
+        persistenceAllowed = persistenceEnabled ?? !Self.isAutoSim
+    }
+
     // MARK: 连接与配置
 
     var teamNumber: Int = 0 {
@@ -141,9 +161,29 @@ final class DSModel {
     }
     var manualIP: String = "" {
         didSet {
-            settings.set("manualIP", manualIP.isEmpty ? nil : manualIP)
+            // AUTO_SIM / 禁用持久化的会话仍更新内存与 client 配置，仅跳过落盘
+            if persistenceEnabled {
+                settings.set("manualIP", manualIP.isEmpty ? nil : manualIP)
+            }
             syncClientConfig()
         }
+    }
+    /// 已应用手动地址的提示（读 model，不读编辑中的草稿）。
+    /// 普通手动地址：自动发现已关闭，仅向该地址发送；
+    /// 合法 127/8 且已设队号：明确提示这是本机回环地址，不是真实机器人。
+    var appliedManualIPWarning: String? {
+        let address = manualIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty else { return nil }
+        if teamNumber > 0, Self.isLoopbackIPv4(address) {
+            return tr("已应用手动地址 %@：该地址指向本机，而非真实机器人；自动发现已关闭，仅向该地址发送。", address)
+        }
+        return tr("已应用手动地址 %@：自动发现已关闭，仅向该地址发送。", address)
+    }
+
+    static func isLoopbackIPv4(_ address: String) -> Bool {
+        var addr = in_addr()
+        guard inet_pton(AF_INET, address, &addr) == 1 else { return false }
+        return UInt32(bigEndian: addr.s_addr) >> 24 == 127
     }
     var radioReachable = false
     var opModes: [MRCOpModeInfo] = []
@@ -187,6 +227,8 @@ final class DSModel {
     }
     private(set) var enabled = false
     private(set) var estopEngaged = false
+    var estopSoundPlayer: (() -> Void)?
+    private var estopSound: NSSound?
     var enabledSince: Date?
     var enabledElapsed: TimeInterval = 0
 
@@ -241,7 +283,9 @@ final class DSModel {
     // MARK: Practice 时序
 
     enum PracticePhase: String, Sendable {
-        case idle, delayBeforeAuto, autonomous, delayBeforeTeleop, teleoperated, finished
+        case idle, delayBeforeAuto, autonomous, delayBeforeTeleop, teleoperated
+        case transitionShift, allianceShift1, allianceShift2, allianceShift3, allianceShift4, endgame
+        case finished
     }
     var practicePhase: PracticePhase = .idle
     var practiceRemaining: TimeInterval = 0
@@ -254,6 +298,26 @@ final class DSModel {
     var practiceDelayTime: TimeInterval = 2 {
         didSet { settings.set("practiceDelayTime", practiceDelayTime) }
     }
+    var practiceStartDelay: TimeInterval = 2 {
+        didSet { settings.set("practiceStartDelay", practiceStartDelay) }
+    }
+    var practiceSeasonYear = 2026 {
+        didSet { settings.set("practiceSeasonYear", practiceSeasonYear) }
+    }
+    var practiceTransitionShiftTime: TimeInterval = 10 {
+        didSet { settings.set("practiceTransitionShiftTime", practiceTransitionShiftTime) }
+    }
+    var practiceAllianceShiftTime: TimeInterval = 25 {
+        didSet { settings.set("practiceAllianceShiftTime", practiceAllianceShiftTime) }
+    }
+    var practiceEndgameTime: TimeInterval = 30 {
+        didSet { settings.set("practiceEndgameTime", practiceEndgameTime) }
+    }
+    var effectivePracticeTeleopTime: TimeInterval {
+        guard practiceSeasonYear >= 2026 else { return practiceTeleopTime }
+        return practiceTransitionShiftTime + practiceAllianceShiftTime * 4 + practiceEndgameTime
+    }
+    var currentPracticePhaseDuration: TimeInterval { sequencer.phaseDuration }
     var soundsEnabled = true {
         didSet { settings.set("soundsEnabled", soundsEnabled) }
     }
@@ -299,7 +363,8 @@ final class DSModel {
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
     private let radioTeamBox = RadioTeamBox()
-    private let settings = SettingsStore()
+    private let settings: SettingsStore
+    private let persistenceAllowed: Bool
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
     private let nt4Server = NT4Server(port: 6767)
@@ -315,7 +380,7 @@ final class DSModel {
 
     // MARK: 生命周期
 
-    var persistenceEnabled: Bool { !DSModel.isAutoSim }
+    var persistenceEnabled: Bool { persistenceAllowed }
 
     func loadPersistedSettings() {
         // 语言不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
@@ -330,6 +395,13 @@ final class DSModel {
         if let v = settings.double("practiceAutoTime"), v >= 1 { practiceAutoTime = v }
         if let v = settings.double("practiceTeleopTime"), v >= 15 { practiceTeleopTime = v }
         if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
+        if let v = settings.double("practiceStartDelay"), v >= 0 { practiceStartDelay = v }
+        if let year = settings.integer("practiceSeasonYear"), PracticeTimingPreset.forYear(year) != nil {
+            practiceSeasonYear = year
+        }
+        if let v = settings.double("practiceTransitionShiftTime"), v >= 0 { practiceTransitionShiftTime = v }
+        if let v = settings.double("practiceAllianceShiftTime"), v >= 1 { practiceAllianceShiftTime = v }
+        if let v = settings.double("practiceEndgameTime"), v >= 0 { practiceEndgameTime = v }
         if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
         if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
         if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
@@ -384,7 +456,7 @@ final class DSModel {
             RadioProbe.autoTarget(autoSim: DSModel.isAutoSim, teamNumber: radioTeamBox.get())
         }
         probe.onResult = { [weak self] ok in
-            Task { @MainActor in self?.radioReachable = ok }
+            Task { @MainActor in self?.applyRadioResult(ok) }
         }
         probe.start()
         radioProbe = probe
@@ -451,6 +523,25 @@ final class DSModel {
             cfg.manualIP = self.manualIP.isEmpty ? nil : self.manualIP
             cfg.protocolKind = self.protocolKind
         }
+    }
+
+    /// Radio 探测结果落库：仅真实翻转时写日志。
+    /// RadioProbe.onResult 本身只在值变化时回调；这里再守一次，重复回调与直接调用都不刷。
+    func applyRadioResult(_ reachable: Bool) {
+        guard reachable != radioReachable else { return }
+        radioReachable = reachable
+        log(reachable ? tr("Radio 状态：已响应") : tr("Radio 状态：无响应"))
+    }
+
+    /// 本机网络摘要落库：从「检测中…」进入实际状态、以及实际状态变化时各记一条；
+    /// 相同摘要重复上报不刷日志（NWPathMonitor 回调可能很频繁）。
+    @discardableResult
+    func applyLocalNetworkSummary(_ summary: String) -> Bool {
+        guard summary != localNetworkSummary else { return false }
+        localNetworkSummary = summary
+        guard summary != tr("检测中…") else { return false }
+        log(tr("本机网络状态：%@", summary))
+        return true
     }
 
     // MARK: 主线程 50Hz：轮询 HID → 刷新槽位 → 填快照盒子
@@ -715,6 +806,7 @@ final class DSModel {
         enabledSince = nil
         // 同步刷新控制快照：否则快照盒里还是 ≤20ms 前的 estop=0，急停位上线被拖延
         pollAndPublishSnapshot()
+        playEstopSound()
         log(tr("E-STOP 触发（Space）"))
     }
 
@@ -764,10 +856,26 @@ final class DSModel {
 
     // MARK: Practice 时序
 
+    func applyPracticeTimingPreset() {
+        guard let preset = PracticeTimingPreset.forYear(practiceSeasonYear) else { return }
+        practiceAutoTime = preset.autoTime
+        practiceTeleopTime = preset.teleopTime
+        practiceDelayTime = preset.teleopDelay
+        practiceStartDelay = 0
+        practiceTransitionShiftTime = 10
+        practiceAllianceShiftTime = 25
+        practiceEndgameTime = 30
+    }
+
     func startPractice() {
         guard !sequencer.phase.isActive else { return }
+        let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026
+            ? .init(transitionShift: practiceTransitionShiftTime, allianceShift: practiceAllianceShiftTime,
+                    endgame: practiceEndgameTime)
+            : nil
         sequencer = PracticeSequencer(config: .init(
-            autoTime: practiceAutoTime, teleopTime: practiceTeleopTime, delayTime: practiceDelayTime
+            autoTime: practiceAutoTime, teleopTime: effectivePracticeTeleopTime, delayTime: practiceDelayTime,
+            startDelay: practiceStartDelay, teleopBreakdown: breakdown
         ))
         applyPracticeEvents(sequencer.start())
         practiceTimer?.invalidate()
@@ -788,6 +896,7 @@ final class DSModel {
 
     private func practiceTick() {
         applyPracticeEvents(sequencer.tick(0.1))
+        practiceRemaining = max(0, sequencer.remaining)
         if !sequencer.phase.isActive {
             practiceTimer?.invalidate()
             practiceTimer = nil
@@ -802,7 +911,8 @@ final class DSModel {
                 practiceRemaining = sequencer.remaining
                 switch phase {
                 case .autonomous: setMode(.autonomous)
-                case .teleoperated: setMode(.teleoperated)
+                case .teleoperated, .transitionShift, .allianceShift1, .allianceShift2,
+                     .allianceShift3, .allianceShift4, .endgame: setMode(.teleoperated)
                 default: break
                 }
                 if phase.isActive { beep(); log("Practice → \(phase.displayName)") }
@@ -826,8 +936,26 @@ final class DSModel {
         case .autonomous: return .autonomous
         case .delayBeforeTeleop: return .delayBeforeTeleop
         case .teleoperated: return .teleoperated
+        case .transitionShift: return .transitionShift
+        case .allianceShift1: return .allianceShift1
+        case .allianceShift2: return .allianceShift2
+        case .allianceShift3: return .allianceShift3
+        case .allianceShift4: return .allianceShift4
+        case .endgame: return .endgame
         case .finished: return .finished
         }
+    }
+
+    private func playEstopSound() {
+        if let estopSoundPlayer {
+            estopSoundPlayer()
+            return
+        }
+        if estopSound == nil {
+            guard let url = Bundle.module.url(forResource: "FOGHORN", withExtension: "wav") else { return }
+            estopSound = NSSound(contentsOf: url, byReference: false)
+        }
+        _ = estopSound?.play()
     }
 
     private func beep() {
@@ -1043,7 +1171,7 @@ final class DSModel {
         if let sampled = macStatusSampler.latest {
             macStatus = sampled
         }
-        localNetworkSummary = networkMonitor.summary
+        applyLocalNetworkSummary(networkMonitor.summary)
         appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }
         var entry = DSLogEntry()

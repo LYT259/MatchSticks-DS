@@ -50,7 +50,7 @@ struct OperationView: View {
                             HStack(spacing: 18) {
                                 duration(tr("自动"), model.practiceAutoTime)
                                 Image(systemName: "arrow.right").foregroundStyle(DSTheme.textSecondary)
-                                duration(tr("遥控"), model.practiceTeleopTime)
+                                duration(tr("遥控"), model.effectivePracticeTeleopTime)
                             }
                             if model.practicePhase != .idle {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -188,13 +188,7 @@ struct OperationView: View {
     }
 
     private var practiceProgress: Double {
-        let total: TimeInterval
-        switch model.practicePhase {
-        case .delayBeforeAuto, .delayBeforeTeleop: total = model.practiceDelayTime
-        case .autonomous: total = model.practiceAutoTime
-        case .teleoperated: total = model.practiceTeleopTime
-        default: return 0
-        }
+        let total = model.currentPracticePhaseDuration
         return total > 0 ? min(1, max(0, 1 - model.practiceRemaining / total)) : 0
     }
 }
@@ -207,6 +201,12 @@ extension DSModel.PracticePhase {
         case .autonomous: return tr("自动阶段")
         case .delayBeforeTeleop: return tr("准备遥控阶段")
         case .teleoperated: return tr("遥控阶段")
+        case .transitionShift: return "Transition Shift"
+        case .allianceShift1: return "Alliance Shift 1"
+        case .allianceShift2: return "Alliance Shift 2"
+        case .allianceShift3: return "Alliance Shift 3"
+        case .allianceShift4: return "Alliance Shift 4"
+        case .endgame: return "Endgame"
         case .finished: return tr("练习已结束")
         }
     }

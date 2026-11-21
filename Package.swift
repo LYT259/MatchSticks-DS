@@ -27,6 +27,7 @@ let package = Package(
                 "DSCore",
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
+            resources: [.process("Resources")],
             swiftSettings: swiftV5
         ),
         // roboRIO 模拟器（本机端到端验证用，报告 §6 设计决策 3「录制即测试」的最小起步）
