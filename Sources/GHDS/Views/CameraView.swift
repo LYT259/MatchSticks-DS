@@ -19,13 +19,10 @@ struct CameraMockPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Text("MOCK").font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.orange.opacity(0.2)))
-                    .foregroundStyle(.orange)
-                Text(tr("摄像头画面（模拟器图像源）")).font(.callout.weight(.medium))
+                DSBadge(text: "MOCK", color: DSTheme.warning, symbol: "video")
+                Text(tr("摄像头画面（模拟器图像源）")).font(.system(size: 12, weight: .medium))
                 Spacer()
-                Text(statusText).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                Text(statusText).font(.caption).foregroundStyle(DSTheme.textSecondary).monospacedDigit()
                 Button {
                     refresh()
                 } label: {
@@ -34,21 +31,19 @@ struct CameraMockPanel: View {
                 .buttonStyle(DSActionStyle())
             }
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(DSTheme.surface)
+                RoundedRectangle(cornerRadius: 8).fill(DSTheme.canvas)
                 if let image {
                     ImageView(image: image)
                         .padding(8)
                 } else {
-                    VStack(spacing: 6) {
-                        Image(systemName: "video.slash").font(.system(size: 26)).foregroundStyle(.secondary)
-                        Text(tr("点「刷新」从 MOCK 通道取一帧")).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 170)
+                    DSEmptyState(symbol: "video.slash", title: tr("点「刷新」从 MOCK 通道取一帧"), minHeight: 170)
                 }
             }
             .frame(height: 190)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
             Text(tr("真实 SystemCore 摄像头流协议尚未核查（无实机）——本通道仅为模拟器自定义 MOCK，接入真机时按抓包事实替换（协议档案「待实测」清单）。"))
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(DSTheme.textSecondary)
         }
         .onAppear {
             // 状态串按当前语言初始化（语言切换整树重建后同样按新语言显示）

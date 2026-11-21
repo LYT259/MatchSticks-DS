@@ -40,14 +40,14 @@ private struct BatteryHistoryPanel: View {
             if model.batteryHistory.count > 1 {
                 Chart(Array(model.batteryHistory.suffix(300).enumerated()), id: \.offset) { index, value in
                     LineMark(x: .value(tr("采样序号"), index + 1), y: .value(tr("电压"), value))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(DSTheme.accent)
                         .lineStyle(StrokeStyle(lineWidth: 2))
                 }
                 .chartXAxisLabel(tr("采样序号（由早到晚）"))
                 .chartYAxis { AxisMarks(position: .leading) }
                 .frame(height: 180)
                 Text(tr("电压采样未记录时间戳，横轴表示收到数据的顺序。"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
             } else {
                 emptyState(tr("等待电池电压采样"), detail: tr("连接机器人后显示电压变化。"))
             }
@@ -63,7 +63,7 @@ private struct LiveCPULabel: View {
                 Text(model.cpuCores.enumerated().map { core, loads in
                     String(format: "CPU %d  %.0f%%", core, loads.reduce(0, +) * 100)
                 }.joined(separator: "   ·   "))
-                .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                .font(.callout.monospacedDigit()).foregroundStyle(DSTheme.textSecondary)
             }
     }
 }
@@ -128,7 +128,7 @@ private struct LinkHistoryPanel: View {
             if model.lossHistory.count > 1 {
                 Chart(Array(model.lossHistory.suffix(180).enumerated()), id: \.offset) { _, point in
                     LineMark(x: .value(tr("时间"), point.t), y: .value(tr("丢包率"), point.loss))
-                        .foregroundStyle(Color.orange)
+                        .foregroundStyle(DSTheme.warning)
                         .lineStyle(StrokeStyle(lineWidth: 1.8))
                 }
                 .chartYScale(domain: 0...max(5, (model.lossHistory.suffix(180).map(\.loss).max() ?? 0) * 1.15))
@@ -151,17 +151,12 @@ private struct LinkHistoryPanel: View {
                 emptyState(tr("等待通信采样"), detail: tr("开始连接后显示链路统计。"))
             }
             Text(tr("累计发送 %d 个数据包 · 接收 %d 个数据包", Int(model.txCount), Int(model.rxCount)))
-                .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                .font(.caption).monospacedDigit().foregroundStyle(DSTheme.textSecondary)
         }
     }
 
 }
 
 private func emptyState(_ title: String, detail: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: "chart.xyaxis.line").font(.system(size: 24)).foregroundStyle(.tertiary)
-            Text(title).font(.callout.weight(.medium)).foregroundStyle(.secondary)
-            Text(detail).font(.caption).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 130)
-    }
+    DSEmptyState(symbol: "chart.xyaxis.line", title: title, detail: detail, minHeight: 130)
+}

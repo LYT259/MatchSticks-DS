@@ -14,7 +14,7 @@ struct USBDevicesView: View {
                             Text(tr("%d 个手柄", model.joystickSlots.count))
                                 .font(.headline)
                             Text(tr("槽位从 0 开始，与机器人程序中的编号对应。手动调整的顺序在重新扫描和插拔后保持不变，新接入的手柄排到最后。"))
-                                .font(.callout).foregroundStyle(.secondary)
+                                .font(.callout).foregroundStyle(DSTheme.textSecondary)
                         }
                         Spacer()
                         Button {
@@ -46,7 +46,7 @@ struct USBDevicesView: View {
                     } else {
                         if model.joystickSlots.count > 6 {
                             Label(tr("只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。"), systemImage: "info.circle")
-                                .font(.callout).foregroundStyle(.secondary)
+                                .font(.callout).foregroundStyle(DSTheme.textSecondary)
                         }
                         ForEach(Array(model.joystickSlots.enumerated()), id: \.element.id) { index, slot in
                             JoystickCard(model: model, index: index, slot: slot)
@@ -67,35 +67,28 @@ struct USBDevicesView: View {
                 Spacer(minLength: 4)
                 Image(systemName: "gamecontroller")
                     .font(.system(size: 12))
-                    .foregroundStyle(slot == nil ? Color.secondary : Color.accentColor)
+                    .foregroundStyle(slot == nil ? DSTheme.textSecondary : DSTheme.accent)
             }
             Text(slot?.name ?? tr("空闲"))
                 .font(.system(size: 12))
-                .foregroundStyle(slot == nil ? Color.secondary : Color.primary)
+                .foregroundStyle(slot == nil ? DSTheme.textSecondary : DSTheme.textPrimary)
                 .lineLimit(2)
                 .frame(height: 32, alignment: .topLeading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(DSTheme.line.opacity(0.45)))
+        .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
     }
 
     private var emptyState: some View {
         DSPanel(title: "") {
-            VStack(spacing: 12) {
-                Image(systemName: "gamecontroller")
-                    .font(.system(size: 34, weight: .light))
-                    .foregroundStyle(.secondary)
-                Text(tr("连接你的手柄"))
-                    .font(.title3.weight(.semibold))
-                Text(tr("通过 USB 连接 HID 手柄或游戏控制器，设备会自动出现。\n如果没有出现，请检查连接线，然后重新扫描。"))
-                    .font(.callout).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
+            DSEmptyState(
+                symbol: "gamecontroller",
+                title: tr("连接你的手柄"),
+                detail: tr("通过 USB 连接 HID 手柄或游戏控制器，设备会自动出现。\n如果没有出现，请检查连接线，然后重新扫描。"),
+                minHeight: 180
+            )
         }
     }
 }
@@ -131,7 +124,7 @@ struct JoystickCard: View {
                             .font(.subheadline.weight(.semibold))
                         Spacer()
                         Text(tr("按下时高亮"))
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
                     }
                     FlowButtons(count: min(slot.buttonCount, 64), pressed: slot.buttons)
                 }
@@ -147,14 +140,14 @@ struct JoystickCard: View {
                         ForEach(slot.povs.indices, id: \.self) { povIndex in
                             let angle = slot.povs[povIndex]
                             HStack {
-                                Text("POV \(povIndex)").foregroundStyle(.secondary)
+                                Text("POV \(povIndex)").foregroundStyle(DSTheme.textSecondary)
                                 Spacer()
                                 Text(angle >= 0 ? "\(angle)°" : tr("未按下"))
-                                    .foregroundStyle(angle >= 0 ? Color.accentColor : Color.secondary)
+                                    .foregroundStyle(angle >= 0 ? DSTheme.accent : DSTheme.textSecondary)
                             }
                             .font(.system(size: 12)).monospacedDigit()
                             .padding(.horizontal, 10).padding(.vertical, 8)
-                            .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 6))
+                            .background(DSTheme.card, in: RoundedRectangle(cornerRadius: 6))
                         }
                     }
                 }
@@ -186,13 +179,13 @@ struct JoystickCard: View {
             if !skinState.unmapped.isEmpty {
                 HStack(spacing: 6) {
                     Text(tr("未映射按键"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                     ForEach(skinState.unmapped, id: \.self) { number in
                         Text("\(number)")
                             .font(.system(size: 11, weight: .semibold)).monospacedDigit()
                             .foregroundStyle(Color.white)
                             .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6))
+                            .background(DSTheme.accent, in: RoundedRectangle(cornerRadius: 6))
                             .help(tr("按键 %d 已按下，但当前造型映射表未引用", number))
                     }
                 }
@@ -202,42 +195,14 @@ struct JoystickCard: View {
 
     /// 造型选择：自动识别（VID/PID/名称）或手动指定（按设备持久化）。
     private var skinPicker: some View {
-        Menu {
-            Button {
-                model.setGamepadSkinOverride(nil, for: slot)
-            } label: {
-                Label(tr("自动识别（当前：%@）", GamepadProfile.detect(
-                    vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName),
-                      systemImage: "wand.and.stars")
-            }
-            Divider()
-            ForEach(GamepadSkin.allCases, id: \.self) { skin in
-                Button {
-                    model.setGamepadSkinOverride(skin, for: slot)
-                } label: {
-                    if skin == effectiveSkin {
-                        Label(skin.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(skin.displayName)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "gamecontroller")
-                Text(model.gamepadSkinOverride(for: slot) == nil
-                     ? tr("自动 · %@", effectiveSkin.displayName)
-                     : effectiveSkin.displayName)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-            }
-            .font(.system(size: 12, weight: .medium))
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 7))
-            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(DSTheme.line.opacity(0.6)))
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
+        DSSelectControl<GamepadSkin?>(title: tr("手柄造型"), selection: Binding(
+            get: { model.gamepadSkinOverride(for: slot) },
+            set: { model.setGamepadSkinOverride($0, for: slot) }
+        ), options: [DSSelectOption(value: Optional<GamepadSkin>.none,
+                                    label: tr("自动识别（当前：%@）", GamepadProfile.detect(
+                                        vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName))]
+            + GamepadSkin.allCases.map { DSSelectOption(value: Optional($0), label: $0.displayName) })
+            .frame(width: 240)
         .help(tr("选择手柄造型。自动按 VID/PID 与名称识别，识别不对可手动指定。"))
     }
 
@@ -250,28 +215,28 @@ struct JoystickCard: View {
                 Text(tr("机器人输出 · 0x2E")).font(.subheadline.weight(.semibold))
                 Spacer()
                 Text(outputs.isEmpty ? tr("尚未收到") : tr("实时"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
             }
             if outputs.isEmpty {
                 Text(tr("连接 SystemCore（MRC V2）后，机器人程序可通过 0x2E 下发震动/LED。"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 6) {
                     ForEach(outputs.indices, id: \.self) { i in
                         let o = outputs[i]
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(tr("槽 %d", i)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text(tr("槽 %d", i)).font(.caption.weight(.semibold)).foregroundStyle(DSTheme.textSecondary)
                             Text("L \(o.leftRumble) · R \(o.rightRumble)")
                                 .font(.caption.monospacedDigit())
                             Text(tr("扳机 L %d · R %d · LED #%@", Int(o.leftTriggerRumble), Int(o.rightTriggerRumble), String(o.ledRGB, radix: 16)))
-                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                .font(.caption.monospacedDigit()).foregroundStyle(DSTheme.textSecondary)
                         }
                         .padding(6)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(DSTheme.canvas))
+                        .background(RoundedRectangle(cornerRadius: 6).fill(DSTheme.card))
                     }
                 }
                 Text(tr("值为协议解码结果；到物理手柄的震动映射待真机核查（待实测清单）。"))
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).foregroundStyle(DSTheme.textSecondary)
             }
         }
         .padding(.top, 2)
@@ -282,14 +247,14 @@ struct JoystickCard: View {
             HStack(spacing: 12) {
                 Text("\(index)")
                     .font(.system(size: 22, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(index < 6 ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(index < 6 ? DSTheme.accent : DSTheme.textSecondary)
                     .frame(width: 44, height: 44)
-                    .background(DSTheme.canvas, in: RoundedRectangle(cornerRadius: 10))
+                    .background(DSTheme.card, in: RoundedRectangle(cornerRadius: 10))
                     .accessibilityLabel(tr("槽位 %d", index))
                 VStack(alignment: .leading, spacing: 5) {
                     Text(slot.name).font(.headline).textSelection(.enabled)
                     Text(String(format: "VID %04X · PID %04X", slot.vendorID, slot.productID))
-                        .font(.caption.monospaced()).foregroundStyle(.secondary)
+                        .font(.caption.monospaced()).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
                 if slot.isXbox { DSBadge(text: "Xbox", symbol: "gamecontroller") }
@@ -315,7 +280,7 @@ struct JoystickCard: View {
                 .accessibilityLabel(tr("将 %@ 下移一个槽位", slot.name))
                 .help(tr("将手柄移到后一个槽位"))
             }
-            .buttonStyle(DSActionStyle(color: .primary))
+            .buttonStyle(DSActionStyle())
         }
     }
 
@@ -323,7 +288,7 @@ struct JoystickCard: View {
         HStack(spacing: 10) {
             Text(tr("轴 %d", axisIndex))
                 .font(.system(size: 12)).monospacedDigit()
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSTheme.textSecondary)
                 .frame(width: 34, alignment: .leading)
             GeometryReader { geometry in
                 // Clamp only the drawing; the displayed reading remains the actual input value.
@@ -331,9 +296,9 @@ struct JoystickCard: View {
                 let value = raw.isFinite ? CGFloat(max(-1, min(1, raw))) : 0
                 let center = geometry.size.width / 2
                 ZStack(alignment: .leading) {
-                    Capsule().fill(DSTheme.canvas)
+                    Capsule().fill(DSTheme.card)
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(DSTheme.accent)
                         .frame(width: abs(value) * center)
                         .offset(x: value >= 0 ? center : center + value * center)
                     Rectangle().fill(DSTheme.line)
@@ -364,8 +329,8 @@ struct FlowButtons: View {
                 Text("\(index + 1)")
                     .font(.system(size: 11, weight: .semibold)).monospacedDigit()
                     .frame(maxWidth: .infinity, minHeight: 28)
-                    .foregroundStyle(isPressed ? Color.white : Color.secondary)
-                    .background(isPressed ? Color.accentColor : DSTheme.canvas, in: RoundedRectangle(cornerRadius: 6))
+                    .foregroundStyle(isPressed ? Color.white : DSTheme.textSecondary)
+                    .background(isPressed ? DSTheme.accent : DSTheme.card, in: RoundedRectangle(cornerRadius: 6))
                     .accessibilityLabel(tr("按键 %d", index + 1))
                     .accessibilityValue(isPressed ? tr("已按下") : tr("已松开"))
             }

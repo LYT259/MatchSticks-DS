@@ -47,7 +47,7 @@ struct OperationView: View {
                         DSPanel(title: tr("自动练习"), subtitle: tr("按设定时序依次运行自动与遥控阶段。")) {
                             HStack(spacing: 18) {
                                 duration(tr("自动"), model.practiceAutoTime)
-                                Image(systemName: "arrow.right").foregroundStyle(.tertiary)
+                                Image(systemName: "arrow.right").foregroundStyle(DSTheme.textSecondary)
                                 duration(tr("遥控"), model.practiceTeleopTime)
                             }
                             if model.practicePhase != .idle {
@@ -58,6 +58,8 @@ struct OperationView: View {
                                         Text(String(format: "%.1f s", max(0, model.practiceRemaining))).monospacedDigit()
                                     }.font(.callout)
                                     ProgressView(value: practiceProgress)
+                                        .tint(DSTheme.accent)
+                                        .controlSize(.small)
                                 }
                             }
                             if model.practiceActive {
@@ -69,7 +71,7 @@ struct OperationView: View {
                                     .disabled(model.estopEngaged)
                             }
                             Text(tr("开始后将按时序自动请求使能。阶段间延迟 %d 秒。", Int(model.practiceDelayTime)))
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(DSTheme.textSecondary)
                             Button(tr("调整练习时长"), action: openSettings).buttonStyle(.link)
                         }
                     }
@@ -85,18 +87,18 @@ struct OperationView: View {
         return Button { model.setMode(mode) } label: {
             HStack(spacing: 12) {
                 Image(systemName: symbol).font(.system(size: 19)).frame(width: 26)
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(selected ? DSTheme.accent : DSTheme.textSecondary)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.system(size: 14, weight: .semibold))
-                    Text(detail).font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(detail).font(.system(size: 12)).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.4))
+                    .foregroundStyle(selected ? DSTheme.accent : DSTheme.textSecondary.opacity(0.4))
             }
             .padding(12)
-            .background(selected ? Color.accentColor.opacity(0.08) : DSTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? Color.accentColor.opacity(0.5) : .clear))
+            .background(selected ? DSTheme.accentDim : DSTheme.card, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(selected ? DSTheme.accent.opacity(0.5) : DSTheme.line))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -108,7 +110,7 @@ struct OperationView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(tr("SystemCore 程序")).font(.callout.weight(.semibold))
             if model.opModes.isEmpty {
-                Text(tr("等待机器人提供 OpMode 列表…")).font(.callout).foregroundStyle(.secondary)
+                Text(tr("等待机器人提供 OpMode 列表…")).font(.callout).foregroundStyle(DSTheme.textSecondary)
             } else {
                 DSSelectControl(title: "OpMode", selection: Binding(get: { model.selectedOpModeHash }, set: { hash in
                     if let op = model.opModes.first(where: { $0.hash == hash }) { model.selectOpMode(op) }
@@ -116,7 +118,7 @@ struct OperationView: View {
                     DSSelectOption(value: $0.hash, label: "\($0.group) · \($0.name)")
                 })
                 .frame(maxWidth: 420)
-                Text(tr("所选程序将在使能时发送给机器人。")).font(.caption).foregroundStyle(.secondary)
+                Text(tr("所选程序将在使能时发送给机器人。")).font(.caption).foregroundStyle(DSTheme.textSecondary)
             }
         }
     }
@@ -124,14 +126,14 @@ struct OperationView: View {
     @ViewBuilder
     private func readinessRow(_ title: String, detail: String, ready: Bool, symbol: String, action: (() -> Void)? = nil) -> some View {
         let content = HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).frame(width: 20).foregroundStyle(.secondary)
+            Image(systemName: symbol).frame(width: 20).foregroundStyle(DSTheme.textSecondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.primary)
-                Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                Text(detail).font(.system(size: 12)).foregroundStyle(DSTheme.textSecondary).multilineTextAlignment(.leading)
             }
             Spacer(minLength: 0)
             Image(systemName: ready ? "checkmark.circle.fill" : "circle.dashed")
-                .foregroundStyle(ready ? Color.green : Color.secondary)
+                .foregroundStyle(ready ? DSTheme.success : DSTheme.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -144,7 +146,7 @@ struct OperationView: View {
 
     private func duration(_ title: String, _ seconds: TimeInterval) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.caption).foregroundStyle(.secondary)
+            Text(title).font(.caption).foregroundStyle(DSTheme.textSecondary)
             Text(tr("%d 秒", Int(seconds))).font(.system(size: 20, weight: .semibold)).monospacedDigit()
         }
     }

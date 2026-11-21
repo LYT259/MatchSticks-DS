@@ -34,10 +34,10 @@ struct MessagesView: View {
                         } label: {
                             Label(followsNewMessages ? tr("正在跟随") : tr("继续跟随"), systemImage: followsNewMessages ? "pause" : "arrow.down.to.line")
                         }
-                        .buttonStyle(DSActionStyle(color: followsNewMessages ? .accentColor : .secondary))
+                        .buttonStyle(DSActionStyle(color: followsNewMessages ? DSTheme.accentText : DSTheme.textPrimary))
                         .help(followsNewMessages ? tr("暂停自动滚动；仍继续接收消息") : tr("滚动到最新消息"))
                         Button(tr("清空"), systemImage: "trash") { clearCurrentLog() }
-                            .buttonStyle(DSActionStyle(color: .secondary))
+                            .buttonStyle(DSActionStyle())
                             .disabled(currentLines.isEmpty)
                     }
                 }
@@ -137,7 +137,7 @@ struct MessagesView: View {
         return DSPanel(title: "") {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 18)).foregroundStyle(isError ? Color.red : Color.orange)
+                    .font(.system(size: 18)).foregroundStyle(isError ? DSTheme.danger : DSTheme.warning)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(isError ? tr("错误") : tr("警告")).font(.callout.weight(.semibold))
@@ -165,16 +165,12 @@ struct MessagesView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: search.isEmpty ? (source == .errors ? "checkmark.circle" : "text.alignleft") : "magnifyingglass")
-                .font(.system(size: 30, weight: .light)).foregroundStyle(DSTheme.textSecondary)
-            Text(search.isEmpty ? (source == .errors ? tr("暂无错误或警告") : tr("暂无消息")) : tr("没有匹配的消息"))
-                .font(.headline)
-            Text(search.isEmpty ? (source == .console ? tr("机器人程序的输出会显示在这里。") : tr("新消息会自动显示在这里。")) : tr("尝试更短的关键词，或清除搜索。"))
-                .font(.callout).foregroundStyle(DSTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 230)
-        .padding(24)
+        DSEmptyState(
+            symbol: search.isEmpty ? (source == .errors ? "checkmark.circle" : "text.alignleft") : "magnifyingglass",
+            title: search.isEmpty ? (source == .errors ? tr("暂无错误或警告") : tr("暂无消息")) : tr("没有匹配的消息"),
+            detail: search.isEmpty ? (source == .console ? tr("机器人程序的输出会显示在这里。") : tr("新消息会自动显示在这里。")) : tr("尝试更短的关键词，或清除搜索。"),
+            minHeight: 230
+        )
     }
 
     private func matches(_ text: String) -> Bool { search.isEmpty || text.localizedCaseInsensitiveContains(search) }
