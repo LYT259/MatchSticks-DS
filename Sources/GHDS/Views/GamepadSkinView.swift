@@ -3,8 +3,8 @@ import DSCore
 
 // MARK: - 手柄造型皮肤：按下即点亮（呈现层，映射真值在 DSCore/GamepadProfile）
 //
-// 设计稿坐标系 360×220，整体 aspectRatio 适配容器宽度。配色沿用 DSTheme 与强调色
-// （按下 = 强调色填充 + 白色符号，与按键网格 FlowButtons 同一语言）；不引入新视觉参数。
+// PS / Xbox 按系列使用最新实机图片，F310 与冰原狼使用各自实机图片；
+// 动态控件按 GamepadArtwork 标定覆盖。通用设备保留 360×220 矢量示意。
 
 /// 单个可点亮按键面：圆 + 符号。
 private struct FaceKey: View {
@@ -281,16 +281,29 @@ private struct GamepadBody: Shape {
 
 struct GamepadSkinView: View {
     let skin: GamepadSkin
+    var layoutSkin: GamepadSkin? = nil
+    var mode: GamepadInputMode = .directInput
     let state: GamepadElementState
 
-    private var layout: GamepadLayout { GamepadLayout.layout(for: skin) }
+    private var layout: GamepadLayout { GamepadLayout.layout(for: layoutSkin ?? skin, mode: mode) }
 
     var body: some View {
         ZStack {
-            bodyPlate
-            elements
+            if skin == .generic {
+                bodyPlate
+                elements
+            } else {
+                GamepadArtworkOverlay(
+                    spec: GamepadArtworkCatalog.spec(for: skin), layout: layout, state: state,
+                    help: GamepadArtworkHelp(
+                        button: { self.buttonHelp($0) },
+                        trigger: { self.triggerHelp(triggerUsage: $0, button: $1) },
+                        stick: { self.stickHelp(lx: $0, ly: $1, press: $2) },
+                        dpad: dpadHelp),
+                    skin: skin)
+            }
         }
-        .frame(width: 360, height: 220)
+        .frame(width: skin == .generic ? 360 : nil, height: skin == .generic ? 220 : nil)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(tr("手柄造型 · %@", skin.displayName))
     }
@@ -299,10 +312,10 @@ struct GamepadSkinView: View {
 
     @ViewBuilder private var bodyPlate: some View {
         // 单一路径机身：填充 + 描边（同色叠合无法描边，故用自定义 Shape）
-        GamepadBody(kind: skin == .dualsense ? .symmetric : .asymmetric)
+        GamepadBody(kind: skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? .symmetric : .asymmetric)
             .fill(DSTheme.canvas)
             .overlay(
-                GamepadBody(kind: skin == .dualsense ? .symmetric : .asymmetric)
+                GamepadBody(kind: skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? .symmetric : .asymmetric)
                     .stroke(DSTheme.line, lineWidth: 1.2))
     }
 
@@ -310,8 +323,8 @@ struct GamepadSkinView: View {
 
     @ViewBuilder private var elements: some View {
         switch skin {
-        case .f310, .direwolf4, .xboxSeries: asymmetricLayout
-        case .dualsense: dualsenseLayout
+        case .f310, .extreme3DPro, .direwolf4, .xbox360, .xboxOne, .xboxSeries: asymmetricLayout
+        case .dualsense, .dualshock4, .dualshock3: dualsenseLayout
         case .generic: genericLayout
         }
     }
@@ -384,8 +397,10 @@ struct GamepadSkinView: View {
             TriggerGauge(label: "R2", state: state.triggerR, helpText: triggerHelp(triggerUsage: layout.triggerUsage.rt, button: layout.triggerButton.r))
                 .position(x: 268, y: 12)
 
-            // 触控板（整块点亮）
-            extraTouchpad.position(x: 180, y: 48)
+            // 触控板（DualShock 3 无此实体；最新 PS 皮肤默认显示）
+            if skin != .dualshock3 {
+                extraTouchpad.position(x: 180, y: 48)
+            }
 
             DpadCross(directions: state.dpad, helpText: dpadHelp)
                 .position(x: 102, y: 98)
@@ -466,9 +481,11 @@ struct GamepadSkinView: View {
 
     private var faceGlyphs: [GamepadFace: String] {
         switch skin {
-        case .f310, .direwolf4, .xboxSeries:
+        case .extreme3DPro:
+            return [.north: "2", .east: "3", .south: "4", .west: "5"]
+        case .f310, .direwolf4, .xbox360, .xboxOne, .xboxSeries:
             return [.north: "Y", .east: "B", .south: "A", .west: "X"]
-        case .dualsense:
+        case .dualsense, .dualshock4, .dualshock3:
             return [.north: "△", .east: "○", .south: "✕", .west: "□"]
         case .generic:
             // 通用款编号即标签（与映射表的方位编号一致）
@@ -476,26 +493,27 @@ struct GamepadSkinView: View {
         }
     }
 
-    private var shoulderGlyphL: String { skin == .dualsense ? "L1" : "LB" }
-    private var shoulderGlyphR: String { skin == .dualsense ? "R1" : "RB" }
-    private var triggerGlyphL: String { skin == .dualsense ? "L2" : "LT" }
-    private var triggerGlyphR: String { skin == .dualsense ? "R2" : "RT" }
+    private var shoulderGlyphL: String { skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? "L1" : "LB" }
+    private var shoulderGlyphR: String { skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? "R1" : "RB" }
+    private var triggerGlyphL: String { skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? "L2" : "LT" }
+    private var triggerGlyphR: String { skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? "R2" : "RT" }
     private var backGlyph: String {
         switch skin {
         case .dualsense: return tr("创建")
+        case .dualshock4, .dualshock3: return tr("分享")
         case .f310: return tr("后退")
         default: return tr("视图")
         }
     }
     private var startGlyph: String {
         switch skin {
-        case .dualsense: return tr("选项")
+        case .dualsense, .dualshock4, .dualshock3: return tr("选项")
         case .f310: return tr("开始")
         default: return tr("菜单")
         }
     }
     private var guideGlyph: String {
-        skin == .dualsense ? "PS" : "◎"
+        skin == .dualsense || skin == .dualshock4 || skin == .dualshock3 ? "PS" : "◎"
     }
 
     // MARK: 悬停提示（台架核对原始按键号/轴用）
@@ -512,10 +530,11 @@ struct GamepadSkinView: View {
         return button.map { tr("按键 %d", $0) }
     }
 
-    private func stickHelp(lx: UInt32, ly: UInt32, press: Int) -> String {
+    private func stickHelp(lx: UInt32, ly: UInt32?, press: Int?) -> String {
         let xName = GamepadSkinView.axisName(lx) ?? "?"
         let yName = GamepadSkinView.axisName(ly) ?? "?"
-        return tr("摇杆 · 轴 %@/%@ · 按下为按键 %d", xName, yName, press)
+        if let press { return tr("摇杆 · 轴 %@/%@ · 按下为按键 %d", xName, yName, press) }
+        return tr("摇杆 · 轴 %@/%@", xName, yName)
     }
 
     private var dpadHelp: String {
@@ -526,7 +545,8 @@ struct GamepadSkinView: View {
     }
 
     /// usage → 人读名（与 HID GenericDesktop 轴页一致）。
-    static func axisName(_ usage: UInt32) -> String? {
+    static func axisName(_ usage: UInt32?) -> String? {
+        guard let usage else { return nil }
         switch usage {
         case 0x30: return "X"
         case 0x31: return "Y"
@@ -542,19 +562,26 @@ struct GamepadSkinView: View {
     }
 }
 
-/// 皮肤缩放包装：设计稿 360×220，窄容器整体等比缩小（不裁剪、不重排）。
+/// 通用款按 360×220 缩放；实机款按各自图片原始宽高比显示，最大 520×300。
 struct GamepadSkinScaled: View {
     let skin: GamepadSkin
+    var layoutSkin: GamepadSkin? = nil
+    var mode: GamepadInputMode = .directInput
     let state: GamepadElementState
 
     var body: some View {
-        GeometryReader { geo in
-            let scale = min(1, min(geo.size.width / 360, geo.size.height / 220))
-            GamepadSkinView(skin: skin, state: state)
-                .scaleEffect(scale)
-                .frame(width: geo.size.width, height: geo.size.height)
+        if skin == .generic {
+            GeometryReader { geo in
+                let scale = min(1, min(geo.size.width / 360, geo.size.height / 220))
+                GamepadSkinView(skin: skin, layoutSkin: layoutSkin, mode: mode, state: state)
+                    .scaleEffect(scale)
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
+            .aspectRatio(360.0 / 220.0, contentMode: .fit)
+            .frame(height: 220)
+        } else {
+            GamepadSkinView(skin: skin, layoutSkin: layoutSkin, mode: mode, state: state)
+                .frame(maxWidth: 520, maxHeight: 300)
         }
-        .aspectRatio(360.0 / 220.0, contentMode: .fit)
-        .frame(height: 220)
     }
 }

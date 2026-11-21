@@ -32,6 +32,12 @@ struct SettingsView: View {
                 ])
                 .frame(width: 360)
             }
+            settingsSeparator
+            settingsRow(tr("比赛年份")) {
+                DSSelectControl(title: tr("比赛年份"), selection: $model.practiceSeasonYear,
+                                options: PracticeTimingPreset.all.map { DSSelectOption(value: $0.year, label: String($0.year)) })
+                    .frame(width: 120)
+            }
         }
     }
 
@@ -51,11 +57,12 @@ struct SettingsView: View {
 
     private var practicePanel: some View {
         settingsGroup(tr("练习时序")) {
-            durationRow(tr("自动阶段"), $model.practiceAutoTime, range: 1...60)
+            settingsRow(tr("官方时序")) {
+                Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
+                    .buttonStyle(DSActionStyle())
+            }
             settingsSeparator
-            durationRow(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600)
-            settingsSeparator
-            durationRow(tr("阶段间等待"), $model.practiceDelayTime, range: 0...30)
+            PracticeTimingEditor(model: model)
             settingsSeparator
             settingsRow(tr("播放阶段提示音")) {
                 Toggle(tr("播放阶段提示音"), isOn: $model.soundsEnabled)
@@ -147,21 +154,6 @@ struct SettingsView: View {
             .frame(height: 1)
             .frame(maxWidth: .infinity)
             .padding(.leading, 16)
-    }
-
-    private func durationRow(_ label: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>) -> some View {
-        settingsRow(label) {
-            HStack(spacing: 12) {
-                Slider(value: value, in: range, step: 1)
-                    .accessibilityLabel(label)
-                    .tint(DSTheme.accent)
-                    .frame(width: 168)
-                Text(tr("%d 秒", Int(value.wrappedValue)))
-                    .font(.system(size: 12).monospacedDigit())
-                    .frame(width: 60, alignment: .trailing)
-            }
-            .frame(width: 240)
-        }
     }
 
     private func launchDashboard() {

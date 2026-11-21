@@ -47,6 +47,20 @@ if [ ! -d "$BUILD_DIR/GHDriverStation_DSCore.bundle" ]; then
 fi
 cp -R "$BUILD_DIR/GHDriverStation_DSCore.bundle" "$APP/Contents/Resources/"
 
+# 应用音频与手柄实机图片必须随包分发；缺失即失败，避免安全事件无声或外观缺失
+if [ ! -d "$BUILD_DIR/GHDriverStation_GHDS.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 GHDriverStation_GHDS.bundle——应用音频或手柄图片缺失" >&2
+    exit 1
+fi
+cp -R "$BUILD_DIR/GHDriverStation_GHDS.bundle" "$APP/Contents/Resources/"
+RESOURCE_DIR="$APP/Contents/Resources/GHDriverStation_GHDS.bundle/Contents/Resources"
+for REQUIRED in FOGHORN.wav dualsense.png xbox-series.png f310.png direwolf4.png extreme3dpro.png; do
+    if [ ! -f "$RESOURCE_DIR/$REQUIRED" ]; then
+        echo "  ✗ 应用资源缺失：$REQUIRED" >&2
+        exit 1
+    fi
+done
+
 # 图标（缺失时跳过，不阻塞打包）
 if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
   echo "  生成图标…"

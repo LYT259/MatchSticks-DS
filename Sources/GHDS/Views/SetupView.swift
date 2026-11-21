@@ -107,6 +107,15 @@ struct SetupView: View {
                 }
             }
 
+            // 已应用的手动地址（model 真值，不是草稿）：自动发现关闭 / 本机回环提醒
+            if let warning = model.appliedManualIPWarning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(DSTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(warning)
+            }
+
             Divider()
             HStack(spacing: 12) {
                 if connectionEditingLocked {

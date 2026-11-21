@@ -47,8 +47,27 @@ public enum SafetyGate {
     }
 }
 
+public struct PracticeTimingPreset: Sendable, Equatable {
+    public let year: Int
+    public let autoTime: TimeInterval
+    public let teleopTime: TimeInterval
+    public let teleopDelay: TimeInterval
+
+    public static let all = [
+        PracticeTimingPreset(year: 2022, autoTime: 15, teleopTime: 135, teleopDelay: 0),
+        PracticeTimingPreset(year: 2023, autoTime: 15, teleopTime: 135, teleopDelay: 3),
+        PracticeTimingPreset(year: 2024, autoTime: 15, teleopTime: 135, teleopDelay: 3),
+        PracticeTimingPreset(year: 2025, autoTime: 15, teleopTime: 135, teleopDelay: 3),
+        PracticeTimingPreset(year: 2026, autoTime: 20, teleopTime: 140, teleopDelay: 3),
+    ]
+
+    public static func forYear(_ year: Int) -> PracticeTimingPreset? {
+        all.first { $0.year == year }
+    }
+}
+
 // MARK: - PracticeSequencer：Practice 时序纯状态机（报告 §2.1 NI DS Practice 语义）
-// 阶段：延迟 → Auto → 延迟 → TeleOp → 结束；A-Stop 任意时刻中止。
+// 阶段：开始等待 → Auto → 过渡 → Teleop（2026 展开六个子阶段）→ 结束；A-Stop 任意时刻中止。
 
 public struct PracticeSequencer: Sendable, Equatable {
     public enum Phase: Sendable, Equatable, CaseIterable {
@@ -57,6 +76,12 @@ public struct PracticeSequencer: Sendable, Equatable {
         case autonomous
         case delayBeforeTeleop
         case teleoperated
+        case transitionShift
+        case allianceShift1
+        case allianceShift2
+        case allianceShift3
+        case allianceShift4
+        case endgame
         case finished
 
         public var isActive: Bool { self != .idle && self != .finished }
@@ -68,8 +93,27 @@ public struct PracticeSequencer: Sendable, Equatable {
             case .autonomous: return "Autonomous"
             case .delayBeforeTeleop: return tr("Teleop 前延迟")
             case .teleoperated: return "Teleoperated"
+            case .transitionShift: return "Transition Shift"
+            case .allianceShift1: return "Alliance Shift 1"
+            case .allianceShift2: return "Alliance Shift 2"
+            case .allianceShift3: return "Alliance Shift 3"
+            case .allianceShift4: return "Alliance Shift 4"
+            case .endgame: return "Endgame"
             case .finished: return tr("已结束")
             }
+        }
+    }
+
+    public struct TeleopBreakdown: Sendable, Equatable {
+        public var transitionShift: TimeInterval
+        public var allianceShift: TimeInterval
+        public var endgame: TimeInterval
+        public var total: TimeInterval { transitionShift + allianceShift * 4 + endgame }
+
+        public init(transitionShift: TimeInterval = 10, allianceShift: TimeInterval = 25, endgame: TimeInterval = 30) {
+            self.transitionShift = transitionShift
+            self.allianceShift = allianceShift
+            self.endgame = endgame
         }
     }
 
@@ -77,11 +121,16 @@ public struct PracticeSequencer: Sendable, Equatable {
         public var autoTime: TimeInterval
         public var teleopTime: TimeInterval
         public var delayTime: TimeInterval
+        public var startDelay: TimeInterval
+        public var teleopBreakdown: TeleopBreakdown?
 
-        public init(autoTime: TimeInterval = 15, teleopTime: TimeInterval = 135, delayTime: TimeInterval = 2) {
+        public init(autoTime: TimeInterval = 15, teleopTime: TimeInterval = 135, delayTime: TimeInterval = 2,
+                    startDelay: TimeInterval? = nil, teleopBreakdown: TeleopBreakdown? = nil) {
             self.autoTime = autoTime
             self.teleopTime = teleopTime
             self.delayTime = delayTime
+            self.startDelay = startDelay ?? delayTime
+            self.teleopBreakdown = teleopBreakdown
         }
     }
 
@@ -102,9 +151,14 @@ public struct PracticeSequencer: Sendable, Equatable {
     }
 
     public mutating func start() -> [Event] {
-        phase = .delayBeforeAuto
-        remaining = config.delayTime
-        return [.entered(.delayBeforeAuto)]
+        if config.startDelay > 0 {
+            phase = .delayBeforeAuto
+            remaining = config.startDelay
+            return [.entered(.delayBeforeAuto)]
+        }
+        phase = .autonomous
+        remaining = config.autoTime
+        return [.entered(.autonomous), .enable]
     }
 
     /// A-Stop：立即失能并结束
@@ -113,6 +167,17 @@ public struct PracticeSequencer: Sendable, Equatable {
         phase = .finished
         remaining = 0
         return [.disable, .aborted, .finished]
+    }
+
+    private mutating func enterTeleop() -> [Event] {
+        if let breakdown = config.teleopBreakdown {
+            phase = .transitionShift
+            remaining = breakdown.transitionShift
+            return [.entered(.transitionShift), .enable]
+        }
+        phase = .teleoperated
+        remaining = config.teleopTime
+        return [.entered(.teleoperated), .enable]
     }
 
     /// 周期推进（建议 0.1s）；返回本 tick 累积的控制意图。
@@ -128,14 +193,39 @@ public struct PracticeSequencer: Sendable, Equatable {
             remaining = config.autoTime
             return [.entered(.autonomous), .enable]
         case .autonomous:
-            phase = .delayBeforeTeleop
-            remaining = config.delayTime
-            return [.entered(.delayBeforeTeleop), .disable]
+            if config.delayTime > 0 {
+                phase = .delayBeforeTeleop
+                remaining = config.delayTime
+                return [.entered(.delayBeforeTeleop), .disable]
+            }
+            return enterTeleop()
         case .delayBeforeTeleop:
-            phase = .teleoperated
-            remaining = config.teleopTime
-            return [.entered(.teleoperated), .enable]
+            return enterTeleop()
         case .teleoperated:
+            phase = .finished
+            remaining = 0
+            return [.disable, .finished]
+        case .transitionShift:
+            phase = .allianceShift1
+            remaining = config.teleopBreakdown?.allianceShift ?? 0
+            return [.entered(.allianceShift1)]
+        case .allianceShift1:
+            phase = .allianceShift2
+            remaining = config.teleopBreakdown?.allianceShift ?? 0
+            return [.entered(.allianceShift2)]
+        case .allianceShift2:
+            phase = .allianceShift3
+            remaining = config.teleopBreakdown?.allianceShift ?? 0
+            return [.entered(.allianceShift3)]
+        case .allianceShift3:
+            phase = .allianceShift4
+            remaining = config.teleopBreakdown?.allianceShift ?? 0
+            return [.entered(.allianceShift4)]
+        case .allianceShift4:
+            phase = .endgame
+            remaining = config.teleopBreakdown?.endgame ?? 0
+            return [.entered(.endgame)]
+        case .endgame:
             phase = .finished
             remaining = 0
             return [.disable, .finished]
@@ -147,9 +237,14 @@ public struct PracticeSequencer: Sendable, Equatable {
     /// 当前阶段总时长（进度条用）
     public var phaseDuration: TimeInterval {
         switch phase {
-        case .delayBeforeAuto, .delayBeforeTeleop: return config.delayTime
+        case .delayBeforeAuto: return config.startDelay
+        case .delayBeforeTeleop: return config.delayTime
         case .autonomous: return config.autoTime
         case .teleoperated: return config.teleopTime
+        case .transitionShift: return config.teleopBreakdown?.transitionShift ?? 0
+        case .allianceShift1, .allianceShift2, .allianceShift3, .allianceShift4:
+            return config.teleopBreakdown?.allianceShift ?? 0
+        case .endgame: return config.teleopBreakdown?.endgame ?? 0
         default: return 0
         }
     }

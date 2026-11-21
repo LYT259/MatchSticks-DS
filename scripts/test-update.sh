@@ -12,13 +12,45 @@ cd "$(dirname "$0")/.."
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
 export DEVELOPER_DIR
 
+# 测试隔离：每次运行生成唯一、合法的反 DNS suite 名，导出给被测进程；
+# 退出时只删本脚本创建的 suite（含 cfprefsd 留下的空 plist），不碰正式域。
+GHDS_SETTINGS_SUITE="org.ghfrc.driverstation.test.update.$$.$(date +%Y%m%d%H%M%S).$RANDOM"
+export GHDS_SETTINGS_SUITE
+cleanup_settings_suite() {
+    local suite="${GHDS_SETTINGS_SUITE:-}"
+    case "$suite" in
+        org.ghfrc.driverstation.test.*) ;;
+        *) return 0 ;;
+    esac
+    defaults delete "$suite" >/dev/null 2>&1 || true
+    rm -f "$HOME/Library/Preferences/$suite.plist" 2>/dev/null || true
+}
+
+WORK=/tmp/ghds-update-e2e
+HTTP_PID=""
+cleanup() {
+    pkill -f "ghds-update-e2e" 2>/dev/null || true
+    pkill -x GHDSSim 2>/dev/null || true
+    if [ -n "${HTTP_PID:-}" ]; then kill "$HTTP_PID" 2>/dev/null || true; fi
+    for _ in 1 2 3 4 5; do
+        pgrep -f "ghds-update-e2e" >/dev/null 2>&1 || break
+        sleep 0.2
+    done
+    pkill -9 -f "ghds-update-e2e" 2>/dev/null || true
+    sleep 0.5
+    cleanup_settings_suite
+}
+trap cleanup EXIT
+
+# 日志断言使用中文键：固定测试 suite 的语言，避免宿主系统语言把断言变成假失败。
+defaults write "$GHDS_SETTINGS_SUITE" ghds.language -string chinese
+
 fail() { echo "✗ $1" >&2; exit 1; }
 
 # 前置：不与真实使用冲突
 if pgrep -x GHDS >/dev/null 2>&1; then fail "已有 GHDS 进程在运行，请先关闭后再跑本测试"; fi
 pkill -x GHDSSim 2>/dev/null || true
 
-WORK=/tmp/ghds-update-e2e
 rm -rf "$WORK"; mkdir -p "$WORK/web"
 
 echo "▶ 测试密钥（构建前生成，经 SU_PUBLIC_ED_KEY 进 Info.plist——签名后改 plist 会破坏资源密封，Sparkle 拒收）"
@@ -55,19 +87,13 @@ APCAST
 
 python3 -m http.server 8123 --directory "$WORK/web" --bind 127.0.0.1 >/dev/null 2>&1 &
 HTTP_PID=$!
-cleanup() {
-    pkill -f "ghds-update-e2e" 2>/dev/null || true
-    pkill -x GHDSSim 2>/dev/null || true
-    kill "$HTTP_PID" 2>/dev/null || true
-}
-trap cleanup EXIT
 sleep 1
 
 version_of() { plutil -extract CFBundleShortVersionString raw "$1/Contents/Info.plist"; }
-wait_log() { # $1=文件 $2=子串 $3=超时秒
+wait_log() { # $1=文件 $2=扩展正则 $3=超时秒
     local i=0
     while [ $i -lt "$3" ]; do
-        grep -q "$2" "$1" 2>/dev/null && return 0
+        grep -Eq "$2" "$1" 2>/dev/null && return 0
         sleep 2; i=$((i + 2))
     done
     return 1
@@ -87,10 +113,10 @@ while [ $SECONDS -lt $DEADLINE ]; do
 done
 [ "$(version_of "$WORK/GHDS-A.app")" = "9.9.9" ] || { cat "$WORK/legA.log" 2>/dev/null; fail "Leg A：升级未完成（版本仍为 $(version_of "$WORK/GHDS-A.app")）"; }
 pgrep -f "GHDS-A.app/Contents/MacOS/GHDS" >/dev/null 2>&1 || { cat "$WORK/legA.log" 2>/dev/null; fail "Leg A：新版本进程未存活"; }
-grep -q "发现新版本 9.9.9" "$WORK/legA.log" || fail "Leg A：未见「发现新版本」日志"
-grep -q "下载就绪" "$WORK/legA.log" || fail "Leg A：未见「下载就绪」日志"
-grep -q "安全门放行" "$WORK/legA.log" || fail "Leg A：未见「安全门放行」日志"
-! grep -q "被安全门阻断" "$WORK/legA.log" || fail "Leg A：放行态出现阻断日志（不应发生）"
+grep -Eq "发现新版本 9.9.9|New version 9.9.9 found" "$WORK/legA.log" || fail "Leg A：未见「发现新版本」日志"
+grep -Eq "下载就绪|Version 9.9.9 downloaded" "$WORK/legA.log" || fail "Leg A：未见「下载就绪」日志"
+grep -Eq "安全门放行|safety gate open" "$WORK/legA.log" || fail "Leg A：未见「安全门放行」日志"
+! grep -Eq "被安全门阻断|blocked by safety gate" "$WORK/legA.log" || fail "Leg A：放行态出现阻断日志（不应发生）"
 echo "  ✓ Leg A：9.9.8 → 9.9.9 升级+重启存活，链路日志齐备"
 pkill -f "GHDS-A.app/Contents/MacOS/GHDS" 2>/dev/null || true
 sleep 2
@@ -106,11 +132,11 @@ GHDS_LOG_FILE="$WORK/legB.log" GHDS_FEED_URL="http://127.0.0.1:8123/appcast.xml"
   GHDS_UPDATE_AUTOTAP=1 GHDS_UPDATE_AUTOTAP_DELAY=12 GHDS_AUTO_SIM=1 \
   "$WORK/GHDS-B.app/Contents/MacOS/GHDS" >/dev/null 2>&1 &
 APP_B_PID=$!
-wait_log "$WORK/legB.log" "收到版本信息" 20 || { cat "$WORK/legB.log" 2>/dev/null; fail "Leg B：20s 内未见 TCP 版本信息（未连上模拟器）"; }
-wait_log "$WORK/legB.log" "下载就绪" 60 || { cat "$WORK/legB.log" 2>/dev/null; fail "Leg B：60s 内未见下载就绪"; }
-wait_log "$WORK/legB.log" "被安全门阻断" 30 || { cat "$WORK/legB.log" 2>/dev/null; fail "Leg B：延时 AUTOTAP 未被安全门阻断"; }
-grep "被安全门阻断" "$WORK/legB.log" | head -1 | grep -q "通信" || { cat "$WORK/legB.log"; fail "Leg B：阻断原因不是通信活跃"; }
-! grep -q "安全门放行" "$WORK/legB.log" || fail "Leg B：连接态出现放行日志（不应发生）"
+wait_log "$WORK/legB.log" "收到版本信息|Version info received" 20 || { cat "$WORK/legB.log" 2>/dev/null; fail "Leg B：20s 内未见 TCP 版本信息（未连上模拟器）"; }
+wait_log "$WORK/legB.log" "下载就绪|Version .* downloaded" 60 || { cat "$WORK/legB.log" 2>/dev/null; fail "Leg B：60s 内未见下载就绪"; }
+wait_log "$WORK/legB.log" "被安全门阻断|blocked by safety gate" 30 || { cat "$WORK/legB.log" 2>/dev/null; fail "Leg B：延时 AUTOTAP 未被安全门阻断"; }
+grep -E "被安全门阻断|blocked by safety gate" "$WORK/legB.log" | head -1 | grep -Eq "通信|Comms active|communication active" || { cat "$WORK/legB.log"; fail "Leg B：阻断原因不是通信活跃"; }
+! grep -Eq "安全门放行|safety gate open" "$WORK/legB.log" || fail "Leg B：连接态出现放行日志（不应发生）"
 # 存活期契约：阻断后版本必须不变（活进程期间安装的唯一触发 = 点击 + 安全门放行）
 sleep 2
 [ "$(version_of "$WORK/GHDS-B.app")" = "9.9.8" ] || fail "Leg B：阻断后存活期间版本被改为 $(version_of "$WORK/GHDS-B.app")"

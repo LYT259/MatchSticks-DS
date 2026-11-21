@@ -9,7 +9,7 @@
 ## 功能（当前版本）
 
 - **连接**：roboRIO 1.0/2.0 NI 协议——UDP 1110 控制环（20ms / 50Hz）+ UDP 1150 遥测回传 + TCP 1740 慢速通道；目标自动轮换（mDNS `roboRIO-<队号>-FRC.local` → 静态 `10.T.E.2` → USB `172.22.11.2`），支持手动 IP；机器人 socket 自动绑定同子网物理网卡，Clash Verge 系统代理 / TUN（规则、全局、直连）下均保持直连，无需添加分流规则
-- **操作**：Teleop / Autonomous / Test 模式、Enable / Disable / **E-Stop**（协议位直发）、E-Stop 复位（First DS 语义）、Alliance 站位（R1–B3）、使能计时、Practice 分段时序（Auto/TeleOp 延迟 + 提示音 + A-Stop）、远程 Reboot roboRIO / Restart Robot Code
+- **操作**：Teleop / Autonomous / Test 模式、Enable / Disable / **E-Stop**（协议位直发 + FMS 全场 Foghorn 音效）、E-Stop 复位（First DS 语义）、Alliance 站位（R1–B3）、使能计时、Practice 比赛时间线（2022–2026 官方预设 + 2026 Transition/Alliance Shifts/Endgame + 可拖动分段时长 + 提示音 + A-Stop）、远程 Reboot roboRIO / Restart Robot Code
 - **界面**：Apple 原生风格（实色自适应表面、无模糊/材质装饰）——侧栏导航（操作/监测两组，底部设置/权限）+ 每页常驻安全控制条（使能/失能/急停 + 状态解释）；状态条：机器人状态、通信/程序/手柄指示、电池电压（brownout 红字警示）；队伍号常驻侧栏；迷你驾驶台独立小窗（状态 + 三键 + 电池）
 - **手柄**：IOHIDManager 枚举所有 HID 设备（含 Attack3 / Extreme 3D Pro 等非游戏标准手柄）、槽位排序 + **槽位锁定**、轴 / 按键 / POV 实时显示
 - **诊断**：每核 CPU、内存、磁盘、CAN 总线指标（利用率 / BusOff / TxFull / 错误计数）、电源故障计数、TCP 版本信息、网络指示灯、丢包率
@@ -60,11 +60,11 @@ GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 ```bash
 export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer  # 按本机 Xcode 路径调整
 swift build
-swift run DSCoreTests   # 协议回归：326 项检查（协议金样本/容错 + 安全门禁/更新安全门/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/0x2E 端到端/NT4 握手/WebUI 路由与回环/MOCK 摄像头 场景级集成测试）
-scripts/test-ui.sh      # UI 状态干测试：65 项检查（状态文案/安全门禁/急停锁存与复位快照/连接草稿/更新流状态机与安全门联动语义；不起 socket 与 HID）
+swift run DSCoreTests   # 协议回归：488 项检查（协议金样本/容错 + 安全门禁/更新安全门/时序机/录制回放/POV 归一化单测 + TCP 1740 正向端到端 + E-Stop 锁存/重启断联/看门狗冻结/brownout/30s 长跑/录制回放全链路/MRC 正反向/0x2E 端到端/NT4 握手/WebUI 路由与回环/MOCK 摄像头 场景级集成测试）
+scripts/test-ui.sh      # UI 状态干测试：129 项检查（状态文案/安全门禁/急停锁存与复位快照/连接草稿/设置隔离与地址警告/状态日志/更新流状态机与安全门联动语义；不起 socket 与 HID）
 swift run GHDS          # 运行驾驶台
 scripts/test-update.sh  # Sparkle 本地升级链路 E2E：9.9.8→9.9.9 全流程 + 安全门双阻断
-scripts/test-e2e.sh     # 打包版 E2E：进程存活 + 控制环吞吐 ≥40Hz + connected + 日志落盘
+scripts/test-e2e.sh     # 打包版 E2E：进程存活 + 控制环吞吐 ≥40Hz + connected + Radio 事件 + 日志落盘 + 正式设置未变
 ```
 
 ## 安装（GitHub Releases）

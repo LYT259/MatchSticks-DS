@@ -121,6 +121,19 @@ struct UIStateTests {
         check(!snap.latestPublishedSnapshotEstop, "reset clears the published estop bit before the request pulse")
         check(snap.enabled == false, "estop path keeps operator disabled")
 
+        // E-Stop 全场雾号：首次触发立即播放，锁存期间不叠放，复位本身静音
+        let estopAudio = DSModel(settingsDefaults: makeSuite("ghds.uitests.estop-audio"), persistenceEnabled: false)
+        var estopAudioPlayCount = 0
+        estopAudio.estopSoundPlayer = { estopAudioPlayCount += 1 }
+        estopAudio.triggerEstop()
+        check(estopAudioPlayCount == 1 && estopAudio.estopEngaged, "E-Stop plays the field foghorn immediately")
+        estopAudio.triggerEstop()
+        check(estopAudioPlayCount == 1, "latched E-Stop does not replay the foghorn")
+        estopAudio.resetEstop()
+        check(estopAudioPlayCount == 1, "E-Stop reset stays silent")
+        estopAudio.triggerEstop()
+        check(estopAudioPlayCount == 2, "a new E-Stop after reset plays the foghorn again")
+
         // 2026-09-27 回归：连接草稿跨导航保留（RootView 常驻 holder）
         let draft = ConnectionDraft()
         let draftModel = DSModel()
@@ -257,11 +270,15 @@ struct UIStateTests {
             var devices: [HIDDeviceSnapshot] {
                 var list = [HIDDeviceSnapshot(uniqueID: "a1:11:s", name: "Bench Stick", vendorID: 0x045E, productID: 0x028E,
                                               axes: [primary], axisUsages: [0x30], buttons: 1, buttonCount: 1,
-                                              povs: [], isXbox: true, yFlipped: false)]
+                                              povs: [], isXbox: true, mode: .directInput,
+                                              polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: false),
+                                              usbLocationID: nil)]
                 if let secondary {
                     list.append(HIDDeviceSnapshot(uniqueID: "b2:22:s", name: "Second Stick", vendorID: 0x046D, productID: 0xC215,
                                                   axes: [secondary], axisUsages: [0x30], buttons: 0, buttonCount: 0,
-                                                  povs: [], isXbox: false, yFlipped: false))
+                                                  povs: [], isXbox: false, mode: .directInput,
+                                                  polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: false),
+                                                  usbLocationID: nil))
                 }
                 return list
             }
@@ -333,6 +350,44 @@ struct UIStateTests {
         check(visibleRate >= 3, "visible joystick values keep refreshing")
         check(jmRate.latestPublishedJoysticks.first?.axes.first == 24, "control snapshot tracked all 25 polls")
 
+        // 皮肤状态提取不得改变发往机器人的原始输入（DualSense / F310 D 档）
+        let outputSnapshots = [
+            HIDDeviceSnapshot(uniqueID: "dualsense-test", name: "DualSense Wireless Controller",
+                              vendorID: 0x054C, productID: 0x0CE6,
+                              axes: [0.25, -0.8, -0.5, 0.9, 0, 0],
+                              axisUsages: [0x30, 0x31, 0x32, 0x35, 0x33, 0x34],
+                              buttons: 1 << 1, buttonCount: 14, povs: [90], isXbox: false,
+                              mode: .directInput,
+                              polarity: GamepadProfile.displayPolarity(vendorID: 0x054C, productID: 0x0CE6,
+                                                                       name: "DualSense Wireless Controller", xinputNormalized: false),
+                              usbLocationID: 0x100),
+            HIDDeviceSnapshot(uniqueID: "f310-d-test", name: "Logitech Dual Action",
+                              vendorID: 0x046D, productID: 0xC216,
+                              axes: [0.75, -0.8, -0.5, 0.9],
+                              axisUsages: [0x30, 0x31, 0x32, 0x35],
+                              buttons: 1 << 0, buttonCount: 12, povs: [270], isXbox: false,
+                              mode: .directInput,
+                              polarity: GamepadProfile.displayPolarity(vendorID: 0x046D, productID: 0xC216,
+                                                                       name: "Logitech Dual Action", xinputNormalized: false),
+                              usbLocationID: 0x200),
+        ]
+        for snapshot in outputSnapshots {
+            let slot = JoystickSlot(index: 0, device: snapshot)
+            let originalAxes = slot.data.axes
+            let originalButtons = slot.data.buttons
+            let originalPOVs = slot.data.povs
+            let skin = GamepadProfile.detect(vendorID: snapshot.vendorID, productID: snapshot.productID, name: snapshot.name)
+            _ = GamepadLayout.layout(for: skin, mode: snapshot.mode).state(for: GamepadSample(slot: slot))
+            check(slot.data.axes == originalAxes, "\(snapshot.name) 皮肤提取不改变原始轴")
+            check(slot.data.buttons == originalButtons, "\(snapshot.name) 皮肤提取不改变按钮")
+            check(slot.data.povs == originalPOVs, "\(snapshot.name) 皮肤提取不改变 POV")
+        }
+
+        f310XInputReportTests(check)
+        f310XInputLifecycleTests(check)
+        gamepadArtworkTests(check)
+        gamepadTriggerRangeTests(check)
+
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
         sampler.start()
@@ -356,6 +411,144 @@ struct UIStateTests {
         check(jmRun.joystickSlots.count == 1 && jmRun.joystickSlots[0].axes.first == 0.25, "timer-driven polling populates the visible slot")
         check(jmRun.latestPublishedJoysticks.first?.axes.first == 0.25, "timer-driven polling feeds the control snapshot")
         try? FileManager.default.removeItem(atPath: stallPath)
+
+        // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
+
+        let suiteNames = (0..<7).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
+
+        // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
+        let envSuite = DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": suiteNames[0]])
+        envSuite.set("probe", forKey: "ghds.envProbe")
+        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "ghds.envProbe") == "probe",
+              "GHDS_SETTINGS_SUITE resolves to an isolated user defaults suite")
+        check(DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": "   "]) === UserDefaults.standard,
+              "blank GHDS_SETTINGS_SUITE falls back to standard defaults")
+        check(DSModel.resolvedSettingsDefaults(environment: [:]) === UserDefaults.standard,
+              "missing GHDS_SETTINGS_SUITE falls back to standard defaults")
+
+        // ⑥ manualIP didSet：启用持久化时保存/清除；禁用时不动已有值，但内存仍更新
+        let persistSuite = makeSuite(suiteNames[1])
+        let persistModel = DSModel(settingsDefaults: persistSuite, persistenceEnabled: true)
+        persistModel.manualIP = "10.25.90.2"
+        check(persistModel.manualIP == "10.25.90.2", "manualIP updates in memory")
+        check(persistSuite.string(forKey: "ghds.manualIP") == "10.25.90.2",
+              "manualIP didSet persists to the injected suite")
+        persistModel.manualIP = ""
+        check(persistSuite.object(forKey: "ghds.manualIP") == nil,
+              "clearing manualIP removes the persisted value through didSet")
+
+        let frozenSuite = makeSuite(suiteNames[2])
+        frozenSuite.set("10.0.0.9", forKey: "ghds.manualIP")
+        let frozenModel = DSModel(settingsDefaults: frozenSuite, persistenceEnabled: false)
+        check(!frozenModel.persistenceEnabled, "injected persistence switch is honored")
+        frozenModel.manualIP = "127.0.0.1"
+        check(frozenModel.manualIP == "127.0.0.1", "manualIP still updates in memory when persistence is disabled")
+        check(frozenSuite.string(forKey: "ghds.manualIP") == "10.0.0.9",
+              "disabled persistence leaves the stored manualIP untouched")
+
+        // ⑦ 已应用手动地址警告：基于 model（非草稿）；127/8 + teamNumber>0 明确本机
+        let warnModel = DSModel(settingsDefaults: makeSuite(suiteNames[3]), persistenceEnabled: true)
+        check(warnModel.appliedManualIPWarning == nil, "no applied-address warning when manualIP is empty")
+        warnModel.manualIP = "10.25.90.2"
+        let ordinaryWarning = warnModel.appliedManualIPWarning ?? ""
+        check(ordinaryWarning.contains("自动发现已关闭") && ordinaryWarning.contains("仅向该地址发送"),
+              "ordinary manual address warns that auto-discovery is off and traffic targets only that address")
+        check(!ordinaryWarning.contains("本机"), "ordinary manual address is not described as loopback")
+        warnModel.teamNumber = 2590
+        warnModel.manualIP = "127.0.0.1"
+        let loopbackWarning = warnModel.appliedManualIPWarning ?? ""
+        check(loopbackWarning.contains("本机") && loopbackWarning.contains("真实机器人"),
+              "127/8 with a team number explicitly points at this Mac, not a real robot")
+        check(loopbackWarning.contains("自动发现已关闭") && loopbackWarning.contains("仅向该地址发送"),
+              "loopback warning keeps the auto-discovery/single-target semantics")
+        warnModel.manualIP = "127.255.255.254"
+        check((warnModel.appliedManualIPWarning ?? "").contains("本机"),
+              "the whole 127/8 range is treated as loopback")
+        warnModel.manualIP = "128.0.0.1"
+        check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"), "128/8 is not loopback")
+        warnModel.manualIP = "127.0.0"
+        check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"),
+              "invalid address is not misclassified as loopback")
+        warnModel.manualIP = "10.25.90.2"
+        let warnDraft = ConnectionDraft()
+        warnDraft.load(from: warnModel)
+        warnDraft.manualIP = "127.0.0.1"
+        check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"),
+              "warning follows the applied model value, not the editable draft")
+
+        // ⑧ Radio 状态日志：仅真实翻转回调记录，重复不刷
+        let radioModel = DSModel(settingsDefaults: makeSuite(suiteNames[4]), persistenceEnabled: true)
+        func radioLogCount(_ needle: String) -> Int {
+            radioModel.dsEvents.filter { $0.text.contains(needle) }.count
+        }
+        radioModel.applyRadioResult(false)
+        check(!radioModel.radioReachable, "initial false result keeps radio offline")
+        check(radioLogCount("Radio 状态") == 0, "initial no-response is not logged as a flip")
+        radioModel.applyRadioResult(true)
+        check(radioModel.radioReachable, "radio response flips state")
+        check(radioLogCount("Radio 状态：已响应") == 1, "first response flip is logged")
+        radioModel.applyRadioResult(true)
+        check(radioLogCount("Radio 状态") == 1, "duplicate response does not spam the event log")
+        radioModel.applyRadioResult(false)
+        check(!radioModel.radioReachable, "radio timeout flips state")
+        check(radioLogCount("Radio 状态：无响应") == 1, "first no-response flip is logged")
+        radioModel.applyRadioResult(false)
+        check(radioLogCount("Radio 状态") == 2, "duplicate no-response does not spam the event log")
+
+        // ⑨ 本机网络状态：检测中 → 实际状态记录一次；变化记录；重复不刷
+        let netModel = DSModel(settingsDefaults: makeSuite(suiteNames[5]), persistenceEnabled: true)
+        func netLogCount(_ needle: String) -> Int {
+            netModel.dsEvents.filter { $0.text.contains(needle) }.count
+        }
+        netModel.applyLocalNetworkSummary(tr("检测中…"))
+        check(netModel.localNetworkSummary == tr("检测中…"), "placeholder summary stays in place")
+        check(netLogCount("本机网络状态") == 0, "placeholder is not logged")
+        netModel.applyLocalNetworkSummary("WiFi")
+        check(netModel.localNetworkSummary == "WiFi", "first real network summary is published")
+        check(netLogCount("本机网络状态：WiFi") == 1, "first real network status is logged")
+        netModel.applyLocalNetworkSummary("WiFi")
+        check(netLogCount("本机网络状态") == 1, "duplicate network summary does not spam the event log")
+        netModel.applyLocalNetworkSummary("有线")
+        check(netModel.localNetworkSummary == "有线", "changed network summary is published")
+        check(netLogCount("本机网络状态：WiFi") == 1 && netLogCount("本机网络状态：有线") == 1,
+              "network status change is logged exactly once")
+        netModel.applyLocalNetworkSummary("有线")
+        check(netLogCount("本机网络状态") == 2, "repeated changed status is not logged again")
+
+        // ⑩ 年份官方时序：一键应用只改设置，并使年份与独立开始前等待跨启动恢复
+        let seasonSuite = makeSuite(suiteNames[6])
+        let seasonModel = DSModel(settingsDefaults: seasonSuite, persistenceEnabled: true)
+        check(seasonModel.practiceSeasonYear == 2026, "practice season defaults to 2026")
+        seasonModel.practiceSeasonYear = 2022
+        seasonModel.applyPracticeTimingPreset()
+        check(seasonModel.practiceAutoTime == 15 && seasonModel.practiceTeleopTime == 135 &&
+              seasonModel.practiceDelayTime == 0 && seasonModel.practiceStartDelay == 0,
+              "2022 preset applies official timing without an extra transition")
+        check(!seasonModel.practiceActive && !seasonModel.enabled, "applying a season preset never starts or enables a robot")
+        let restoredSeason = DSModel(settingsDefaults: seasonSuite, persistenceEnabled: true)
+        restoredSeason.loadPersistedSettings()
+        check(restoredSeason.practiceSeasonYear == 2022 && restoredSeason.practiceStartDelay == 0 &&
+              restoredSeason.practiceDelayTime == 0, "season and independent start delay persist")
+        seasonModel.practiceSeasonYear = 2026
+        seasonModel.applyPracticeTimingPreset()
+        check(seasonModel.practiceAutoTime == 20 && seasonModel.practiceTeleopTime == 140 &&
+              seasonModel.practiceDelayTime == 3 && seasonModel.practiceStartDelay == 0,
+              "2026 preset includes shifts and endgame inside 140-second Teleop")
+        check(seasonModel.practiceTransitionShiftTime == 10 && seasonModel.practiceAllianceShiftTime == 25 &&
+              seasonModel.practiceEndgameTime == 30 && seasonModel.effectivePracticeTeleopTime == 140,
+              "2026 official Teleop breakdown sums to 140 seconds")
+        seasonModel.practiceAllianceShiftTime = 30
+        check(seasonModel.effectivePracticeTeleopTime == 160, "2026 Teleop total follows the shared Alliance Shift slider")
+        let restoredBreakdown = DSModel(settingsDefaults: seasonSuite, persistenceEnabled: true)
+        restoredBreakdown.loadPersistedSettings()
+        check(restoredBreakdown.practiceTransitionShiftTime == 10 && restoredBreakdown.practiceAllianceShiftTime == 30 &&
+              restoredBreakdown.practiceEndgameTime == 30 && restoredBreakdown.effectivePracticeTeleopTime == 160,
+              "2026 breakdown values persist and recompute Teleop")
+
+        for name in suiteNames {
+            UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
+        }
 
         // ===== 点击输入框外部退出编辑（2026-11-21）=====
         // 真实 AppKit 焦点回归：字段编辑器存在 → 空白点击结束编辑且保留文字 → 重新聚焦后框内点击保持编辑。
