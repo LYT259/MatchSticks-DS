@@ -226,10 +226,12 @@ struct DSSegmentedControl<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [DSSelectOption<Value>]
+    var selectedColor: ((Value) -> Color)? = nil
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options) { option in
+                let isSelected = option.value == selection
                 Button {
                     selection = option.value
                 } label: {
@@ -239,16 +241,16 @@ struct DSSegmentedControl<Value: Hashable>: View {
                         .minimumScaleFactor(0.8)
                         .padding(.horizontal, 10).padding(.vertical, 3)
                         .frame(maxWidth: .infinity, minHeight: 26)
-                        .foregroundStyle(DSTheme.textPrimary)
-                        .background(option.value == selection ? DSTheme.segmentSelected : .clear,
+                        .foregroundStyle(isSelected && selectedColor != nil ? Color.white : DSTheme.textPrimary)
+                        .background(isSelected ? (selectedColor?(option.value) ?? DSTheme.segmentSelected) : .clear,
                                     in: RoundedRectangle(cornerRadius: 5))
-                        .shadow(color: option.value == selection ? .black.opacity(0.12) : .clear,
+                        .shadow(color: isSelected ? .black.opacity(0.12) : .clear,
                                 radius: 1, y: 1)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(DSSegmentButtonStyle())
+                .buttonStyle(DSSegmentButtonStyle(isSelected: isSelected))
                 .accessibilityLabel("\(title)，\(option.label)")
-                .accessibilityAddTraits(option.value == selection ? .isSelected : [])
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
         .padding(2)
@@ -259,11 +261,12 @@ struct DSSegmentedControl<Value: Hashable>: View {
 }
 
 private struct DSSegmentButtonStyle: ButtonStyle {
+    let isSelected: Bool
     @State private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(hovering || configuration.isPressed ? DSTheme.hover.opacity(0.65) : .clear,
+            .background(!isSelected && (hovering || configuration.isPressed) ? DSTheme.hover.opacity(0.65) : .clear,
                         in: RoundedRectangle(cornerRadius: 5))
             .onHover { hovering = $0 }
     }

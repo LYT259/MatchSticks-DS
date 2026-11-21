@@ -32,7 +32,7 @@ struct OperationView: View {
                                 DSSelectOption(value: AllianceStation.blue1, label: tr("蓝 1")),
                                 DSSelectOption(value: AllianceStation.blue2, label: tr("蓝 2")),
                                 DSSelectOption(value: AllianceStation.blue3, label: tr("蓝 3")),
-                            ])
+                            ], selectedColor: DSTheme.allianceColor(for:))
                         }
                     }
                     .frame(maxWidth: .infinity)
