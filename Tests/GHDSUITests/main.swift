@@ -348,6 +348,8 @@ struct UIStateTests {
             check(slot.data.povs == originalPOVs, "\(snapshot.name) 皮肤提取不改变 POV")
         }
 
+        f310XInputReportTests(check)
+
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
         sampler.start()

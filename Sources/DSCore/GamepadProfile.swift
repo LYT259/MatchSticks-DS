@@ -250,6 +250,18 @@ public struct GamepadLayout: Sendable {
     public static func layout(for skin: GamepadSkin, mode: GamepadInputMode = .directInput) -> GamepadLayout {
         switch skin {
         case .f310:
+            if mode == .xinput {
+                return GamepadLayout(
+                    face: [.south: 1, .east: 2, .west: 3, .north: 4],
+                    shoulder: (l: 5, r: 6),
+                    triggerButton: (l: nil, r: nil),
+                    stickPress: (l: 9, r: 10),
+                    back: 7, start: 8, guide: 11,
+                    extras: [:],
+                    dpadPOV: 0, dpadButtons: nil,
+                    stickUsage: (lx: 0x30, ly: 0x31, rx: 0x33, ry: 0x34),
+                    triggerUsage: (lt: 0x32, rt: 0x35))
+            }
             // F310 D 档（046D:C216）实测：X1/A2/B3/Y4，肩 5/6、数字扳机 7/8、
             // Back 9 / Start 10、L3/R3 11/12，右摇杆 = Z/Rz。
             return GamepadLayout(

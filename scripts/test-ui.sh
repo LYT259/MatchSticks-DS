@@ -25,5 +25,6 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/GHDS/DSModel.swift Sources/GHDS/HIDInputManager.swift \
   Sources/GHDS/MacStatusMonitor.swift Sources/GHDS/Views/DSStyle.swift \
   Sources/GHDS/UpdateFlow.swift \
-  Tests/GHDSUITests/main.swift -o .build/GHDSUIStateTests
+  Sources/GHDS/XInputUSB/F310XInputReport.swift \
+  Tests/GHDSUITests/main.swift Tests/GHDSUITests/F310XInputReportTests.swift -o .build/GHDSUIStateTests
 .build/GHDSUIStateTests

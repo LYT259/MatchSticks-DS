@@ -143,6 +143,23 @@ func gamepadProfileF310StateTests() {
     }
 }
 
+func gamepadProfileF310XInputStateTests() {
+    let layout = GamepadLayout.layout(for: .f310, mode: .xinput)
+    let state = layout.state(for: GamepadSample(
+        name: "Gamepad F310", vendorID: 0x046D, productID: 0xC21D,
+        axes: [0.5, -0.75, 0, 1, -0.25, 0.5],
+        axisUsages: [0x30, 0x31, 0x32, 0x35, 0x33, 0x34],
+        buttons: (1 << 0) | (1 << 8) | (1 << 10),
+        povs: [45], mode: .xinput,
+        polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)))
+    check(state.face[.south] == true && state.face[.north] == false, "F310 X 按钮1 → A")
+    check(state.leftStick.pressed && state.guide, "F310 X L3=按钮9、Guide=按钮11")
+    check(state.leftStick.x == 0.5 && state.leftStick.yUp == 0.75, "F310 X 左摇杆方向")
+    check(state.rightStick.x == -0.25 && state.rightStick.yUp == -0.5, "F310 X 右摇杆方向")
+    check(state.triggerL.depth == 0.5 && state.triggerR.depth == 1, "F310 X LT/RT 使用真实模拟量")
+    check(state.dpad == [.up, .right], "F310 X POV 方向")
+}
+
 // MARK: DualSense（模拟扳机优先、数字兜底）与通用款
 
 func gamepadProfileDualsenseStateTests() {
