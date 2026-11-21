@@ -191,7 +191,7 @@
 - [ ] **roboRIO SSH 端口监听：未核对**（主机密钥发生变化，按安全提示停止，未绕过验证）。
 - [ ] **电机实际运动：未验证**（未接手柄，只验证了控制包与使能/急停链路，未让机器人运动）。
 - [x] **Mac↔Radio 拔线时延：通过**。失能态拔线后机器人通信 <1s 回搜索态（看门狗链路判定），Radio 指示约 2s 翻为无响应（.wpilog 毫秒时间戳实测）；旧版同场景 Radio 灯 ~75.7s 才翻。插回恢复时间待复测（见下）。
-- [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0。注意 F310 的 X 档（XInput）在 macOS 上系统不绑驱动，任何软件都看不到——Mac 上必须用 D 档。
+- [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0。F310 D 档（046D:C216）继续走 IOHIDManager；X 档（046D:C21D）已实现应用内 IOUSBHost reader，尚待实物验收，不以系统未绑定 XInput 驱动为由放弃支持。
 - [ ] **台架前置检查（新增）：确认 roboRIO 手动 IP 为空**。残留 manualIP（如 127.0.0.1）会使应答过滤静默拒绝一切真实机器人应答——症状：Radio 绿、ping 通、1740 开，但 commState 永远 searching 且零日志。UI 测试曾污染共享设置，实测前在连接页清空。
 - [ ] **Radio 反复上下电后可能系统挂死**（L1 链路活、ARP 全 incomplete）：症状为整网失联但网口灯正常；处置 = Radio 断电 10s 重开。Radio 断电回网后机器人可能停止回应 UDP 探测（本日实测：DS 50Hz 发包正常、机器人零回包），根因未查（机器人在场时 SSH 上去看 DS 服务状态/重启 robot code）。
 - [x] **F310 槽位显示与实时值：通过**。操作员在安装版（0.1.0-alpha.9）确认 UI 显示设备并随摇杆/按键实时更新；枚举探针证实 1 设备、4 轴/12 钮/1 帽（D 档，识别名 Logitech Dual Action）。
@@ -266,7 +266,7 @@
       「点亮位置 = 物理按键」——不对的记下按键号改 `GamepadLayout.layout(for:)` 表
   - [ ] 冰原狼 4（USB，045E:028E）：A1/B2/X3/Y4、LB5/RB6、View7/Menu8、Guide9、L3/R3 10/11、
         POV 方向键、M1/M2 背键的上报形态（现不落表，靠「未映射按键」芯片自揭示）
-  - [ ] F310（D 档，046D:C218）：北1/西2/南3/东4、L5/R6、LT7/RT8（数字）、Back9/Start10、
+  - [ ] F310（D 档，046D:C216）：北1/西2/南3/东4、L5/R6、LT7/RT8（数字）、Back9/Start10、
         L3/R3 11/12、右摇杆 = Z/Rz 轴
   - [ ] DualSense（054C:0CE6）：□1/✕2/○3/△4、L1 5/R1 6、L2 7/R2 8、Create9/Options10、
         L3/R3 11/12、PS13、触控板14、轴形态（右摇杆 Z/Rz？扳机 Rx/Ry？方向键 POV？）
