@@ -11,8 +11,9 @@ import DSCore
 
 func gamepadProfileDetectionTests() {
     // F310：X/D 两档 PID + Dual Action 名称（D 档自报名，2026-11-18 台架）
-    check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC216, name: "Gamepad F310") == .f310, "F310 X 档 PID")
-    check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC218, name: "Gamepad F310") == .f310, "F310 D 档 PID")
+    check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC216, name: "Logitech Dual Action") == .f310, "F310 D 档 PID C216")
+    check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC21D, name: "Gamepad F310") == .f310, "F310 X 档 PID C21D")
+    check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC218, name: "Logitech Rumblepad 2") == .generic, "F510 D 档 C218 不误标为 F310")
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0x9999, name: "Logitech Dual Action") == .f310, "Dual Action 名称识别")
 
     // 冰原狼 4：Xbox 360 克隆签名 + 名称救回（名称优先于 VID/PID）
@@ -59,7 +60,7 @@ func gamepadProfileDirewolfStateTests() {
         axes: [0.6, -0.8, 0.0, 1.0, -0.4, 0.9],
         axisUsages: direwolfUsages,
         buttons: (1 << 0) | (1 << 4) | (1 << 8) | (1 << 9),  // A(1) LB(5) Guide(9) L3(10)
-        povs: [45], yFlipped: true)
+        povs: [45], mode: .xinput, polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true))
     let s = layout.state(for: sample)
 
     check(s.leftStick.x == 0.6, "左摇杆 X 取自 usage X（得到 \(s.leftStick.x)）")
@@ -81,7 +82,7 @@ func gamepadProfileDirewolfStateTests() {
     let neutral = layout.state(for: GamepadSample(
         name: "Xbox 360 Controller", vendorID: 0x045E, productID: 0x028E,
         axes: [0, 0, -1, -1, 0, 0], axisUsages: direwolfUsages,
-        buttons: 0, povs: [-1], yFlipped: true))
+        buttons: 0, povs: [-1], mode: .xinput, polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)))
     check(neutral.leftStick.x == 0 && neutral.leftStick.yUp == 0, "中立左摇杆归零")
     check(neutral.triggerL.pressed == false && neutral.triggerL.depth == 0, "中立 LT 深度 0 未按压")
     check(neutral.dpad.isEmpty, "中立无方向")
@@ -91,7 +92,7 @@ func gamepadProfileDirewolfStateTests() {
     let withExtra = layout.state(for: GamepadSample(
         name: "Xbox 360 Controller", vendorID: 0x045E, productID: 0x028E,
         axes: [0, 0, -1, -1, 0, 0], axisUsages: direwolfUsages,
-        buttons: 1 << 14, povs: [-1], yFlipped: true))
+        buttons: 1 << 14, povs: [-1], mode: .xinput, polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)))
     check(withExtra.unmapped == [15], "按键 15 落入未映射（得到 \(withExtra.unmapped)）")
 
     // POV 其余方向
@@ -109,21 +110,37 @@ func gamepadProfileDirewolfStateTests() {
 // MARK: F310（macOS 实际可见的 D 档：X/Y/Z/Rz 四轴、数字扳机、12 键）
 
 func gamepadProfileF310StateTests() {
-    let layout = GamepadLayout.layout(for: .f310)
+    let layout = GamepadLayout.layout(for: .f310, mode: .directInput)
+    let polarity = GamepadProfile.displayPolarity(vendorID: 0x046D, productID: 0xC216,
+                                                  name: "Logitech Dual Action", xinputNormalized: false)
 
-    // D 档右摇杆 = Z/Rz；Y 上=+1（HID 原生，yFlipped=false）
     let s = layout.state(for: GamepadSample(
-        name: "Logitech Dual Action", vendorID: 0x046D, productID: 0xC218,
-        axes: [0.25, 0.75, -0.5, -0.2],
+        name: "Logitech Dual Action", vendorID: 0x046D, productID: 0xC216,
+        axes: [0.75, -0.8, -0.5, 0.9],
         axisUsages: [0x30, 0x31, 0x32, 0x35],
-        buttons: (1 << 0) | (1 << 6) | (1 << 7),  // 按键1(北) 7(LT) 8(RT)
-        povs: [270], yFlipped: false))
-    check(s.leftStick.x == 0.25 && s.leftStick.yUp == 0.75, "左摇杆 X/Y；HID 上=+1 直取为 yUp")
-    check(s.rightStick.x == -0.5 && s.rightStick.yUp == -0.2, "右摇杆 = Z/Rz")
-    check(s.face[.north] == true, "按键1 → 北（Y 位）")
-    check(s.triggerL.pressed && s.triggerL.depth == nil, "LT 数字扳机：按压、无深度")
-    check(s.triggerR.pressed && s.triggerR.depth == nil, "RT 数字扳机：按压、无深度")
+        buttons: (1 << 6) | (1 << 7),
+        povs: [270], mode: .directInput, polarity: polarity))
+    check(s.leftStick.x == -0.75 && s.leftStick.yUp == 0.8,
+          "F310 D 左摇杆：原始 X 正号显示左、Y 负号显示上（得到 \(s.leftStick.x), \(s.leftStick.yUp)）")
+    check(s.rightStick.x == 0.5 && s.rightStick.yUp == -0.9,
+          "F310 D 右摇杆：Z/Rz 同时修正 X/Y 方向（得到 \(s.rightStick.x), \(s.rightStick.yUp)）")
+    check(s.triggerL.pressed && s.triggerL.depth == nil, "LT 数字扳机：按压、无伪造深度")
+    check(s.triggerR.pressed && s.triggerR.depth == nil, "RT 数字扳机：按压、无伪造深度")
     check(s.dpad == [.left], "POV 270° → 左")
+
+    let expectedFaces: [(number: Int, position: GamepadFace)] = [
+        (1, .west), (2, .south), (3, .east), (4, .north),
+    ]
+    for item in expectedFaces {
+        let state = layout.state(for: GamepadSample(
+            name: "Logitech Dual Action", vendorID: 0x046D, productID: 0xC216,
+            axes: [0, 0, 0, 0], axisUsages: [0x30, 0x31, 0x32, 0x35],
+            buttons: 1 << (item.number - 1), povs: [-1], mode: .directInput, polarity: polarity))
+        for face in GamepadFace.allCases {
+            check(state.face[face] == (face == item.position),
+                  "F310 D 按键 \(item.number) 只点亮 \(item.position)；检查 \(face)")
+        }
+    }
 }
 
 // MARK: DualSense（模拟扳机优先、数字兜底）与通用款
@@ -151,6 +168,35 @@ func gamepadProfileDualsenseStateTests() {
     check(digital.triggerL.pressed && digital.triggerL.depth == nil, "无模拟轴时 L2 走按键 7")
     check(digital.guide, "按键13 → PS")
     check(digital.extras[.touchpad] == true, "按键14 → 触控板")
+}
+
+func gamepadDirectionAndPolarityTests() {
+    let dualsensePolarity = GamepadProfile.displayPolarity(
+        vendorID: 0x054C, productID: 0x0CE6,
+        name: "DualSense Wireless Controller", xinputNormalized: false)
+    check(!dualsensePolarity.xRightIsNegative && dualsensePolarity.yUpIsNegative,
+          "DualSense 原始样本 X 右正、Y 上负")
+
+    let state = GamepadLayout.layout(for: .dualsense, mode: .directInput).state(for: GamepadSample(
+        name: "DualSense Wireless Controller", vendorID: 0x054C, productID: 0x0CE6,
+        axes: [0.25, -0.8, -0.5, 0.9, 0, 0],
+        axisUsages: [0x30, 0x31, 0x32, 0x35, 0x33, 0x34],
+        povs: [-1], mode: .directInput, polarity: dualsensePolarity))
+    check(state.leftStick.x == 0.25 && state.leftStick.yUp == 0.8,
+          "DualSense 左摇杆 X 不变、Y 上负转显示上正")
+    check(state.rightStick.x == -0.5 && state.rightStick.yUp == -0.9,
+          "DualSense 右摇杆 X 不变、Y 下正转显示下负")
+
+    let xinputPolarity = GamepadProfile.displayPolarity(
+        vendorID: 0x045E, productID: 0x028E,
+        name: "Xbox 360 Controller", xinputNormalized: true)
+    check(!xinputPolarity.xRightIsNegative && xinputPolarity.yUpIsNegative,
+          "XInput 归一样本保持 X 右正、Y 上负")
+
+    let genericPolarity = GamepadProfile.displayPolarity(
+        vendorID: 0x1234, productID: 0x5678, name: "Cool Pad", xinputNormalized: false)
+    check(!genericPolarity.xRightIsNegative && !genericPolarity.yUpIsNegative,
+          "通用 HID 保持既有方向约定")
 }
 
 func gamepadProfileGenericStateTests() {

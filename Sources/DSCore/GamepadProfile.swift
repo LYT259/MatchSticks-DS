@@ -97,6 +97,22 @@ public struct GamepadElementState: Sendable, Equatable {
     )
 }
 
+public enum GamepadInputMode: String, Sendable {
+    case directInput
+    case xinput
+}
+
+/// 只描述显示样本的物理方向，不改变发往机器人的原始轴。
+public struct GamepadStickPolarity: Sendable, Equatable {
+    public var xRightIsNegative: Bool
+    public var yUpIsNegative: Bool
+
+    public init(xRightIsNegative: Bool, yUpIsNegative: Bool) {
+        self.xRightIsNegative = xRightIsNegative
+        self.yUpIsNegative = yUpIsNegative
+    }
+}
+
 /// 从槽位透传的最小输入样本（JoystickCard 现场组装；测试直接构造）。
 public struct GamepadSample: Sendable {
     public var name: String
@@ -107,12 +123,14 @@ public struct GamepadSample: Sendable {
     public var axisUsages: [UInt32]
     public var buttons: UInt64
     public var povs: [Int16]
-    /// true = 轴已按 FRC 约定归一（上=-1）；false = HID 原生（上=+1）。
-    public var yFlipped: Bool
+    public var mode: GamepadInputMode
+    public var polarity: GamepadStickPolarity
 
     public init(name: String = "", vendorID: Int = 0, productID: Int = 0,
                 axes: [Float], axisUsages: [UInt32], buttons: UInt64 = 0,
-                povs: [Int16] = [], yFlipped: Bool = false) {
+                povs: [Int16] = [], mode: GamepadInputMode = .directInput,
+                polarity: GamepadStickPolarity = GamepadStickPolarity(
+                    xRightIsNegative: false, yUpIsNegative: false)) {
         self.name = name
         self.vendorID = vendorID
         self.productID = productID
@@ -120,7 +138,8 @@ public struct GamepadSample: Sendable {
         self.axisUsages = axisUsages
         self.buttons = buttons
         self.povs = povs
-        self.yFlipped = yFlipped
+        self.mode = mode
+        self.polarity = polarity
     }
 }
 
@@ -143,7 +162,7 @@ public enum GamepadProfile {
             return .f310
         }
         switch (vendorID, productID) {
-        case (0x046D, 0xC216), (0x046D, 0xC218):   // F310 X/D 两档（X 档 macOS 系统不绑驱动，实际只见 D 档）
+        case (0x046D, 0xC216), (0x046D, 0xC21D):   // F310 D / X 两档
             return .f310
         case (0x054C, 0x0CE6), (0x054C, 0x0DF2):   // DualSense / DualSense Edge
             return .dualsense
@@ -161,6 +180,21 @@ public enum GamepadProfile {
     /// 生效造型：手动覆盖优先，否则按识别。
     public static func effectiveSkin(sample: GamepadSample, override: GamepadSkin?) -> GamepadSkin {
         override ?? detect(vendorID: sample.vendorID, productID: sample.productID, name: sample.name)
+    }
+
+    public static func displayPolarity(vendorID: Int, productID: Int, name: String,
+                                       xinputNormalized: Bool) -> GamepadStickPolarity {
+        if xinputNormalized {
+            return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
+        }
+        switch detect(vendorID: vendorID, productID: productID, name: name) {
+        case .dualsense:
+            return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
+        case .f310:
+            return GamepadStickPolarity(xRightIsNegative: true, yUpIsNegative: true)
+        default:
+            return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: false)
+        }
     }
 }
 
@@ -213,14 +247,13 @@ public struct GamepadLayout: Sendable {
     }
 
     /// 各款映射表。按键号证据状态见文件头注（冰原狼轴序已核查；按键号待实测）。
-    public static func layout(for skin: GamepadSkin) -> GamepadLayout {
+    public static func layout(for skin: GamepadSkin, mode: GamepadInputMode = .directInput) -> GamepadLayout {
         switch skin {
         case .f310:
-            // F310 D 档 = Logitech Dual Action 固件：面键按方位 1/2/3/4，
-            // 肩 5/6、数字扳机 7/8、Back 9 / Start 10、L3/R3 11/12（12 键 = 2026-11-18 台架枚举数）。
-            // 右摇杆 = Z/Rz（Dual Action 惯例，待实测）。X 档 macOS 不可见，不设表。
+            // F310 D 档（046D:C216）实测：X1/A2/B3/Y4，肩 5/6、数字扳机 7/8、
+            // Back 9 / Start 10、L3/R3 11/12，右摇杆 = Z/Rz。
             return GamepadLayout(
-                face: [.north: 1, .west: 2, .south: 3, .east: 4],
+                face: [.west: 1, .south: 2, .east: 3, .north: 4],
                 shoulder: (l: 5, r: 6),
                 triggerButton: (l: 7, r: 8),
                 stickPress: (l: 11, r: 12),
@@ -313,9 +346,9 @@ public struct GamepadLayout: Sendable {
         s.triggerR = triggerState(lt: triggerUsage.rt, lButton: triggerButton.r, axis: axis, pressed: pressed, depth: depth)
 
         s.leftStick = stickState(x: axis(stickUsage.lx), y: axis(stickUsage.ly), press: stickPress.l,
-                                 yFlipped: sample.yFlipped, pressed: pressed)
+                                 polarity: sample.polarity, pressed: pressed)
         s.rightStick = stickState(x: axis(stickUsage.rx), y: axis(stickUsage.ry), press: stickPress.r,
-                                  yFlipped: sample.yFlipped, pressed: pressed)
+                                  polarity: sample.polarity, pressed: pressed)
 
         s.back = pressed(back)
         s.start = pressed(start)
@@ -339,10 +372,13 @@ public struct GamepadLayout: Sendable {
     }
 
     private func stickState(x: Float?, y: Float?, press: Int,
-                            yFlipped: Bool, pressed: (Int?) -> Bool) -> GamepadStickState {
-        // 统一为「上 = +1」的显示约定：XInput 归一设备上=-1 需翻转；HID 原生上=+1 直取。
+                            polarity: GamepadStickPolarity, pressed: (Int?) -> Bool) -> GamepadStickState {
+        let rawX = x ?? 0
         let rawY = y ?? 0
-        return GamepadStickState(x: x ?? 0, yUp: yFlipped ? -rawY : rawY, pressed: pressed(press))
+        return GamepadStickState(
+            x: polarity.xRightIsNegative ? -rawX : rawX,
+            yUp: polarity.yUpIsNegative ? -rawY : rawY,
+            pressed: pressed(press))
     }
 
     private func dpadDirections(sample: GamepadSample) -> Set<GamepadDirection> {

@@ -16,9 +16,9 @@ struct HIDDeviceSnapshot: Sendable {
     var buttonCount: Int
     var povs: [Int16]
     var isXbox: Bool
-    /// true = 轴已按 FRC 约定归一（Y 族上=-1，XInputAxisOrder 重排）；false = HID 原生（上=+1）。
-    /// 皮肤绘制用它统一摇杆方向显示。
-    var yFlipped: Bool
+    var mode: GamepadInputMode
+    var polarity: GamepadStickPolarity
+    var usbLocationID: UInt32?
 }
 
 @MainActor
@@ -43,6 +43,9 @@ final class HIDInputManager {
         // 命中 XInput 六轴签名时非 nil：usage 序 → 官方 FRC DS XInput 轴序的重排映射
         // （含 Y 族符号翻转）。见 XInputAxisOrder 的布局实测说明。
         let xinputMap: [XInputAxisOrder.Slot]?
+        let mode: GamepadInputMode
+        let polarity: GamepadStickPolarity
+        let usbLocationID: UInt32?
     }
 
     private init() {}
@@ -97,6 +100,7 @@ final class HIDInputManager {
         let name = (prop(kIOHIDProductKey) as? String) ?? tr("未命名设备")
         let vendorID = (prop(kIOHIDVendorIDKey) as? Int) ?? 0
         let productID = (prop(kIOHIDProductIDKey) as? Int) ?? 0
+        let usbLocationID = (prop(kIOHIDLocationIDKey) as? Int).flatMap { $0 >= 0 ? UInt32($0) : nil }
         let serial = (prop(kIOHIDSerialNumberKey) as? String) ?? ""
         let uniqueID = String(format: "%04x:%04x", vendorID, productID) + (serial.isEmpty ? ":\(name)" : ":\(serial)")
 
@@ -151,7 +155,11 @@ final class HIDInputManager {
             device: device, uniqueID: uniqueID, name: name,
             vendorID: vendorID, productID: productID,
             axisElements: axisElements, buttonElements: buttonElements, hatElements: hatElements,
-            isXbox: isXbox, xinputMap: xinputMap
+            isXbox: isXbox, xinputMap: xinputMap,
+            mode: xinputMap == nil ? .directInput : .xinput,
+            polarity: GamepadProfile.displayPolarity(vendorID: vendorID, productID: productID,
+                                                      name: name, xinputNormalized: xinputMap != nil),
+            usbLocationID: usbLocationID
         )
     }
 
@@ -226,7 +234,8 @@ final class HIDInputManager {
                 vendorID: record.vendorID, productID: record.productID,
                 axes: emittedAxes, axisUsages: emittedUsages,
                 buttons: buttons, buttonCount: max(highestButton, record.buttonElements.count),
-                povs: povs, isXbox: record.isXbox, yFlipped: record.xinputMap != nil
+                povs: povs, isXbox: record.isXbox,
+                mode: record.mode, polarity: record.polarity, usbLocationID: record.usbLocationID
             ))
         }
         return result

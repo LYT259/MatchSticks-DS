@@ -386,6 +386,7 @@ runTest("gamepadProfileDetection", gamepadProfileDetectionTests)
 runTest("gamepadProfileDirewolfState", gamepadProfileDirewolfStateTests)
 runTest("gamepadProfileF310State", gamepadProfileF310StateTests)
 runTest("gamepadProfileDualsenseState", gamepadProfileDualsenseStateTests)
+runTest("gamepadDirectionAndPolarity", gamepadDirectionAndPolarityTests)
 runTest("gamepadProfileGenericState", gamepadProfileGenericStateTests)
 runTest("gamepadProfileRobustness", gamepadProfileRobustnessTests)
 // 双语（放最后：enTableTests 会临时切 shared 语言并在 defer 恢复 system）

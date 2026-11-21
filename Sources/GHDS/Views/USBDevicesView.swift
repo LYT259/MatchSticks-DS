@@ -167,7 +167,7 @@ struct JoystickCard: View {
     private var effectiveSkin: GamepadSkin { model.gamepadSkin(for: slot) }
 
     private var skinState: GamepadElementState {
-        GamepadLayout.layout(for: effectiveSkin).state(for: GamepadSample(slot: slot))
+        GamepadLayout.layout(for: effectiveSkin, mode: slot.mode).state(for: GamepadSample(slot: slot))
     }
 
     @ViewBuilder private var skinSection: some View {
