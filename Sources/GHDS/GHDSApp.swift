@@ -30,7 +30,7 @@ struct GHDSApp: App {
             CommandGroup(replacing: .newItem) {}
         }
 
-        Window(tr("迷你驾驶台"), id: "mini") {
+        Window("Mini Driver Station", id: "mini") {
             MiniView(model: model)
                 .frame(minWidth: 400, minHeight: 220)
         }

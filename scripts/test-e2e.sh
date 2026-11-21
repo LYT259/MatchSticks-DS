@@ -60,10 +60,10 @@ done
 kill -0 "$APP_PID" 2>/dev/null || fail "观测窗结束时进程已退出"
 echo "  ✓ 进程全程存活"
 
-LINES="$(grep "控制环吞吐" "$WORK/e2e.log" 2>/dev/null || true)"
+LINES="$(grep -E "控制环吞吐：|Control loop throughput:" "$WORK/e2e.log" 2>/dev/null || true)"
 [ -n "$LINES" ] || { grep -v "UI stall" "$WORK/e2e.log" 2>/dev/null | tail -8; fail "未见吞吐汇总行（控制包未按节拍发？）"; }
 COUNT="$(printf '%s\n' "$LINES" | wc -l | tr -d ' ')"
-MIN_HZ="$(printf '%s\n' "$LINES" | sed -n 's/.*控制环吞吐：\([0-9.]*\) Hz.*/\1/p' | sort -g | head -1)"
+MIN_HZ="$(printf '%s\n' "$LINES" | sed -E -n 's/.*(吞吐：|throughput: )([0-9.]+) Hz.*/\2/p' | sort -g | head -1)"
 echo "  ✓ 吞吐汇总行 ${COUNT} 条，最低 ${MIN_HZ} Hz"
 awk -v hz="$MIN_HZ" -v floor="$HZ_FLOOR" 'BEGIN { exit (hz+0 >= floor+0) ? 0 : 1 }' \
     || fail "吞吐 ${MIN_HZ}Hz 低于下限 ${HZ_FLOOR}Hz"

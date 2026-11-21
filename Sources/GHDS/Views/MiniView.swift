@@ -48,6 +48,39 @@ struct MiniView: View {
         .padding(20).padding(.top, 16)
         .frame(width: 420)
         .background(DSTheme.surface)
+        .overlay(WindowTitleSync(title: tr("迷你驾驶台")))
         .id(language.effective)
+    }
+}
+
+private struct WindowTitleSync: NSViewRepresentable {
+    let title: String
+
+    func makeNSView(context: Context) -> WindowTitleView {
+        WindowTitleView(title: title)
+    }
+
+    func updateNSView(_ view: WindowTitleView, context: Context) {
+        view.title = title
+    }
+}
+
+private final class WindowTitleView: NSView {
+    var title: String {
+        didSet { window?.title = title }
+    }
+
+    init(title: String) {
+        self.title = title
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.title = title
     }
 }

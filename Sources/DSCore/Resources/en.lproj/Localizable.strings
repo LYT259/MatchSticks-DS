@@ -156,6 +156,7 @@
 "机器人资源" = "Robot Resources";
 "控制器回传" = "reported by controller";
 "连接后显示实时数据" = "live data appears once connected";
+"尚未连接机器人" = "Not Connected to Robot";
 "内存" = "Memory";
 "可用磁盘" = "Disk Free";
 "CAN 总线" = "CAN Bus";
@@ -443,6 +444,7 @@
 
 /* ===== DSCore：PracticeSequencer / UpdateSafetyGate / servers onLog / DSClient ===== */
 "E-Stop 已触发，先复位（Esc+I 或重启代码）" = "E-Stop engaged; reset first (Esc+I or restart code)";
+"无机器人连接" = "No Robot Connection";
 "控制环心跳异常" = "Control loop heartbeat abnormal";
 "Auto 前延迟" = "Pre-Auto Delay";
 "Teleop 前延迟" = "Pre-Teleop Delay";
