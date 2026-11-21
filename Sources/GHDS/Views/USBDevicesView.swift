@@ -164,10 +164,14 @@ struct JoystickCard: View {
 
     // MARK: 手柄造型（按下即点亮；映射真值在 DSCore/GamepadProfile）
 
+    private var detectedSkin: GamepadSkin {
+        GamepadProfile.detect(vendorID: slot.vendorID, productID: slot.productID, name: slot.name)
+    }
+    private var mappingSkin: GamepadSkin { model.gamepadSkinOverride(for: slot) ?? detectedSkin }
     private var effectiveSkin: GamepadSkin { model.gamepadSkin(for: slot) }
 
     private var skinState: GamepadElementState {
-        GamepadLayout.layout(for: effectiveSkin, mode: slot.mode).state(for: GamepadSample(slot: slot))
+        GamepadLayout.layout(for: mappingSkin, mode: slot.mode).state(for: GamepadSample(slot: slot))
     }
 
     @ViewBuilder private var skinSection: some View {
@@ -181,7 +185,7 @@ struct JoystickCard: View {
                 Spacer()
                 skinPicker
             }
-            GamepadSkinScaled(skin: effectiveSkin, state: skinState)
+            GamepadSkinScaled(skin: effectiveSkin, layoutSkin: mappingSkin, mode: slot.mode, state: skinState)
                 .frame(maxWidth: .infinity)
             if !skinState.unmapped.isEmpty {
                 HStack(spacing: 6) {
@@ -206,16 +210,16 @@ struct JoystickCard: View {
             Button {
                 model.setGamepadSkinOverride(nil, for: slot)
             } label: {
-                Label(tr("自动识别（当前：%@）", GamepadProfile.detect(
-                    vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName),
-                      systemImage: "wand.and.stars")
+                Label(tr("自动识别（当前：%@）", effectiveSkin.displayName),
+                      systemImage: GamepadProfile.isSelected(nil, override: model.gamepadSkinOverride(for: slot))
+                      ? "checkmark" : "wand.and.stars")
             }
             Divider()
             ForEach(GamepadSkin.allCases, id: \.self) { skin in
                 Button {
                     model.setGamepadSkinOverride(skin, for: slot)
                 } label: {
-                    if skin == effectiveSkin {
+                    if GamepadProfile.isSelected(skin, override: model.gamepadSkinOverride(for: slot)) {
                         Label(skin.displayName, systemImage: "checkmark")
                     } else {
                         Text(skin.displayName)

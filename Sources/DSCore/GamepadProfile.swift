@@ -15,6 +15,10 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
     case f310          // 罗技 F310（FRC KoP 黑色款；macOS 上只见 D 档 DirectInput）
     case direwolf4     // 飞智冰原狼 4（USB 模式自报 Xbox 360 签名）
     case dualsense     // PS5 DualSense
+    case dualshock4    // PS4 DualShock 4（CUH-ZCT1 / CUH-ZCT2）
+    case dualshock3    // PS3 DualShock 3
+    case xbox360       // Xbox 360 手柄
+    case xboxOne       // Xbox One / One S 手柄
     case xboxSeries    // Xbox Series X|S 手柄
     case generic       // 未识别设备的通用示意造型
 
@@ -23,6 +27,10 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
         case .f310: return tr("罗技 F310")
         case .direwolf4: return tr("飞智冰原狼 4")
         case .dualsense: return tr("PS5 DualSense")
+        case .dualshock4: return tr("PS4 DualShock 4")
+        case .dualshock3: return tr("PS3 DualShock 3")
+        case .xbox360: return tr("Xbox 360 手柄")
+        case .xboxOne: return tr("Xbox One 手柄")
         case .xboxSeries: return tr("Xbox Series 手柄")
         case .generic: return tr("通用手柄")
         }
@@ -155,6 +163,12 @@ public enum GamepadProfile {
         if lower.contains("flydigi") || lower.contains("direwolf") || name.contains("冰原狼") {
             return .direwolf4
         }
+        if vendorID == 0x054C && productID == 0x0268 {
+            return .dualshock3
+        }
+        if lower.contains("dualshock") || vendorID == 0x054C && (productID == 0x05C4 || productID == 0x09CC) {
+            return .dualshock4
+        }
         if lower.contains("dualsense") || lower.contains("wireless controller") && vendorID == 0x054C {
             return .dualsense
         }
@@ -166,11 +180,13 @@ public enum GamepadProfile {
             return .f310
         case (0x054C, 0x0CE6), (0x054C, 0x0DF2):   // DualSense / DualSense Edge
             return .dualsense
-        case (0x045E, 0x028E):                     // 冰原狼 4 USB（2026-11-18 真机实测自报签名）
-            return .direwolf4
-        case (0x045E, 0x0B12), (0x045E, 0x0B13),   // Series X|S USB / BT
-             (0x045E, 0x0B20), (0x045E, 0x0B22),   // Series BT（新）/ Elite 2 BT
-             (0x045E, 0x02E0), (0x045E, 0x02FD):   // One S BT
+        case (0x045E, 0x028E), (0x045E, 0x0719):   // Xbox 360 有线 / 无线接收器
+            return .xbox360
+        case (0x045E, 0x02D1), (0x045E, 0x02DD), (0x045E, 0x02EA),
+             (0x045E, 0x02E0), (0x045E, 0x02FD):
+            return .xboxOne
+        case (0x045E, 0x0B12), (0x045E, 0x0B13),
+             (0x045E, 0x0B20), (0x045E, 0x0B22):
             return .xboxSeries
         default:
             return .generic
@@ -178,8 +194,20 @@ public enum GamepadProfile {
     }
 
     /// 生效造型：手动覆盖优先，否则按识别。
+    public static func preferredSkin(for detected: GamepadSkin) -> GamepadSkin {
+        switch detected {
+        case .dualshock3, .dualshock4: return .dualsense
+        case .xbox360, .xboxOne: return .xboxSeries
+        default: return detected
+        }
+    }
+
     public static func effectiveSkin(sample: GamepadSample, override: GamepadSkin?) -> GamepadSkin {
-        override ?? detect(vendorID: sample.vendorID, productID: sample.productID, name: sample.name)
+        override ?? preferredSkin(for: detect(vendorID: sample.vendorID, productID: sample.productID, name: sample.name))
+    }
+
+    public static func isSelected(_ candidate: GamepadSkin?, override: GamepadSkin?) -> Bool {
+        candidate == override
     }
 
     public static func displayPolarity(vendorID: Int, productID: Int, name: String,
@@ -188,7 +216,7 @@ public enum GamepadProfile {
             return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
         }
         switch detect(vendorID: vendorID, productID: productID, name: name) {
-        case .dualsense:
+        case .dualsense, .dualshock4, .dualshock3:
             return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
         case .f310:
             return GamepadStickPolarity(xRightIsNegative: true, yUpIsNegative: true)
@@ -274,7 +302,7 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: 0x35),
                 triggerUsage: (lt: nil, rt: nil))
-        case .direwolf4:
+        case .direwolf4, .xbox360:
             // Xbox 360 兼容序（xpad 惯例）：A1 B2 X3 Y4、LB5 RB6、Back7 Start8、Guide9、L3/R3 10/11；
             // M1/M2 背键暴露形态未知（待实测）——不落表，按「未映射芯片」自揭示。
             // 轴 = 已核查实测签名（经 XInputAxisOrder 归一，usage 跟随重排）。
@@ -288,7 +316,18 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x33, ry: 0x34),
                 triggerUsage: (lt: 0x32, rt: 0x35))
-        case .dualsense:
+        case .dualshock3:
+            return GamepadLayout(
+                face: [.west: 1, .south: 2, .east: 3, .north: 4],
+                shoulder: (l: 5, r: 6),
+                triggerButton: (l: 7, r: 8),
+                stickPress: (l: 11, r: 12),
+                back: 9, start: 10, guide: 13,
+                extras: [:],
+                dpadPOV: 0, dpadButtons: nil,
+                stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: 0x35),
+                triggerUsage: (lt: 0x33, rt: 0x34))
+        case .dualsense, .dualshock4:
             // PS HID 惯例序：□1 ✕2 ○3 △4、L1 5 R1 6、L2 7 R2 8、Create 9 Options 10、L3/R3 11/12、
             // PS 13、触控板 14。轴：左摇杆 X/Y，右摇杆 Z/Rz，扳机 Rx/Ry（macOS 暴露形态待实测，
             // 触发路径：模拟优先、数字兜底）。方向键 POV 0 待实测（若实为按键将落入未映射自揭示）。
@@ -302,7 +341,7 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: 0x35),
                 triggerUsage: (lt: 0x33, rt: 0x34))
-        case .xboxSeries:
+        case .xboxSeries, .xboxOne:
             // Xbox One/Series HID 惯例序：A1 B2 X3 Y4、LB5 RB6、View7 Menu8、L3/R3 9/10、Share 11
             // （Guide 常不暴露）。轴 = 六轴 XInput 签名语义（同冰原狼，usage 取归一后语义）。
             return GamepadLayout(

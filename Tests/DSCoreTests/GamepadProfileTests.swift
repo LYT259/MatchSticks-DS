@@ -17,8 +17,15 @@ func gamepadProfileDetectionTests() {
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0x9999, name: "Logitech Dual Action") == .f310, "Dual Action 名称识别")
 
     // 冰原狼 4：Xbox 360 克隆签名 + 名称救回（名称优先于 VID/PID）
-    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .direwolf4, "045E:028E 签名 → 冰原狼 4")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .xbox360, "045E:028E 签名 → Xbox 360")
     check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x1234, name: "Flydigi Direwolf 4") == .direwolf4, "名称含 Flydigi 优先")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02D1, name: "Xbox One Controller") == .xboxOne, "Xbox One 有线 PID")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02E0, name: "Xbox One S Controller") == .xboxOne, "Xbox One S 蓝牙 PID")
+    check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x0268, name: "PLAYSTATION(R)3 Controller") == .dualshock3, "DualShock 3 PID")
+
+    // DualShock 4：不能被 Sony Wireless Controller 名称误判成 DualSense
+    check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x05C4, name: "Wireless Controller") == .dualshock4, "DualShock 4 V1 PID")
+    check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x09CC, name: "DualShock 4 Wireless Controller") == .dualshock4, "DualShock 4 V2 PID 与名称")
 
     // DualSense：PID + 名称
     check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x0CE6, name: "DualSense Wireless Controller") == .dualsense, "DualSense PID")
@@ -37,11 +44,34 @@ func gamepadProfileDetectionTests() {
     check(GamepadProfile.effectiveSkin(sample: sample, override: nil) == .generic, "无覆盖 → 识别结果")
     check(GamepadProfile.effectiveSkin(sample: sample, override: .dualsense) == .dualsense, "覆盖优先")
 
+    check(GamepadProfile.isSelected(nil, override: nil), "自动识别时只勾自动项")
+    check(!GamepadProfile.isSelected(.f310, override: nil), "自动识别时不得勾当前生效型号")
+    check(GamepadProfile.isSelected(.f310, override: .f310), "手动 F310 时勾 F310")
+    check(!GamepadProfile.isSelected(nil, override: .f310), "手动时不得勾自动项")
+
     // 布局表完备性：每款映射表引用的按键号均在 1…64
     for skin in GamepadSkin.allCases {
         let layout = GamepadLayout.layout(for: skin)
         check(layout.mappedNumbers.isSubset(of: 1...64), "\(skin.rawValue) 映射按键号均在 1…64")
     }
+}
+
+func gamepadFamilySupportTests() {
+    check(GamepadProfile.preferredSkin(for: .dualshock3) == .dualsense, "PS3 默认展示最新 DualSense")
+    check(GamepadProfile.preferredSkin(for: .dualshock4) == .dualsense, "PS4 默认展示最新 DualSense")
+    check(GamepadProfile.preferredSkin(for: .xbox360) == .xboxSeries, "Xbox 360 默认展示最新 Series")
+    check(GamepadProfile.preferredSkin(for: .xboxOne) == .xboxSeries, "Xbox One 默认展示最新 Series")
+    check(GamepadProfile.preferredSkin(for: .dualsense) == .dualsense, "PS5 保持自身外观")
+    check(GamepadProfile.preferredSkin(for: .xboxSeries) == .xboxSeries, "Xbox Series 保持自身外观")
+    check(GamepadProfile.preferredSkin(for: .f310) == .f310, "罗技不被系列规则影响")
+    check(GamepadProfile.preferredSkin(for: .direwolf4) == .direwolf4, "冰原狼保留专属外观")
+
+    let ps4 = GamepadSample(name: "Wireless Controller", vendorID: 0x054C, productID: 0x09CC,
+                            axes: [], axisUsages: [])
+    check(GamepadProfile.effectiveSkin(sample: ps4, override: nil) == .dualsense,
+          "PS4 自动使用最新 PS 外观")
+    check(GamepadProfile.effectiveSkin(sample: ps4, override: .dualshock4) == .dualshock4,
+          "手动仍可指定 PS4 外观")
 }
 
 // MARK: 冰原狼 4（XInput 归一后语义；轴=已核查，按键=惯例种子待实测）
@@ -185,6 +215,24 @@ func gamepadProfileDualsenseStateTests() {
     check(digital.triggerL.pressed && digital.triggerL.depth == nil, "无模拟轴时 L2 走按键 7")
     check(digital.guide, "按键13 → PS")
     check(digital.extras[.touchpad] == true, "按键14 → 触控板")
+}
+
+func gamepadProfileDualshock4StateTests() {
+    let polarity = GamepadProfile.displayPolarity(
+        vendorID: 0x054C, productID: 0x09CC,
+        name: "Wireless Controller", xinputNormalized: false)
+    check(!polarity.xRightIsNegative && polarity.yUpIsNegative, "DualShock 4 与 DualSense 使用相同 Y 方向约定")
+
+    let state = GamepadLayout.layout(for: .dualshock4, mode: .directInput).state(for: GamepadSample(
+        name: "Wireless Controller", vendorID: 0x054C, productID: 0x09CC,
+        axes: [0.25, -0.8, -0.5, 0.9, 0, 1],
+        axisUsages: [0x30, 0x31, 0x32, 0x35, 0x33, 0x34],
+        buttons: (1 << 12) | (1 << 13), povs: [45], mode: .directInput, polarity: polarity))
+    check(state.leftStick.x == 0.25 && state.leftStick.yUp == 0.8, "DualShock 4 左摇杆方向")
+    check(state.rightStick.x == -0.5 && state.rightStick.yUp == -0.9, "DualShock 4 右摇杆方向")
+    check(state.guide && state.extras[.touchpad] == true, "DualShock 4 PS=13、触控板=14")
+    check(state.triggerR.depth == 1 && state.triggerR.pressed, "DualShock 4 模拟 R2")
+    check(state.dpad == [.up, .right], "DualShock 4 POV")
 }
 
 func gamepadDirectionAndPolarityTests() {
