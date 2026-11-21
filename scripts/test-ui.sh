@@ -24,7 +24,7 @@ swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
   Sources/GHDS/DSModel.swift Sources/GHDS/HIDInputManager.swift \
   Sources/GHDS/MacStatusMonitor.swift Sources/GHDS/Views/DSStyle.swift \
-  Sources/GHDS/UpdateFlow.swift \
+  Sources/GHDS/Views/DSControls.swift Sources/GHDS/UpdateFlow.swift \
   Sources/GHDS/Shortcuts.swift \
   Tests/GHDSUITests/main.swift -o .build/GHDSUIStateTests
 .build/GHDSUIStateTests

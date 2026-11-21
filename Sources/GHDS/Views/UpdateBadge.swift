@@ -36,18 +36,9 @@ struct UpdateBadge: View {
     private var readyButton: some View {
         let blocked = flow.lastBlockReason != nil
         return Button(action: onTap) {
-            HStack(spacing: 5) {
-                Image(systemName: blocked ? "lock.circle" : "arrow.clockwise.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(tr("重启更新")).font(.system(size: 12, weight: .semibold))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .background(
-                Capsule().fill(Color.accentColor.opacity(blocked ? 0.15 : 0.9))
-            )
-            .foregroundStyle(blocked ? Color.accentColor : Color.white)
+            Label(tr("重启更新"), systemImage: blocked ? "lock.circle" : "arrow.clockwise.circle.fill")
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSActionStyle(color: blocked ? DSTheme.accentText : DSTheme.accent, prominent: !blocked))
         .help(blocked
               ? tr("暂不能重启更新：%@。角标保留；满足条件后即可点击。", flow.lastBlockReason ?? "")
               : tr("点击重启并安装新版本。机器人使能中、通信活跃或急停锁存期间点击无效（安全门）。"))
@@ -56,17 +47,17 @@ struct UpdateBadge: View {
     private func icon(_ name: String) -> some View {
         Image(systemName: name)
             .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(DSTheme.textSecondary)
             .padding(.horizontal, 4)
     }
 
     private func progressRing(_ progress: Double) -> some View {
         ZStack {
             Circle()
-                .stroke(Color.secondary.opacity(0.25), lineWidth: 2.5)
+                .stroke(DSTheme.textSecondary.opacity(0.25), lineWidth: 2.5)
             Circle()
                 .trim(from: 0, to: progress)
-                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .stroke(DSTheme.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 15, height: 15)

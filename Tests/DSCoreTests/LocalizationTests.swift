@@ -33,11 +33,69 @@ func enTableTests() {
     defer { LanguageManager.shared.setMode(.system) }
     check(tr("使能") == "Enable", "en 表基本键")
     check(tr("急停已锁定") == "E-Stop Latched", "en 表状态键（FRC 术语）")
+    check(tr("设置") == "Settings", "en 表设置页标题")
+    check(tr("连接") == "Connection", "en 表连接页标题")
+    check(tr("通用") == "General", "en 表设置页通用分组")
+    check(tr("配置机器人连接目标，或启动本机模拟器。") == "Configure the robot connection or start the local simulator.", "en 表连接页副标题")
+    check(tr("先在「连接」页配置机器人。") == "Configure the robot on the Connection page first.", "en 表连接引导")
     check(tr("槽位 %d", 3) == "Slot 3", "en 表格式键 %d")
     check(tr("已使能 · %@", "Teleoperated") == "Enabled · Teleoperated", "en 表格式键 %@")
     check(tr("不存在键＿本地化测试") == "不存在键＿本地化测试", "未命中回退中文键")
     check(tr("正在后台下载新版本 %d%%（低优先级，可忽略，不影响使用）", 50).contains("50%"), "%% 字面百分号展开")
     check(tr("控制环吞吐：%.1f Hz（tx=%d rx=%d loss=%.1f%%）", 49.95, 100, 99, 1.0).hasPrefix("Control loop throughput: 50.0 Hz"), "多参数格式键")
+    check(tr("尚未连接机器人") == "Not Connected to Robot", "诊断页未连接空状态使用英文")
+    check(tr("机器人输出") == "Robot Output", "动态 tr(rawValue) 来源名称：机器人输出")
+    check(tr("错误与警告") == "Errors & Warnings", "动态 tr(rawValue) 来源名称：错误与警告")
+    check(tr("应用事件") == "App Events", "动态 tr(rawValue) 来源名称：应用事件")
+    if case .deny(let reason) = SafetyGate.evaluateEnable(.init(commConnected: false)) {
+        check(reason == "No Robot Connection", "无连接时的使能拒绝原因使用英文")
+    } else {
+        check(false, "无连接时必须拒绝使能")
+    }
+}
+
+func localizationSourceCoverageTests() {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let sources = root.appendingPathComponent("Sources")
+    let tableURL = root.appendingPathComponent(
+        "Sources/DSCore/Resources/en.lproj/Localizable.strings"
+    )
+    guard let table = try? String(contentsOf: tableURL, encoding: .utf8) else {
+        check(false, "英文资源表必须可读取")
+        return
+    }
+
+    let entryPattern = #"^\s*"((?:\\.|[^"\\])*)"\s*="#
+    let callPattern = #"\btr\(\s*"((?:\\.|[^"\\])*)""#
+    let entryRegex = try! NSRegularExpression(
+        pattern: entryPattern, options: [.anchorsMatchLines]
+    )
+    let callRegex = try! NSRegularExpression(pattern: callPattern)
+    let tableRange = NSRange(table.startIndex..., in: table)
+    let englishKeys = Set(entryRegex.matches(in: table, range: tableRange).map {
+        String(table[Range($0.range(at: 1), in: table)!])
+    })
+
+    var missing: [String] = []
+    let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
+    for case let file as URL in files! where file.pathExtension == "swift" {
+        guard let source = try? String(contentsOf: file, encoding: .utf8) else { continue }
+        let sourceRange = NSRange(source.startIndex..., in: source)
+        for match in callRegex.matches(in: source, range: sourceRange) {
+            let matchRange = Range(match.range, in: source)!
+            let lineStart = source[..<matchRange.lowerBound].lastIndex(of: "\n")
+                .map { source.index(after: $0) } ?? source.startIndex
+            guard !source[lineStart..<matchRange.lowerBound].contains("//") else { continue }
+            let key = String(source[Range(match.range(at: 1), in: source)!])
+            if !englishKeys.contains(key) {
+                missing.append("\(file.lastPathComponent): \(key)")
+            }
+        }
+    }
+    check(missing.isEmpty, "所有 tr 字面键均有英文翻译；缺失：\(missing)")
 }
 
 func webuiLanguageTests() {

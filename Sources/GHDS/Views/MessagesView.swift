@@ -19,28 +19,14 @@ struct MessagesView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
-                Picker(tr("消息来源"), selection: $source) {
-                    ForEach(Source.allCases) { source in Text(source.displayName).tag(source) }
-                }
-                .pickerStyle(.segmented)
+                DSSegmentedControl(title: tr("消息来源"), selection: $source,
+                                   options: Source.allCases.map { DSSelectOption(value: $0, label: $0.displayName) })
                 .frame(maxWidth: 460)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 12) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField(tr("搜索当前消息"), text: $search)
-                            .textFieldStyle(.plain)
-                        if !search.isEmpty {
-                            Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
-                                .buttonStyle(.plain).foregroundStyle(.secondary)
-                                .help(tr("清除搜索")).accessibilityLabel(tr("清除搜索"))
-                        }
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line.opacity(0.5)))
-                    .frame(maxWidth: 340)
+                    DSSearchField(title: tr("搜索当前消息"), text: $search)
+                        .frame(maxWidth: 340)
                     Spacer(minLength: 0)
                     if source != .errors {
                         Button {
@@ -48,10 +34,10 @@ struct MessagesView: View {
                         } label: {
                             Label(followsNewMessages ? tr("正在跟随") : tr("继续跟随"), systemImage: followsNewMessages ? "pause" : "arrow.down.to.line")
                         }
-                        .buttonStyle(DSActionStyle(color: followsNewMessages ? .accentColor : .secondary))
+                        .buttonStyle(DSActionStyle(color: followsNewMessages ? DSTheme.accentText : DSTheme.textPrimary))
                         .help(followsNewMessages ? tr("暂停自动滚动；仍继续接收消息") : tr("滚动到最新消息"))
                         Button(tr("清空"), systemImage: "trash") { clearCurrentLog() }
-                            .buttonStyle(DSActionStyle(color: .secondary))
+                            .buttonStyle(DSActionStyle())
                             .disabled(currentLines.isEmpty)
                     }
                 }
@@ -75,7 +61,7 @@ struct MessagesView: View {
                     Text(tr("机器人未连接"))
                 }
             }
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.caption).foregroundStyle(DSTheme.textSecondary)
             .padding(.horizontal, 24).padding(.vertical, 10)
         }
     }
@@ -151,23 +137,23 @@ struct MessagesView: View {
         return DSPanel(title: "") {
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isError ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 18)).foregroundStyle(isError ? Color.red : Color.orange)
+                    .font(.system(size: 18)).foregroundStyle(isError ? DSTheme.danger : DSTheme.warning)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text(isError ? tr("错误") : tr("警告")).font(.callout.weight(.semibold))
                         Spacer()
-                        Text(tr("代码 %d", Int(entry.errorCode))).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        Text(tr("代码 %d", Int(entry.errorCode))).font(.caption.monospacedDigit()).foregroundStyle(DSTheme.textSecondary)
                     }
                     Text(entry.details).font(.callout).textSelection(.enabled)
                     if !entry.location.isEmpty {
                         Text(entry.location).font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.secondary).textSelection(.enabled)
+                            .foregroundStyle(DSTheme.textSecondary).textSelection(.enabled)
                     }
                     if !entry.callStack.isEmpty {
                         DisclosureGroup(tr("调用详情")) {
                             Text(entry.callStack)
                                 .font(.system(size: 12, design: .monospaced))
-                                .foregroundStyle(.secondary).textSelection(.enabled)
+                                .foregroundStyle(DSTheme.textSecondary).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.top, 6)
                         }
@@ -179,16 +165,12 @@ struct MessagesView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: search.isEmpty ? (source == .errors ? "checkmark.circle" : "text.alignleft") : "magnifyingglass")
-                .font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
-            Text(search.isEmpty ? (source == .errors ? tr("暂无错误或警告") : tr("暂无消息")) : tr("没有匹配的消息"))
-                .font(.headline)
-            Text(search.isEmpty ? (source == .console ? tr("机器人程序的输出会显示在这里。") : tr("新消息会自动显示在这里。")) : tr("尝试更短的关键词，或清除搜索。"))
-                .font(.callout).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 230)
-        .padding(24)
+        DSEmptyState(
+            symbol: search.isEmpty ? (source == .errors ? "checkmark.circle" : "text.alignleft") : "magnifyingglass",
+            title: search.isEmpty ? (source == .errors ? tr("暂无错误或警告") : tr("暂无消息")) : tr("没有匹配的消息"),
+            detail: search.isEmpty ? (source == .console ? tr("机器人程序的输出会显示在这里。") : tr("新消息会自动显示在这里。")) : tr("尝试更短的关键词，或清除搜索。"),
+            minHeight: 230
+        )
     }
 
     private func matches(_ text: String) -> Bool { search.isEmpty || text.localizedCaseInsensitiveContains(search) }

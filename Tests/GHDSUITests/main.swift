@@ -30,6 +30,14 @@ struct UIStateTests {
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
+        check([AllianceStation.red1, .red2, .red3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceRed },
+              "red alliance selections use official FRC red")
+        check([AllianceStation.blue1, .blue2, .blue3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceBlue },
+              "blue alliance selections use official FRC blue")
+        check(renderedAllianceSelectionMatches(.red1, red: 237 / 255, green: 28 / 255, blue: 36 / 255),
+              "rendered red selection uses official FRC red pixels")
+        check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 102 / 255, blue: 179 / 255),
+              "rendered blue selection uses official FRC blue pixels")
         model.setEnabled(true)
         check(!model.enabled, "offline enable request is refused")
         model.triggerEstop()
@@ -76,7 +84,7 @@ struct UIStateTests {
         check(model.uiStatus == "电池欠压", "brownout is distinct from disabled")
         model.commState = .searching
         check(model.uiStatus == "未连接机器人", "cached brownout is not presented as current while offline")
-        check(model.uiStatusColor == .secondary, "offline status does not retain stale brownout color")
+        check(model.uiStatusColor == DSTheme.textSecondary, "offline status does not retain stale brownout color")
         check(model.connectionDetail == "正在寻找机器人", "search state wording")
         model.robotStatus.brownout = false
         model.robotStatus.enabled = true
@@ -437,4 +445,31 @@ struct UIStateTests {
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
     }
+}
+
+
+@MainActor
+private func renderedAllianceSelectionMatches(_ station: AllianceStation, red: CGFloat, green: CGFloat, blue: CGFloat) -> Bool {
+    let options = [
+        DSSelectOption(value: AllianceStation.red1, label: "Red 1"),
+        DSSelectOption(value: AllianceStation.blue1, label: "Blue 1"),
+    ]
+    let control = DSSegmentedControl(
+        title: "Alliance Station",
+        selection: .constant(station),
+        options: options,
+        selectedColor: DSTheme.allianceColor(for:)
+    )
+    .frame(width: 240, height: 32)
+    let renderer = ImageRenderer(content: control)
+    renderer.scale = 1
+    guard let image = renderer.nsImage,
+          let data = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: data) else { return false }
+    let x = station == .red1 ? 12 : 228
+    guard let color = bitmap.colorAt(x: x, y: 16) else { return false }
+    let tolerance: CGFloat = 0.03
+    return abs(color.redComponent - red) < tolerance
+        && abs(color.greenComponent - green) < tolerance
+        && abs(color.blueComponent - blue) < tolerance
 }

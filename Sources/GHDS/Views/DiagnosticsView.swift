@@ -50,7 +50,7 @@ struct DiagnosticsView: View {
                     DSMetric(title: tr("当前丢包率"), value: model.commConnected ? String(format: "%.1f%%", model.lossPercent) : "—",
                              symbol: "waveform.path")
                     Text(tr("累计发送 %d · 接收 %d", Int(model.txCount), Int(model.rxCount)))
-                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .font(.caption).monospacedDigit().foregroundStyle(DSTheme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -61,7 +61,7 @@ struct DiagnosticsView: View {
                 Spacer()
                 Text(tr("FMS：不提供连接"))
             }
-            .font(.caption).foregroundStyle(.secondary)
+            .font(.caption).foregroundStyle(DSTheme.textSecondary)
         }
     }
 
@@ -73,7 +73,8 @@ struct DiagnosticsView: View {
                     VStack(spacing: 6) {
                         metricRow("CPU \(core)", value: String(format: "%.0f%%", load * 100))
                         ProgressView(value: Double(min(max(load, 0), 1)))
-                            .tint(load > 0.8 ? .red : .accentColor)
+                            .tint(load > 0.8 ? DSTheme.danger : DSTheme.accent)
+                            .controlSize(.small)
                     }
                 }
                 Divider()
@@ -81,6 +82,8 @@ struct DiagnosticsView: View {
                           ? String(format: "%.0f / %.0f MB", Double(model.ramUsed) / 1e6, Double(model.ramTotal) / 1e6) : "—")
                 if model.ramTotal > 0 {
                     ProgressView(value: min(Double(model.ramUsed) / Double(model.ramTotal), 1))
+                        .tint(DSTheme.accent)
+                        .controlSize(.small)
                 }
                 metricRow(tr("可用磁盘"), value: String(format: "%.1f GB", Double(model.diskFree) / 1e9))
             } else {
@@ -124,7 +127,7 @@ struct DiagnosticsView: View {
             metricRow(tr("应用内存"), value: String(format: "%.0f MB", model.macStatus.processMemoryMB))
             Divider()
             Text(model.localNetworkSummary)
-                .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                .font(.callout).foregroundStyle(DSTheme.textSecondary).textSelection(.enabled)
         }
     }
 
@@ -132,7 +135,7 @@ struct DiagnosticsView: View {
         DSPanel(title: tr("设备版本"), subtitle: model.commConnected ? nil : tr("未连接；如有记录，显示上次收到的版本")) {
             if model.versionEntries.isEmpty {
                 Text(tr("尚未收到版本信息。连接后由机器人程序提供。"))
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(DSTheme.textSecondary)
             } else {
                 ForEach(Array(model.versionEntries.enumerated()), id: \.offset) { _, entry in
                     metricRow(tr("%@ · 类型 %d", entry.name, Int(entry.deviceType)), value: entry.version)
@@ -154,7 +157,7 @@ struct DiagnosticsView: View {
                     .buttonStyle(DSActionStyle())
                     .disabled(!model.commConnected)
                 Button(tr("重启控制器"), systemImage: "power") { confirmReboot = true }
-                    .buttonStyle(DSActionStyle(color: .secondary))
+                    .buttonStyle(DSActionStyle())
                     .disabled(!model.commConnected)
                 Spacer(minLength: 0)
             }
@@ -164,18 +167,18 @@ struct DiagnosticsView: View {
     private func connectionRow(_ title: String, detail: String, symbol: String, active: Bool) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
-                .font(.system(size: 17)).foregroundStyle(active ? Color.green : Color.secondary)
+                .font(.system(size: 17)).foregroundStyle(active ? DSTheme.success : DSTheme.textSecondary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.callout.weight(.medium))
-                Text(detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(detail).font(.caption).foregroundStyle(DSTheme.textSecondary).textSelection(.enabled)
             }
         }
     }
 
     private func metricRow(_ title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(title).foregroundStyle(.secondary)
+            Text(title).foregroundStyle(DSTheme.textSecondary)
             Spacer(minLength: 8)
             Text(value).monospacedDigit().multilineTextAlignment(.trailing).textSelection(.enabled)
         }
@@ -184,7 +187,7 @@ struct DiagnosticsView: View {
 
     private var emptyTelemetry: some View {
         Label(model.commConnected ? tr("等待控制器回传资源数据") : tr("尚未连接机器人"), systemImage: "waveform.path")
-            .font(.callout).foregroundStyle(.secondary)
+            .font(.callout).foregroundStyle(DSTheme.textSecondary)
             .frame(maxWidth: .infinity, minHeight: 80, alignment: .center)
     }
 

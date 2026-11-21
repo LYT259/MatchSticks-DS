@@ -9,7 +9,7 @@
 
 - [ ] DS 装「仍要打开」流程走通（首次）；本地网络授权「允许」已点
 - [x] `bash scripts/test-e2e.sh` 本机全绿（打包版基线）
-- [ ] 抓包开启：Setup 页抓包录制（.dsrec）全程留存；镜像 lsusb/系统报告
+- [ ] 抓包开启：Settings 页抓包录制（.dsrec）全程留存；镜像 lsusb/系统报告
 - [x] GHDSSim 回归先跑一遍作对照（`swift run DSCoreTests` 全绿基线）
 
 ## 1. MRC / SystemCore（真机抓包比对）
@@ -156,7 +156,7 @@
 
 ### 2B-9. 证据归档（每会话；公开文档只引用脱敏名）
 
-- [ ] `.dsrec`（Setup 页抓包全程开，captures/ 目录）、`.wpilog`/`.dslog`
+- [ ] `.dsrec`（Settings 页抓包全程开，captures/ 目录）、`.wpilog`/`.dslog`
       （`~/Library/Application Support/GHDriverStation/Logs/`）
 - [ ] `GHDS_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（诊断/权限页）
 - [ ] tcpdump pcap + 2B-2 判别命令的终端输出（nc/lsof/roboRIO 侧 ss）+ 如复用 10-31 的
@@ -192,9 +192,22 @@
 - [ ] **电机实际运动：未验证**（未接手柄，只验证了控制包与使能/急停链路，未让机器人运动）。
 - [x] **Mac↔Radio 拔线时延：通过**。失能态拔线后机器人通信 <1s 回搜索态（看门狗链路判定），Radio 指示约 2s 翻为无响应（.wpilog 毫秒时间戳实测）；旧版同场景 Radio 灯 ~75.7s 才翻。插回恢复时间待复测（见下）。
 - [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0。注意 F310 的 X 档（XInput）在 macOS 上系统不绑驱动，任何软件都看不到——Mac 上必须用 D 档。
-- [ ] **台架前置检查（新增）：确认 roboRIO 手动 IP 为空**。残留 manualIP（如 127.0.0.1）会使应答过滤静默拒绝一切真实机器人应答——症状：Radio 绿、ping 通、1740 开，但 commState 永远 searching 且零日志。UI 测试曾污染共享设置，实测前在设置页清空。
+- [ ] **台架前置检查（新增）：确认 roboRIO 手动 IP 为空**。残留 manualIP（如 127.0.0.1）会使应答过滤静默拒绝一切真实机器人应答——症状：Radio 绿、ping 通、1740 开，但 commState 永远 searching 且零日志。UI 测试曾污染共享设置，实测前在连接页清空。
 - [ ] **Radio 反复上下电后可能系统挂死**（L1 链路活、ARP 全 incomplete）：症状为整网失联但网口灯正常；处置 = Radio 断电 10s 重开。Radio 断电回网后机器人可能停止回应 UDP 探测（本日实测：DS 50Hz 发包正常、机器人零回包），根因未查（机器人在场时 SSH 上去看 DS 服务状态/重启 robot code）。
 - [x] **F310 槽位显示与实时值：通过**。操作员在安装版（0.1.0-alpha.9）确认 UI 显示设备并随摇杆/按键实时更新；枚举探针证实 1 设备、4 轴/12 钮/1 帽（D 档，识别名 Logitech Dual Action）。
+
+## 2E. Clash Verge 系统代理 / TUN 直连专项
+
+> 全部先在失能态执行；每项记录实际网卡与日志，不把 simulator/lo0 通过当作真机通过。
+> 实现应自动绑定机器人同子网物理网卡，不得依赖 Clash 私网 DIRECT 例外；测试后恢复 Clash 原始设置。
+>
+> 2026-11-21 本机打包版仿真：系统代理开/关 × TUN 开/关 × 规则/全局/直连共 12 组合均保持 connected、未使能；测试后 Clash 已恢复系统代理开、TUN 关、规则。此结果只证明回环回归，不勾选下方真机项。
+
+- [ ] **系统代理 × 非 TUN**：系统代理开/关分别覆盖规则、全局、直连，机器人保持 connected，UDP 应答和 TCP 1740 正常。
+- [ ] **系统代理 × TUN**：TUN 开启后，系统代理开/关分别覆盖规则、全局、直连；日志显示机器人目标绑定物理网卡而非 utun，机器人保持 connected，UDP 应答和 TCP 1740 正常。
+- [ ] **Radio 与 NT4**：TUN + 全局下 Radio 探测保持真实状态；SystemCore 可用时核对 NT4 握手与 ControlData，回包不进入 utun。
+- [ ] **网络变化与安全**：TUN 开关和网卡切换后自动重选；失联仍自动失能，恢复后不得自动重新使能。
+- [ ] **实际驾驶安全验收**：驱动轮架空、物理急停在手后，短时 Teleop 摇杆运动、Disable、E-Stop 均正常；未满足前置条件则保持未验证。
 
 ## 3. 手柄 HID → DS 报文
 

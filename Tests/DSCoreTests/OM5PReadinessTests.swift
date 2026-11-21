@@ -151,6 +151,8 @@ func boundedConnectClassificationTests() {
     check(outcomeTag(outcome) == "connected", "监听中 → connected（got \(outcomeTag(outcome))）")
     if case .connected(let fd) = outcome {
         check(fd >= 0, "connected 返回可用 fd")
+        check(DirectInterface.boundInterfaceIndex(fd: fd) == if_nametoindex("lo0"),
+              "TCP 回环连接绑定 lo0，直连接入已覆盖 boundedTCPConnect")
         close(fd)
     }
     check(-t0.timeIntervalSinceNow < 1.0, "connected 快速返回")
@@ -303,6 +305,8 @@ func startEmitsSearchingTest() {
     Thread.sleep(forTimeInterval: 0.4)
     check(client.localUDPPortForTest == NICodec.udpResponsePort,
           "roboRIO 2.0 真机应答固定发往 1150，UDP 本地端口不得再随机分配")
+    check(client.localUDPBoundInterfaceIndexForTest == if_nametoindex("lo0"),
+          "DSClient UDP 回环目标实际绑定 lo0")
     client.stop()
 
     box.lock.lock(); defer { box.lock.unlock() }

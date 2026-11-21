@@ -8,15 +8,15 @@
 
 ## 功能（当前版本）
 
-- **连接**：roboRIO 1.0/2.0 NI 协议——UDP 1110 控制环（20ms / 50Hz）+ UDP 1150 遥测回传 + TCP 1740 慢速通道；目标自动轮换（mDNS `roboRIO-<队号>-FRC.local` → 静态 `10.T.E.2` → USB `172.22.11.2`），支持手动 IP
+- **连接**：roboRIO 1.0/2.0 NI 协议——UDP 1110 控制环（20ms / 50Hz）+ UDP 1150 遥测回传 + TCP 1740 慢速通道；目标自动轮换（mDNS `roboRIO-<队号>-FRC.local` → 静态 `10.T.E.2` → USB `172.22.11.2`），支持手动 IP；机器人 socket 自动绑定同子网物理网卡，Clash Verge 系统代理 / TUN（规则、全局、直连）下均保持直连，无需添加分流规则
 - **操作**：Teleop / Autonomous / Test 模式、Enable / Disable / **E-Stop**（协议位直发）、E-Stop 复位（First DS 语义）、Alliance 站位（R1–B3）、使能计时、Practice 分段时序（Auto/TeleOp 延迟 + 提示音 + A-Stop）、远程 Reboot roboRIO / Restart Robot Code
-- **界面**：Apple 原生风格（实色自适应表面、无模糊/材质装饰）——侧栏导航（操作/监测两组）+ 每页常驻安全控制条（使能/失能/急停 + 状态解释）；状态条：机器人状态、通信/程序/手柄指示、电池电压（brownout 红字警示）；队伍号常驻侧栏；迷你驾驶台独立小窗（状态 + 三键 + 电池）
+- **界面**：Apple 原生风格（实色自适应表面、无模糊/材质装饰）——侧栏导航（操作/监测两组，底部设置/权限）+ 每页常驻安全控制条（使能/失能/急停 + 状态解释）；状态条：机器人状态、通信/程序/手柄指示、电池电压（brownout 红字警示）；队伍号常驻侧栏；迷你驾驶台独立小窗（状态 + 三键 + 电池）
 - **手柄**：IOHIDManager 枚举所有 HID 设备（含 Attack3 / Extreme 3D Pro 等非游戏标准手柄）、槽位排序 + **槽位锁定**、轴 / 按键 / POV 实时显示
 - **诊断**：每核 CPU、内存、磁盘、CAN 总线指标（利用率 / BusOff / TxFull / 错误计数）、电源故障计数、TCP 版本信息、网络指示灯、丢包率
 - **图表**：电池电压曲线、每核 CPU、UDP 链路质量（Swift Charts 原生）
 - **消息**：robot stdout 控制台、错误消息（TCP 0x0B）、DS 事件流
-- **抓包录制/回放**：Setup 页一键录制收发包为 `.dsrec`（金样本回归基线）；模拟器 `--replay` 按录制的真机字节应答
-- **SystemCore（MRC V2 · 实验性）**：Setup 页切换机器人类型；UDP V2 控制环（CRC32C 应答校验）+ NT4 server（6767，OpMode 选择经 ControlData.CurrentOpMode 下发）+ TCP 0x13 OpMode 列表
+- **抓包录制/回放**：Settings 页一键录制收发包为 `.dsrec`（金样本回归基线）；模拟器 `--replay` 按录制的真机字节应答
+- **SystemCore（MRC V2 · 实验性）**：Connection 页切换机器人类型；UDP V2 控制环（CRC32C 应答校验）+ NT4 server（6767，OpMode 选择经 ControlData.CurrentOpMode 下发）+ TCP 0x13 OpMode 列表
 - **会话日志**：连接期间 1Hz 自动记录 `.dslog`（NI DS 格式）与 `.wpilog`（WPILib DataLog 2027 VarInt 格式）双文件，AdvantageScope 可直接打开复盘
 - **本机状态**：DS 电脑电池/交流供电、系统 CPU、进程内存、本机网络指示（WiFi/有线）
 - **控制环稳定性**：统计窗口的收/发计数在浮点域求差并夹取（rx > tx 在真机可达——sendto 失败而先前应答在途、或机器人重复应答），避免旧实现的 UInt64 下溢把进程在控制环线程上打崩（2026-09-19 崩溃报告修复，回归测试 statsUnderflowScenario）；应用另声明 latency-critical 活动以抑制 App Nap 节流
@@ -43,12 +43,12 @@ GHDS_AUTO_SIM=1 GHDS_AUTO_MRC=1 .build/debug/GHDS
 
 第三方异构联测：Compatibility Proxy 的 `robot_sim.py`（独立 Python 实现）可直接对接本 DS——实测 UDP V2 控制流、TCP 0x13 OpMode、NT4 26 主题发布/订阅与 45Hz ControlData 下发全部互通。
 
-或在应用内：Setup → 「启动 roboRIO 模拟器」（自动切换手动 IP 并连接）。
+或在应用内：Connection → 「启动 roboRIO 模拟器」（自动切换手动 IP 并连接）。
 
 **回放模式**（Phase 0「录制即测试」）：
 
 ```bash
-# DS 侧开启抓包录制（Setup 页开关，存至 ~/Library/Application Support/GHDriverStation/captures/）
+# DS 侧开启抓包录制（Settings 页开关，存至 ~/Library/Application Support/GHDriverStation/captures/）
 # 然后用录制文件驱动模拟器应答——DS 端解析与真机逐字节一致：
 .build/debug/GHDSSim --replay capture-20260916-020000.dsrec
 ```
@@ -94,7 +94,7 @@ scripts/build-app.sh 0.1.0-alpha.1   # universal .app + ad-hoc 签名 + DMG + SH
 
 ```
 Sources/DSCore/      协议核心：NI 编解码、20ms 控制环、看门狗、连接管理（平台无关）
-Sources/GHDS/        SwiftUI 应用：DSModel 状态源、七页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
+Sources/GHDS/        SwiftUI 应用：DSModel 状态源、八页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
 Sources/GHDSSim/     roboRIO 模拟器（本机端到端验证）
 Tests/DSCoreTests/   协议回归测试（自带 runner）+ 回环集成测试
 Tests/GHDSUITests/   UI 状态干测试（无 socket/HID/定时器；scripts/test-ui.sh 运行）

@@ -16,11 +16,11 @@ private struct FaceKey: View {
     var body: some View {
         ZStack {
             Circle()
-                .fill(pressed ? Color.accentColor : DSTheme.surface)
+                .fill(pressed ? DSTheme.accent : DSTheme.button)
             Circle().strokeBorder(DSTheme.line.opacity(pressed ? 0 : 0.7))
             Text(label)
                 .font(.system(size: diameter * 0.42, weight: .semibold))
-                .foregroundStyle(pressed ? Color.white : Color.secondary)
+                .foregroundStyle(pressed ? Color.white : DSTheme.textSecondary)
         }
         .frame(width: diameter, height: diameter)
         .modifier(HelpAttachment(text: helpText))
@@ -36,11 +36,11 @@ private struct CenterPill: View {
     var body: some View {
         ZStack {
             Capsule()
-                .fill(pressed ? Color.accentColor : DSTheme.surface)
+                .fill(pressed ? DSTheme.accent : DSTheme.button)
             Capsule().strokeBorder(DSTheme.line.opacity(pressed ? 0 : 0.7))
             Text(label)
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(pressed ? Color.white : Color.secondary)
+                .foregroundStyle(pressed ? Color.white : DSTheme.textSecondary)
         }
         .frame(width: 34, height: 14)
         .modifier(HelpAttachment(text: helpText))
@@ -67,11 +67,11 @@ private struct ShoulderKey: View {
     var body: some View {
         ZStack {
             Capsule()
-                .fill(pressed ? Color.accentColor : DSTheme.surface)
+                .fill(pressed ? DSTheme.accent : DSTheme.button)
             Capsule().strokeBorder(DSTheme.line.opacity(pressed ? 0 : 0.7))
             Text(label)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(pressed ? Color.white : Color.secondary)
+                .foregroundStyle(pressed ? Color.white : DSTheme.textSecondary)
         }
         .frame(width: 40, height: 16)
         .modifier(HelpAttachment(text: helpText))
@@ -87,23 +87,23 @@ private struct TriggerGauge: View {
     var body: some View {
         let fraction: CGFloat = state.depth.map { CGFloat($0) } ?? (state.pressed ? 1 : 0)
         ZStack(alignment: .leading) {
-            Capsule().fill(DSTheme.surface)
+            Capsule().fill(DSTheme.button)
             GeometryReader { geo in
                 Capsule()
-                    .fill(Color.accentColor.opacity(state.pressed ? 0.55 : 0.28))
+                    .fill(DSTheme.accent.opacity(state.pressed ? 0.55 : 0.28))
                     .frame(width: max(0, min(1, fraction)) * geo.size.width)
             }
             .clipShape(Capsule())
             HStack {
                 Text(label)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
+                    .foregroundStyle(DSTheme.textSecondary)
                     .padding(.leading, 9)
                 Spacer()
             }
         }
         .frame(width: 54, height: 17)
-        .overlay(Capsule().strokeBorder(state.pressed ? Color.accentColor.opacity(0.9) : DSTheme.line.opacity(0.7), lineWidth: state.pressed ? 1.4 : 1))
+        .overlay(Capsule().strokeBorder(state.pressed ? DSTheme.accent.opacity(0.9) : DSTheme.line.opacity(0.7), lineWidth: state.pressed ? 1.4 : 1))
         .modifier(HelpAttachment(text: helpText))
     }
 }
@@ -127,7 +127,7 @@ private struct StickWell: View {
             Circle().strokeBorder(DSTheme.line.opacity(0.25))
                 .frame(width: wellRadius * 1.35, height: wellRadius * 1.35)
             Circle()
-                .fill(state.pressed ? Color.accentColor : DSTheme.surface)
+                .fill(state.pressed ? DSTheme.accent : DSTheme.button)
                 .frame(width: capRadius * 2, height: capRadius * 2)
                 .overlay(Circle().strokeBorder(state.pressed ? Color.clear : DSTheme.line.opacity(0.7), lineWidth: 1))
                 .shadow(color: .black.opacity(state.pressed ? 0.25 : 0.12), radius: 1.5, y: 1)
@@ -170,12 +170,12 @@ private struct DpadCross: View {
     var body: some View {
         ZStack {
             PlusShape(armLength: armLength, armWidth: armWidth)
-                .fill(DSTheme.surface)
+                .fill(DSTheme.button)
                 .overlay(PlusShape(armLength: armLength, armWidth: armWidth)
                     .stroke(DSTheme.line.opacity(0.75), lineWidth: 1))
             ForEach(GamepadDirection.allCases, id: \.self) { dir in
                 Circle()
-                    .fill(directions.contains(dir) ? Color.accentColor : DSTheme.line.opacity(0.5))
+                    .fill(directions.contains(dir) ? DSTheme.accent : DSTheme.line.opacity(0.5))
                     .frame(width: dotRadius * 2, height: dotRadius * 2)
                     .offset(offset(for: dir))
             }
@@ -204,11 +204,11 @@ private struct ExtraChip: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 6)
-                .fill(pressed ? Color.accentColor : DSTheme.surface)
+                .fill(pressed ? DSTheme.accent : DSTheme.button)
             RoundedRectangle(cornerRadius: 6).strokeBorder(DSTheme.line.opacity(pressed ? 0 : 0.7))
             Text(label)
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(pressed ? Color.white : Color.secondary)
+                .foregroundStyle(pressed ? Color.white : DSTheme.textSecondary)
         }
         .frame(width: 30, height: 15)
         .modifier(HelpAttachment(text: helpText))
@@ -408,7 +408,7 @@ struct GamepadSkinView: View {
     private var extraTouchpad: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 9)
-                .fill((state.extras[.touchpad] ?? false) ? Color.accentColor : DSTheme.surface)
+                .fill((state.extras[.touchpad] ?? false) ? DSTheme.accent : DSTheme.button)
             RoundedRectangle(cornerRadius: 9).strokeBorder(DSTheme.line.opacity((state.extras[.touchpad] ?? false) ? 0 : 0.7))
         }
         .frame(width: 86, height: 32)
