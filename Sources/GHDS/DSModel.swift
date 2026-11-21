@@ -227,7 +227,7 @@ final class DSModel {
     private var lastSlotsPublishAt: TimeInterval = 0
     /// HID 轮询源（默认真实 IOKit 主线程轮询；测试注入假设备流）。
     /// 50Hz 调用、保持主线程——IOKit 路径未在其他线程验证过，不擅自迁移。
-    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { HIDInputManager.shared.pollAll() }
+    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { GamepadInputManager.shared.pollAll() }
 
     // MARK: 慢速设置
 
@@ -354,10 +354,13 @@ final class DSModel {
         installTimers()
         networkMonitor.start()
         macStatusSampler.start()
-        HIDInputManager.shared.onDevicesChanged = { [weak self] in
+        GamepadInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
         }
-        HIDInputManager.shared.start()
+        GamepadInputManager.shared.onError = { [weak self] message in
+            Task { @MainActor in self?.log(message) }
+        }
+        GamepadInputManager.shared.start()
         rescanJoysticks()
 
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
