@@ -125,7 +125,7 @@ echo "  ✓ 进程全程存活"
 
 echo "▶ Radio 可达性断言（GHDSSim --radio-port 8080）"
 # 不杀模拟器制造离线：只读日志，离线场景由单元测试覆盖
-grep -Fq "Radio 状态：已响应" "$WORK/e2e.log" 2>/dev/null || {
+grep -Eq "Radio 状态：已响应|Radio status: responding" "$WORK/e2e.log" 2>/dev/null || {
     grep "Radio" "$WORK/e2e.log" 2>/dev/null | tail -5
     fail "e2e.log 未见「Radio 状态：已响应」（radio 端口 8080 未生效？）"
 }
