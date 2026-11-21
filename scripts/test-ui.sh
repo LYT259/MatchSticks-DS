@@ -32,5 +32,6 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/GHDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Tests/GHDSUITests/main.swift Tests/GHDSUITests/F310XInputReportTests.swift \
   Tests/GHDSUITests/F310XInputLifecycleTests.swift \
-  Tests/GHDSUITests/GamepadArtworkTests.swift -o .build/GHDSUIStateTests
+  Tests/GHDSUITests/GamepadArtworkTests.swift Tests/GHDSUITests/GamepadTriggerRangeTests.swift \
+  -o .build/GHDSUIStateTests
 .build/GHDSUIStateTests

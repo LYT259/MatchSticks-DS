@@ -19,6 +19,29 @@ struct HIDDeviceSnapshot: Sendable {
     var mode: GamepadInputMode
     var polarity: GamepadStickPolarity
     var usbLocationID: UInt32?
+    var triggerAxisRange: GamepadTriggerRange = .signed
+
+    func normalizingAnalogTriggers(logicalMins: [UInt32: Int32]) -> HIDDeviceSnapshot {
+        guard triggerAxisRange == .signed else { return self }
+        let skin = GamepadProfile.detect(vendorID: vendorID, productID: productID, name: name)
+        let triggerUsages: [UInt32]
+        switch (skin, mode) {
+        case (.dualsense, _), (.dualshock4, _), (.dualshock3, _):
+            triggerUsages = [0x33, 0x34]
+        case (_, .xinput):
+            triggerUsages = [0x32, 0x35]
+        default:
+            return self
+        }
+        var result = self
+        for usage in triggerUsages {
+            guard let index = axisUsages.firstIndex(of: usage), axes.indices.contains(index),
+                  let minimum = logicalMins[usage], minimum >= 0 else { return self }
+            result.axes[index] = max(0, min(1, (axes[index] + 1) / 2))
+        }
+        result.triggerAxisRange = .zeroToOne
+        return result
+    }
 }
 
 @MainActor
@@ -229,14 +252,16 @@ final class HIDInputManager {
                 emittedUsages = record.axisElements.map(\.usage)
             }
 
-            result.append(HIDDeviceSnapshot(
+            let snapshot = HIDDeviceSnapshot(
                 uniqueID: record.uniqueID, name: record.name,
                 vendorID: record.vendorID, productID: record.productID,
                 axes: emittedAxes, axisUsages: emittedUsages,
                 buttons: buttons, buttonCount: max(highestButton, record.buttonElements.count),
                 povs: povs, isXbox: record.isXbox,
                 mode: record.mode, polarity: record.polarity, usbLocationID: record.usbLocationID
-            ))
+            )
+            result.append(snapshot.normalizingAnalogTriggers(logicalMins: Dictionary(
+                uniqueKeysWithValues: record.axisElements.map { ($0.usage, $0.min) })))
         }
         return result
     }
