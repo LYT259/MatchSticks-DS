@@ -30,6 +30,7 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
           GamepadArtworkCatalog.spec(for: .xboxSeries).imageName == "xbox-series",
           "Xbox 全系列统一使用 Series 实机资源")
     check(GamepadArtworkCatalog.spec(for: .f310).imageName == "f310" &&
-          GamepadArtworkCatalog.spec(for: .direwolf4).imageName == "direwolf4",
-          "罗技与冰原狼使用各自实机资源")
+          GamepadArtworkCatalog.spec(for: .direwolf4).imageName == "direwolf4" &&
+          GamepadArtworkCatalog.spec(for: .extreme3DPro).imageName == "extreme3dpro",
+          "罗技与冰原狼使用各自实机资源，Extreme 3D Pro 使用飞行摇杆资源")
 }

@@ -323,7 +323,7 @@ struct GamepadSkinView: View {
 
     @ViewBuilder private var elements: some View {
         switch skin {
-        case .f310, .direwolf4, .xbox360, .xboxOne, .xboxSeries: asymmetricLayout
+        case .f310, .extreme3DPro, .direwolf4, .xbox360, .xboxOne, .xboxSeries: asymmetricLayout
         case .dualsense, .dualshock4, .dualshock3: dualsenseLayout
         case .generic: genericLayout
         }
@@ -481,6 +481,8 @@ struct GamepadSkinView: View {
 
     private var faceGlyphs: [GamepadFace: String] {
         switch skin {
+        case .extreme3DPro:
+            return [.north: "2", .east: "3", .south: "4", .west: "5"]
         case .f310, .direwolf4, .xbox360, .xboxOne, .xboxSeries:
             return [.north: "Y", .east: "B", .south: "A", .west: "X"]
         case .dualsense, .dualshock4, .dualshock3:
@@ -528,10 +530,11 @@ struct GamepadSkinView: View {
         return button.map { tr("按键 %d", $0) }
     }
 
-    private func stickHelp(lx: UInt32, ly: UInt32, press: Int) -> String {
+    private func stickHelp(lx: UInt32, ly: UInt32?, press: Int?) -> String {
         let xName = GamepadSkinView.axisName(lx) ?? "?"
         let yName = GamepadSkinView.axisName(ly) ?? "?"
-        return tr("摇杆 · 轴 %@/%@ · 按下为按键 %d", xName, yName, press)
+        if let press { return tr("摇杆 · 轴 %@/%@ · 按下为按键 %d", xName, yName, press) }
+        return tr("摇杆 · 轴 %@/%@", xName, yName)
     }
 
     private var dpadHelp: String {
@@ -542,7 +545,8 @@ struct GamepadSkinView: View {
     }
 
     /// usage → 人读名（与 HID GenericDesktop 轴页一致）。
-    static func axisName(_ usage: UInt32) -> String? {
+    static func axisName(_ usage: UInt32?) -> String? {
+        guard let usage else { return nil }
         switch usage {
         case 0x30: return "X"
         case 0x31: return "Y"

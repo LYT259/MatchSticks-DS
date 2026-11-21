@@ -14,6 +14,7 @@ func gamepadProfileDetectionTests() {
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC216, name: "Logitech Dual Action") == .f310, "F310 D 档 PID C216")
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC21D, name: "Gamepad F310") == .f310, "F310 X 档 PID C21D")
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC218, name: "Logitech Rumblepad 2") == .generic, "F510 D 档 C218 不误标为 F310")
+    check(GamepadProfile.detect(vendorID: 0x046D, productID: 0xC215, name: "Logitech Extreme 3D Pro") == .extreme3DPro, "Extreme 3D Pro C215")
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0x9999, name: "Logitech Dual Action") == .f310, "Dual Action 名称识别")
 
     // 冰原狼 4：Xbox 360 克隆签名 + 名称救回（名称优先于 VID/PID）
@@ -77,6 +78,7 @@ func gamepadFamilySupportTests() {
           !GamepadSkin.selectableSkins.contains(.xbox360) &&
           !GamepadSkin.selectableSkins.contains(.xboxOne),
           "选择器只展示各家族最新外观，旧型号仍保留在映射层")
+    check(GamepadSkin.selectableSkins.contains(.extreme3DPro), "选择器包含 Extreme 3D Pro 飞行摇杆")
 }
 
 // MARK: 冰原狼 4（XInput 归一后语义；轴=已核查，按键=惯例种子待实测）
@@ -193,6 +195,31 @@ func gamepadProfileF310XInputStateTests() {
     check(state.rightStick.x == -0.25 && state.rightStick.yUp == -0.5, "F310 X 右摇杆方向")
     check(state.triggerL.depth == 0.5 && state.triggerR.depth == 1, "F310 X LT/RT 使用真实模拟量")
     check(state.dpad == [.up, .right], "F310 X POV 方向")
+}
+
+func gamepadProfileExtreme3DProStateTests() {
+    let layout = GamepadLayout.layout(for: .extreme3DPro, mode: .directInput)
+    let polarity = GamepadProfile.displayPolarity(vendorID: 0x046D, productID: 0xC215,
+                                                  name: "Logitech Extreme 3D Pro", xinputNormalized: false)
+    let state = layout.state(for: GamepadSample(
+        name: "Logitech Extreme 3D Pro", vendorID: 0x046D, productID: 0xC215,
+        axes: [0.5, -0.75, 0.25, 0],
+        axisUsages: [0x30, 0x31, 0x32, 0x36],
+        buttons: 0xFFF, povs: [270], mode: .directInput, polarity: polarity))
+    check(state.leftStick.x == 0.5 && state.leftStick.yUp == 0.75, "Extreme 3D Pro 主摇杆 X/Y")
+    check(state.rightStick.x == 0.25 && state.rightStick.yUp == 0,
+          "Extreme 3D Pro Z 扭转只进入右侧 X，不伪造右摇杆 Y")
+    check(state.triggerR.depth == 0.5 && state.triggerR.pressed, "Extreme 3D Pro Slider 保留模拟油门")
+    check(state.triggerL.pressed && state.triggerL.depth == nil, "Extreme 3D Pro 快速扳机按钮 1 为数字态")
+    check(state.face[.north] == true && state.face[.east] == true &&
+          state.face[.south] == true && state.face[.west] == true,
+          "Extreme 3D Pro 拇指键与顶部按钮 2…5")
+    check(state.shoulderL && state.shoulderR && state.back && state.start && state.guide,
+          "Extreme 3D Pro 按钮 6…10 均有独立位置")
+    check(state.extras[.share] == true && state.extras[.backR] == true,
+          "Extreme 3D Pro 按钮 11/12 均有独立位置")
+    check(state.dpad == [.left], "Extreme 3D Pro POV 帽")
+    check(state.unmapped.isEmpty, "Extreme 3D Pro 全部 12 按钮均已映射，无遗漏")
 }
 
 // MARK: DualSense（模拟扳机优先、数字兜底）与通用款

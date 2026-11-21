@@ -13,6 +13,7 @@ import Foundation
 /// 造型（皮肤）种类：四款原型 + 未识别兜底。
 public enum GamepadSkin: String, CaseIterable, Sendable {
     case f310          // 罗技 F310（FRC KoP 黑色款；macOS 上只见 D 档 DirectInput）
+    case extreme3DPro  // 罗技 Extreme 3D Pro 飞行摇杆（T41126）
     case direwolf4     // 飞智冰原狼 4（USB 模式自报 Xbox 360 签名）
     case dualsense     // PS5 DualSense
     case dualshock4    // PS4 DualShock 4（CUH-ZCT1 / CUH-ZCT2）
@@ -23,12 +24,13 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
     case generic       // 未识别设备的通用示意造型
 
     public static let selectableSkins: [GamepadSkin] = [
-        .f310, .direwolf4, .dualsense, .xboxSeries, .generic,
+        .f310, .extreme3DPro, .direwolf4, .dualsense, .xboxSeries, .generic,
     ]
 
     public var displayName: String {
         switch self {
         case .f310: return tr("罗技 F310")
+        case .extreme3DPro: return tr("罗技 Extreme 3D Pro")
         case .direwolf4: return tr("飞智冰原狼 4")
         case .dualsense: return tr("PS5 DualSense")
         case .dualshock4: return tr("PS4 DualShock 4")
@@ -180,6 +182,8 @@ public enum GamepadProfile {
             return .f310
         }
         switch (vendorID, productID) {
+        case (0x046D, 0xC215):                     // Extreme 3D Pro 飞行摇杆
+            return .extreme3DPro
         case (0x046D, 0xC216), (0x046D, 0xC21D):   // F310 D / X 两档
             return .f310
         case (0x054C, 0x0CE6), (0x054C, 0x0DF2):   // DualSense / DualSense Edge
@@ -224,6 +228,8 @@ public enum GamepadProfile {
             return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
         case .f310:
             return GamepadStickPolarity(xRightIsNegative: true, yUpIsNegative: true)
+        case .extreme3DPro:
+            return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
         default:
             return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: false)
         }
@@ -243,7 +249,7 @@ public struct GamepadLayout: Sendable {
     /// 数字扳机（无模拟量的设备；有模拟量时仍作按压态兜底）。
     public let triggerButton: (l: Int?, r: Int?)
     /// 摇杆按下（L3/R3）。
-    public let stickPress: (l: Int, r: Int)
+    public let stickPress: (l: Int?, r: Int?)
     /// 中央键（Back/View/Select/Create；Start/Menu/Options；Guide/PS）。
     public let back: Int?
     public let start: Int?
@@ -254,15 +260,15 @@ public struct GamepadLayout: Sendable {
     public let dpadPOV: Int?
     public let dpadButtons: [GamepadDirection: Int]?
     /// 摇杆轴 usage。
-    public let stickUsage: (lx: UInt32, ly: UInt32, rx: UInt32, ry: UInt32)
+    public let stickUsage: (lx: UInt32, ly: UInt32, rx: UInt32, ry: UInt32?)
     /// 模拟扳机轴 usage（0…255 类量程归一为 -1…+1，静止 -1）。
     public let triggerUsage: (lt: UInt32?, rt: UInt32?)
 
     init(face: [GamepadFace: Int], shoulder: (l: Int, r: Int),
-         triggerButton: (l: Int?, r: Int?), stickPress: (l: Int, r: Int),
+         triggerButton: (l: Int?, r: Int?), stickPress: (l: Int?, r: Int?),
          back: Int?, start: Int?, guide: Int?, extras: [GamepadExtra: Int],
          dpadPOV: Int?, dpadButtons: [GamepadDirection: Int]?,
-         stickUsage: (lx: UInt32, ly: UInt32, rx: UInt32, ry: UInt32),
+         stickUsage: (lx: UInt32, ly: UInt32, rx: UInt32, ry: UInt32?),
          triggerUsage: (lt: UInt32?, rt: UInt32?)) {
         self.face = face
         self.shoulder = shoulder
@@ -358,6 +364,17 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x33, ry: 0x34),
                 triggerUsage: (lt: 0x32, rt: 0x35))
+        case .extreme3DPro:
+            return GamepadLayout(
+                face: [.north: 2, .east: 3, .south: 4, .west: 5],
+                shoulder: (l: 6, r: 7),
+                triggerButton: (l: 1, r: nil),
+                stickPress: (l: nil, r: nil),
+                back: 8, start: 9, guide: 10,
+                extras: [.share: 11, .backR: 12],
+                dpadPOV: 0, dpadButtons: nil,
+                stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: nil),
+                triggerUsage: (lt: nil, rt: 0x36))
         case .generic:
             // 未识别设备：编号即标签（面键 1–4、肩 5/6、数字扳机 7/8、9/10、L3/R3 11/12），
             // 摇杆取最常见的 X/Y + Z/Rz 布局；不匹配的按键全部落入未映射芯片，不误导。
@@ -426,7 +443,7 @@ public struct GamepadLayout: Sendable {
         return GamepadTriggerState(pressed: down, depth: nil)
     }
 
-    private func stickState(x: Float?, y: Float?, press: Int,
+    private func stickState(x: Float?, y: Float?, press: Int?,
                             polarity: GamepadStickPolarity, pressed: (Int?) -> Bool) -> GamepadStickState {
         let rawX = x ?? 0
         let rawY = y ?? 0
@@ -468,7 +485,8 @@ public struct GamepadLayout: Sendable {
         numbers.insert(shoulder.l); numbers.insert(shoulder.r)
         if let l = triggerButton.l { numbers.insert(l) }
         if let r = triggerButton.r { numbers.insert(r) }
-        numbers.insert(stickPress.l); numbers.insert(stickPress.r)
+        if let l = stickPress.l { numbers.insert(l) }
+        if let r = stickPress.r { numbers.insert(r) }
         [back, start, guide].forEach { if let n = $0 { numbers.insert(n) } }
         numbers.formUnion(extras.values)
         if let buttons = dpadButtons { numbers.formUnion(buttons.values) }

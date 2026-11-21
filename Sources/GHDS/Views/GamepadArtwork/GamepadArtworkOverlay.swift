@@ -4,7 +4,7 @@ import DSCore
 struct GamepadArtworkHelp {
     var button: (Int?) -> String?
     var trigger: (UInt32?, Int?) -> String?
-    var stick: (UInt32, UInt32, Int) -> String
+    var stick: (UInt32, UInt32?, Int?) -> String
     var dpad: String
 }
 
@@ -30,10 +30,17 @@ struct GamepadArtworkOverlay: View {
                         .accessibilityLabel(tr("手柄图片缺失：%@", spec.imageName))
                 }
 
-                stick(.leftStick, state: state.leftStick,
-                      usage: (layout.stickUsage.lx, layout.stickUsage.ly), press: layout.stickPress.l, in: container)
-                stick(.rightStick, state: state.rightStick,
-                      usage: (layout.stickUsage.rx, layout.stickUsage.ry), press: layout.stickPress.r, in: container)
+                if skin == .extreme3DPro {
+                    flightStick(.leftStick, state: state.leftStick,
+                                usage: (layout.stickUsage.lx, layout.stickUsage.ly), press: layout.stickPress.l, in: container)
+                    flightStick(.rightStick, state: state.rightStick,
+                                usage: (layout.stickUsage.rx, layout.stickUsage.ry), press: layout.stickPress.r, in: container)
+                } else {
+                    stick(.leftStick, state: state.leftStick,
+                          usage: (layout.stickUsage.lx, layout.stickUsage.ly), press: layout.stickPress.l, in: container)
+                    stick(.rightStick, state: state.rightStick,
+                          usage: (layout.stickUsage.rx, layout.stickUsage.ry), press: layout.stickPress.r, in: container)
+                }
 
                 ForEach(GamepadFace.allCases, id: \.self) { face in
                     region(faceRegion(face), pressed: state.face[face] ?? false,
@@ -71,7 +78,7 @@ struct GamepadArtworkOverlay: View {
     }
 
     @ViewBuilder private func stick(_ region: GamepadArtworkRegion, state: GamepadStickState,
-                                    usage: (x: UInt32, y: UInt32), press: Int, in container: CGSize) -> some View {
+                                    usage: (x: UInt32, y: UInt32?), press: Int?, in container: CGSize) -> some View {
         let capRegion: GamepadArtworkRegion = region == .leftStick ? .leftStickCap : .rightStickCap
         let well = spec.region(region, in: container)
         let cap = spec.region(capRegion, in: container)
@@ -96,6 +103,27 @@ struct GamepadArtworkOverlay: View {
         .accessibilityElement()
         .accessibilityLabel(region == .leftStick ? tr("左摇杆") : tr("右摇杆"))
         .accessibilityValue(state.pressed ? tr("已按下") : tr("X %+.2f，Y %+.2f", state.x, state.yUp))
+    }
+
+    private func flightStick(_ region: GamepadArtworkRegion, state: GamepadStickState,
+                             usage: (x: UInt32, y: UInt32?), press: Int?, in container: CGSize) -> some View {
+        let rect = spec.region(region, in: container)
+        let magnitude = min(1, hypot(CGFloat(state.x), CGFloat(state.yUp)))
+        let angle = atan2(CGFloat(state.yUp), CGFloat(state.x))
+        return ZStack {
+            Circle().fill(Color.black.opacity(0.62))
+            Image(systemName: "arrow.up")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(magnitude > 0.03 ? Color.accentColor : Color.secondary)
+                .rotationEffect(.radians(angle))
+        }
+        .frame(width: 56, height: 56)
+        .position(x: rect.midX + (region == .leftStick ? -45 : 45), y: rect.midY)
+        .opacity(magnitude > 0.03 ? 1 : 0)
+        .help(help.stick(usage.x, usage.y, press))
+        .accessibilityElement()
+        .accessibilityLabel(region == .leftStick ? tr("主摇杆") : tr("Z 扭转"))
+        .accessibilityValue(tr("X %+.2f，Y %+.2f", state.x, state.yUp))
     }
 
     private func trigger(_ region: GamepadArtworkRegion,

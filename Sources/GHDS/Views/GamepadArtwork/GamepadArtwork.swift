@@ -47,6 +47,7 @@ enum GamepadArtworkCatalog {
         case .dualsense, .dualshock4, .dualshock3: return dualsense
         case .xboxSeries, .xboxOne, .xbox360: return xboxSeries
         case .f310: return f310
+        case .extreme3DPro: return extreme3DPro
         case .direwolf4: return direwolf4
         case .generic: return GamepadArtworkSpec(imageName: "generic", referenceSize: .zero, regions: [:])
         }
@@ -117,6 +118,29 @@ enum GamepadArtworkCatalog {
             .guide: CGRect(x: 340, y: 185, width: 80, height: 65),
             .mode: CGRect(x: 300, y: 235, width: 45, height: 30),
             .modeLED: CGRect(x: 350, y: 255, width: 15, height: 15),
+        ])
+
+    private static let extreme3DPro = GamepadArtworkSpec(
+        imageName: "extreme3dpro", referenceSize: CGSize(width: 1510, height: 1112),
+        regions: [
+            .leftStick: CGRect(x: 300, y: 0, width: 400, height: 600),
+            .leftStickCap: CGRect(x: 300, y: 0, width: 400, height: 600),
+            .rightStick: CGRect(x: 300, y: 0, width: 400, height: 600),
+            .rightStickCap: CGRect(x: 300, y: 0, width: 400, height: 600),
+            .dpad: CGRect(x: 400, y: 120, width: 120, height: 140),
+            .faceNorth: CGRect(x: 550, y: 160, width: 100, height: 90),
+            .faceEast: CGRect(x: 490, y: 60, width: 90, height: 100),
+            .faceSouth: CGRect(x: 360, y: 130, width: 80, height: 100),
+            .faceWest: CGRect(x: 350, y: 40, width: 100, height: 100),
+            .shoulderL: CGRect(x: 470, y: 790, width: 120, height: 60),
+            .shoulderR: CGRect(x: 620, y: 790, width: 120, height: 60),
+            .triggerL: CGRect(x: 350, y: 0, width: 140, height: 160),
+            .triggerR: CGRect(x: 1120, y: 760, width: 120, height: 200),
+            .back: CGRect(x: 750, y: 790, width: 120, height: 60),
+            .start: CGRect(x: 450, y: 850, width: 120, height: 60),
+            .guide: CGRect(x: 590, y: 850, width: 120, height: 60),
+            .share: CGRect(x: 730, y: 850, width: 120, height: 60),
+            .backR: CGRect(x: 1060, y: 800, width: 100, height: 100),
         ])
 
     private static let direwolf4 = GamepadArtworkSpec(
