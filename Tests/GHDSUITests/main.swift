@@ -270,11 +270,15 @@ struct UIStateTests {
             var devices: [HIDDeviceSnapshot] {
                 var list = [HIDDeviceSnapshot(uniqueID: "a1:11:s", name: "Bench Stick", vendorID: 0x045E, productID: 0x028E,
                                               axes: [primary], axisUsages: [0x30], buttons: 1, buttonCount: 1,
-                                              povs: [], isXbox: true, yFlipped: false)]
+                                              povs: [], isXbox: true, mode: .directInput,
+                                              polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: false),
+                                              usbLocationID: nil)]
                 if let secondary {
                     list.append(HIDDeviceSnapshot(uniqueID: "b2:22:s", name: "Second Stick", vendorID: 0x046D, productID: 0xC215,
                                                   axes: [secondary], axisUsages: [0x30], buttons: 0, buttonCount: 0,
-                                                  povs: [], isXbox: false, yFlipped: false))
+                                                  povs: [], isXbox: false, mode: .directInput,
+                                                  polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: false),
+                                                  usbLocationID: nil))
                 }
                 return list
             }
@@ -345,6 +349,43 @@ struct UIStateTests {
         check(visibleRate <= 20, "visible joystick publish rate stays capped near 10Hz (was 50Hz)")
         check(visibleRate >= 3, "visible joystick values keep refreshing")
         check(jmRate.latestPublishedJoysticks.first?.axes.first == 24, "control snapshot tracked all 25 polls")
+
+        // 皮肤状态提取不得改变发往机器人的原始输入（DualSense / F310 D 档）
+        let outputSnapshots = [
+            HIDDeviceSnapshot(uniqueID: "dualsense-test", name: "DualSense Wireless Controller",
+                              vendorID: 0x054C, productID: 0x0CE6,
+                              axes: [0.25, -0.8, -0.5, 0.9, 0, 0],
+                              axisUsages: [0x30, 0x31, 0x32, 0x35, 0x33, 0x34],
+                              buttons: 1 << 1, buttonCount: 14, povs: [90], isXbox: false,
+                              mode: .directInput,
+                              polarity: GamepadProfile.displayPolarity(vendorID: 0x054C, productID: 0x0CE6,
+                                                                       name: "DualSense Wireless Controller", xinputNormalized: false),
+                              usbLocationID: 0x100),
+            HIDDeviceSnapshot(uniqueID: "f310-d-test", name: "Logitech Dual Action",
+                              vendorID: 0x046D, productID: 0xC216,
+                              axes: [0.75, -0.8, -0.5, 0.9],
+                              axisUsages: [0x30, 0x31, 0x32, 0x35],
+                              buttons: 1 << 0, buttonCount: 12, povs: [270], isXbox: false,
+                              mode: .directInput,
+                              polarity: GamepadProfile.displayPolarity(vendorID: 0x046D, productID: 0xC216,
+                                                                       name: "Logitech Dual Action", xinputNormalized: false),
+                              usbLocationID: 0x200),
+        ]
+        for snapshot in outputSnapshots {
+            let slot = JoystickSlot(index: 0, device: snapshot)
+            let originalAxes = slot.data.axes
+            let originalButtons = slot.data.buttons
+            let originalPOVs = slot.data.povs
+            let skin = GamepadProfile.detect(vendorID: snapshot.vendorID, productID: snapshot.productID, name: snapshot.name)
+            _ = GamepadLayout.layout(for: skin, mode: snapshot.mode).state(for: GamepadSample(slot: slot))
+            check(slot.data.axes == originalAxes, "\(snapshot.name) 皮肤提取不改变原始轴")
+            check(slot.data.buttons == originalButtons, "\(snapshot.name) 皮肤提取不改变按钮")
+            check(slot.data.povs == originalPOVs, "\(snapshot.name) 皮肤提取不改变 POV")
+        }
+
+        f310XInputReportTests(check)
+        f310XInputLifecycleTests(check)
+        gamepadArtworkTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
