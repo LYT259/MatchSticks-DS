@@ -23,6 +23,7 @@ struct GamepadArtworkOverlay: View {
                    let image = NSImage(contentsOf: url) {
                     Image(nsImage: image)
                         .resizable()
+                        .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
                         .accessibilityHidden(true)
                 } else {
