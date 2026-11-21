@@ -1,19 +1,23 @@
 import AppKit
 import DSCore
 
-// MARK: - 键盘快捷键（NI DS 语义；本阶段为应用前台监听，全局 CGEventTap 属 Phase 4 + Input Monitoring 权限）
+// MARK: - 前台输入：键盘快捷键 + 输入框外点击退出编辑
+// 键盘（NI DS 语义；本阶段为应用前台监听，全局 CGEventTap 属 Phase 4 + Input Monitoring 权限）
 //
 // Space        = E-Stop
 // Enter        = Disable
 // [ + ] + \    = Enable（按住 [ 与 ] 再按 \）
 // Esc + I      = E-Stop 复位（First DS 语义：按住 Esc 再按 I）
 // F1           = 重扫手柄
+//
+// 鼠标：聚焦输入框时，点击其 bounds 之外结束编辑；框内点击不处理。
 
 @MainActor
 final class ShortcutManager {
     private var model: DSModel?
     private var keyDownMonitor: Any?
     private var keyUpMonitor: Any?
+    private var mouseDownMonitor: Any?
     private var pressedKeys = Set<UInt16>()
     private var escPressedAt: Date?
 
@@ -46,6 +50,14 @@ final class ShortcutManager {
             guard let self else { return event }
             self.pressedKeys.remove(event.keyCode)
             if event.keyCode == Codes.esc { self.escPressedAt = nil }
+            return event
+        }
+        mouseDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            guard let window = event.window, Self.isTextInput(window.firstResponder),
+                  let input = window.firstResponder as? NSView else { return event }
+            if !input.convert(input.bounds, to: nil).contains(event.locationInWindow) {
+                window.makeFirstResponder(nil)
+            }
             return event
         }
     }
@@ -86,8 +98,11 @@ final class ShortcutManager {
         return event
     }
 
+    private static func isTextInput(_ responder: NSResponder?) -> Bool {
+        responder is NSTextView || responder is NSTextField
+    }
+
     private static func isTextInputFocused() -> Bool {
-        guard let firstResponder = NSApp.keyWindow?.firstResponder else { return false }
-        return firstResponder is NSTextView || firstResponder is NSTextField
+        isTextInput(NSApp.keyWindow?.firstResponder)
     }
 }
