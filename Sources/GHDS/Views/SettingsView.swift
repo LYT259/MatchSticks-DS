@@ -24,22 +24,22 @@ struct SettingsView: View {
 
     private var generalPanel: some View {
         settingsGroup(tr("通用")) {
-            settingsRow(tr("界面语言"), description: tr("默认跟随系统语言；手动选择立即生效。")) {
-                DSSelectControl(title: tr("界面语言"), selection: $model.languageMode, options: [
+            settingsRow(tr("界面语言")) {
+                DSSegmentedControl(title: tr("界面语言"), selection: $model.languageMode, options: [
                     DSSelectOption(value: LanguageMode.system, label: tr("跟随系统")),
                     DSSelectOption(value: LanguageMode.english, label: "English"),
                     DSSelectOption(value: LanguageMode.chinese, label: "简体中文"),
                 ])
-                .frame(width: 240)
+                .frame(width: 360)
             }
         }
     }
 
     private var dashboardPanel: some View {
         settingsGroup("Dashboard") {
-            settingsRow(tr("应用"), description: tr("打开已安装在 Mac 上的 Dashboard 应用。")) {
+            settingsRow(tr("应用")) {
                 HStack(spacing: 8) {
-                    DSSelectControl(title: tr("Dashboard 应用"), selection: $model.dashboardKind,
+                    DSSelectControl(title: tr("应用"), selection: $model.dashboardKind,
                                     options: DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) })
                         .frame(width: 180)
                     Button(tr("启动 Dashboard")) { launchDashboard() }
@@ -57,7 +57,7 @@ struct SettingsView: View {
             settingsSeparator
             durationRow(tr("阶段间等待"), $model.practiceDelayTime, range: 0...30)
             settingsSeparator
-            settingsRow(tr("播放阶段提示音"), description: tr("在「驾驶」页面开始练习；时长设置用于下一次练习。")) {
+            settingsRow(tr("播放阶段提示音")) {
                 Toggle(tr("播放阶段提示音"), isOn: $model.soundsEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -69,7 +69,7 @@ struct SettingsView: View {
 
     private var matchPanel: some View {
         settingsGroup(tr("比赛信息")) {
-            settingsRow(tr("赛事名称"), description: tr("可选")) {
+            settingsRow(tr("赛事名称")) {
                 TextField(tr("可选"), text: $model.competition)
                     .textFieldStyle(DSTextFieldStyle())
                     .accessibilityLabel(tr("赛事名称"))
@@ -86,7 +86,7 @@ struct SettingsView: View {
                 .frame(width: 240)
             }
             settingsSeparator
-            settingsRow("Game Data", description: tr("可选的游戏数据")) {
+            settingsRow("Game Data") {
                 TextField(tr("可选的游戏数据"), text: $model.gameData)
                     .textFieldStyle(DSTextFieldStyle())
                     .accessibilityLabel("Game Data")
@@ -97,7 +97,7 @@ struct SettingsView: View {
 
     private var loggingPanel: some View {
         settingsGroup(tr("日志与录制")) {
-            settingsRow(tr("记录会话日志"), description: tr("保存电池、丢包、CPU、CAN 与运行状态，生成 .dslog 和 .wpilog，可在 AdvantageScope 中查看。")) {
+            settingsRow(tr("记录会话日志")) {
                 Toggle(tr("记录会话日志"), isOn: $model.dslogEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -105,19 +105,13 @@ struct SettingsView: View {
                     .tint(DSTheme.accent)
             }
             settingsSeparator
-            settingsRow(tr("录制通信数据包"), description: tr("生成 .dsrec 文件，供连接排查与协议回归使用；也支持模拟器会话。")) {
+            settingsRow(tr("录制通信数据包")) {
                 Toggle(tr("录制通信数据包"), isOn: $model.recording)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .tint(DSTheme.accent)
             }
-            Text(tr("文件保存于用户资源库的 Application Support / GHDriverStation：Logs 为会话日志，captures 为通信录制。"))
-                .font(.system(size: 12))
-                .foregroundStyle(DSTheme.textSecondary)
-                .textSelection(.enabled)
-                .padding(16)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -135,19 +129,12 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsRow<Control: View>(_ title: String, description: String? = nil,
+    private func settingsRow<Control: View>(_ title: String,
                                             @ViewBuilder control: () -> Control) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.system(size: 13, weight: .medium))
-                if let description {
-                    Text(description)
-                        .font(.system(size: 12))
-                        .foregroundStyle(DSTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
             control()
         }
         .padding(.horizontal, 16).padding(.vertical, 14)

@@ -62,7 +62,7 @@ struct UIStateTests {
         check(model.uiStatus == "电池欠压", "brownout is distinct from disabled")
         model.commState = .searching
         check(model.uiStatus == "未连接机器人", "cached brownout is not presented as current while offline")
-        check(model.uiStatusColor == .secondary, "offline status does not retain stale brownout color")
+        check(model.uiStatusColor == DSTheme.textSecondary, "offline status does not retain stale brownout color")
         check(model.connectionDetail == "正在寻找机器人", "search state wording")
         model.robotStatus.brownout = false
         model.robotStatus.enabled = true

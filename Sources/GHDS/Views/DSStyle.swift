@@ -88,7 +88,7 @@ struct DSActionStyle: ButtonStyle {
             .foregroundStyle(prominent ? Color.white : color)
             .background(fill, in: RoundedRectangle(cornerRadius: 7))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(prominent ? Color.clear : DSTheme.line))
-            .overlay(RoundedRectangle(cornerRadius: 7).fill(configuration.isPressed ? Color.primary.opacity(0.12) : .clear))
+            .overlay(RoundedRectangle(cornerRadius: 7).fill(configuration.isPressed ? DSTheme.textPrimary.opacity(0.12) : .clear))
             .opacity(isEnabled ? 1 : 0.4)
             .contentShape(RoundedRectangle(cornerRadius: 7))
             .onHover { hovering = $0 }
@@ -106,6 +106,34 @@ struct DSMetric: View {
             Text(value).font(.system(size: 22, weight: .semibold)).monospacedDigit().foregroundStyle(color)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct DSEmptyState: View {
+    let symbol: String
+    let title: String
+    var detail: String? = nil
+    var minHeight: CGFloat = 180
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 30, weight: .light))
+                .foregroundStyle(DSTheme.textSecondary)
+            Text(title)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(DSTheme.textPrimary)
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(DSTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: minHeight)
+        .padding(20)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -151,13 +179,13 @@ extension DSModel {
     }
 
     var uiStatusColor: Color {
-        if estopEngaged || robotStatus.estop { return .red }
-        if !watchdogHealthy { return .orange }
-        guard commConnected else { return .secondary }
-        if robotStatus.brownout { return .red }
-        if enabled != robotStatus.enabled { return .orange }
-        if robotStatus.enabled { return .green }
-        return .secondary
+        if estopEngaged || robotStatus.estop { return DSTheme.danger }
+        if !watchdogHealthy { return DSTheme.warning }
+        guard commConnected else { return DSTheme.textSecondary }
+        if robotStatus.brownout { return DSTheme.danger }
+        if enabled != robotStatus.enabled { return DSTheme.warning }
+        if robotStatus.enabled { return DSTheme.success }
+        return DSTheme.textSecondary
     }
 
     var enableExplanation: String {

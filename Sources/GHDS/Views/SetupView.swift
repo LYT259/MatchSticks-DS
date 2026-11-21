@@ -58,7 +58,7 @@ struct SetupView: View {
                 }
                 Spacer()
                 Button(tr("重新扫描手柄")) { model.rescanJoysticks() }
-                    .buttonStyle(DSActionStyle(color: .secondary))
+                    .buttonStyle(DSActionStyle())
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -94,7 +94,7 @@ struct SetupView: View {
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.circle")
-                    .font(.callout).foregroundStyle(.orange)
+                    .font(.callout).foregroundStyle(DSTheme.warning)
             } else {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(hasConnectionChanges ? tr("应用后将尝试") : tr("当前连接目标"))
@@ -119,10 +119,10 @@ struct SetupView: View {
                 Spacer()
                 if hasConnectionChanges {
                     Button(tr("还原")) { resetConnectionDraft() }
-                        .buttonStyle(DSActionStyle(color: .secondary))
+                        .buttonStyle(DSActionStyle())
                 }
                 Button(tr("应用连接设置")) { applyConnectionSettings() }
-                    .buttonStyle(DSActionStyle(prominent: true))
+                    .buttonStyle(DSActionStyle(color: DSTheme.accent, prominent: true))
                     .disabled(!hasConnectionChanges || validationMessage != nil || connectionEditingLocked)
             }
             if !actionMessage.isEmpty {
@@ -152,7 +152,7 @@ struct SetupView: View {
                         simProcess = nil
                         actionMessage = tr("模拟器已停止；连接目标仍为本机，可在上方改回自动连接。")
                     }
-                    .buttonStyle(DSActionStyle(color: .secondary))
+                    .buttonStyle(DSActionStyle())
                     .disabled(connectionEditingLocked)
                 } else {
                     Button(tr("启动模拟器")) { launchSim() }

@@ -45,14 +45,18 @@ struct DSSelectControl<Value: Hashable>: View {
         .accessibilityValue(selectedLabel)
         .onKeyPress(.downArrow) { open(); return .handled }
         .onKeyPress(.upArrow) { open(last: true); return .handled }
-        .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+        .background(DSInstantPopover(isPresented: $isOpen, contentSize: popoverSize) {
             optionList
-                .presentationBackground(DSTheme.surface)
-        }
+        })
     }
 
     private var selectedLabel: String {
         options.first(where: { $0.value == selection })?.label ?? String(describing: selection)
+    }
+
+    private var popoverSize: CGSize {
+        let height = min(192, max(44, options.count * 44 + 10))
+        return CGSize(width: 240, height: CGFloat(height))
     }
 
     private var optionList: some View {
@@ -87,8 +91,7 @@ struct DSSelectControl<Value: Hashable>: View {
             }
             .padding(5)
         }
-        .frame(minWidth: 240, maxWidth: 320, maxHeight: 192)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: popoverSize.width, height: popoverSize.height)
         .background(DSTheme.surface)
         .foregroundStyle(DSTheme.textPrimary)
         .onAppear { focusCurrent() }
@@ -132,6 +135,64 @@ struct DSSelectControl<Value: Hashable>: View {
         isOpen = false
         focusedOption = nil
         triggerFocused = true
+    }
+}
+
+private struct DSInstantPopover<Content: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    let contentSize: CGSize
+    @ViewBuilder let content: Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPresented: $isPresented, content: content)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ anchor: NSView, context: Context) {
+        context.coordinator.isPresented = $isPresented
+        context.coordinator.hostingController.rootView = content
+        context.coordinator.popover.contentSize = contentSize
+        context.coordinator.sync(isPresented, anchor: anchor)
+    }
+
+    static func dismantleNSView(_ anchor: NSView, coordinator: Coordinator) {
+        coordinator.popover.delegate = nil
+        coordinator.popover.close()
+    }
+
+    final class Coordinator: NSObject, NSPopoverDelegate {
+        var isPresented: Binding<Bool>
+        let hostingController: NSHostingController<Content>
+        let popover = NSPopover()
+
+        init(isPresented: Binding<Bool>, content: Content) {
+            self.isPresented = isPresented
+            hostingController = NSHostingController(rootView: content)
+            super.init()
+            popover.animates = false
+            popover.behavior = .transient
+            popover.delegate = self
+            popover.contentViewController = hostingController
+        }
+
+        func sync(_ presented: Bool, anchor: NSView) {
+            if presented {
+                guard !popover.isShown, anchor.window != nil else { return }
+                popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+            } else if popover.isShown {
+                popover.close()
+            }
+        }
+
+        func popoverDidClose(_ notification: Notification) {
+            guard isPresented.wrappedValue else { return }
+            DispatchQueue.main.async {
+                self.isPresented.wrappedValue = false
+            }
+        }
     }
 }
 
@@ -186,7 +247,7 @@ struct DSSegmentedControl<Value: Hashable>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(DSSegmentButtonStyle())
-                .accessibilityLabel(option.label)
+                .accessibilityLabel("\(title)，\(option.label)")
                 .accessibilityAddTraits(option.value == selection ? .isSelected : [])
             }
         }
@@ -194,7 +255,6 @@ struct DSSegmentedControl<Value: Hashable>: View {
         .background(DSTheme.segmentTrack, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
         .frame(minHeight: 32)
-        .accessibilityLabel(title)
     }
 }
 
@@ -228,6 +288,7 @@ struct DSTextFieldStyle: TextFieldStyle {
 struct DSSearchField: View {
     let title: String
     @Binding var text: String
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -236,6 +297,7 @@ struct DSSearchField: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .accessibilityLabel(title)
+                .focused($focused)
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -249,6 +311,6 @@ struct DSSearchField: View {
         .padding(.horizontal, 9).padding(.vertical, 5)
         .frame(minHeight: 32)
         .background(DSTheme.button, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(DSTheme.line))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(focused ? DSTheme.focusRing : DSTheme.line))
     }
 }

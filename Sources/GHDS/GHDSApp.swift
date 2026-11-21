@@ -218,7 +218,7 @@ struct SafetyControlBar: View {
                 Button { model.setEnabled(false) } label: {
                     controlLabel(tr("失能"), hint: "Return", symbol: "stop.fill")
                 }
-                .buttonStyle(DSActionStyle(color: .primary))
+                .buttonStyle(DSActionStyle())
                 Divider().frame(height: 36).padding(.horizontal, 3)
                 Button { model.triggerEstop() } label: {
                     controlLabel(model.estopEngaged ? tr("急停已锁定") : tr("急停"), hint: "Space", symbol: "exclamationmark.octagon.fill")
@@ -240,7 +240,7 @@ struct SafetyControlBar: View {
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 16)
-        .background(DSTheme.surface)
+        .background(DSTheme.sidebar)
     }
 
     private func controlLabel(_ title: String, hint: String, symbol: String) -> some View {
