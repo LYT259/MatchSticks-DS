@@ -25,14 +25,16 @@ struct OperationView: View {
                             }
                         }
                         DSPanel(title: tr("联盟站位")) {
-                            DSSegmentedControl(title: tr("联盟站位"), selection: Binding(get: { model.alliance }, set: { model.alliance = $0 }), options: [
-                                DSSelectOption(value: AllianceStation.red1, label: tr("红 1")),
-                                DSSelectOption(value: AllianceStation.red2, label: tr("红 2")),
-                                DSSelectOption(value: AllianceStation.red3, label: tr("红 3")),
-                                DSSelectOption(value: AllianceStation.blue1, label: tr("蓝 1")),
-                                DSSelectOption(value: AllianceStation.blue2, label: tr("蓝 2")),
-                                DSSelectOption(value: AllianceStation.blue3, label: tr("蓝 3")),
-                            ], selectedColor: DSTheme.allianceColor(for:))
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    blueAllianceGroup
+                                    redAllianceGroup
+                                }
+                                VStack(alignment: .leading, spacing: 12) {
+                                    blueAllianceGroup
+                                    redAllianceGroup
+                                }
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -79,6 +81,40 @@ struct OperationView: View {
                 }
             }
             .padding(24)
+        }
+    }
+
+    private var blueAllianceGroup: some View {
+        allianceGroup(title: tr("蓝方"), color: DSTheme.allianceBlue, stations: [.blue1, .blue2, .blue3])
+    }
+
+    private var redAllianceGroup: some View {
+        allianceGroup(title: tr("红方"), color: DSTheme.allianceRed, stations: [.red1, .red2, .red3])
+    }
+
+    private func allianceGroup(title: String, color: Color, stations: [AllianceStation]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(color)
+            DSSegmentedControl(
+                title: title,
+                selection: Binding(get: { model.alliance }, set: { model.alliance = $0 }),
+                options: stations.map { DSSelectOption(value: $0, label: stationLabel($0)) },
+                selectedColor: { _ in color }
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func stationLabel(_ station: AllianceStation) -> String {
+        switch station {
+        case .red1: tr("红 1")
+        case .red2: tr("红 2")
+        case .red3: tr("红 3")
+        case .blue1: tr("蓝 1")
+        case .blue2: tr("蓝 2")
+        case .blue3: tr("蓝 3")
         }
     }
 

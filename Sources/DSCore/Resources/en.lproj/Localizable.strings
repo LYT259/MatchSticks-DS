@@ -243,6 +243,8 @@
 "测试" = "Test";
 "调试机器人程序中的测试功能" = "Debug test routines in robot code";
 "联盟站位" = "Alliance Station";
+"蓝方" = "Blue Alliance";
+"红方" = "Red Alliance";
 "红 1" = "Red 1";
 "红 2" = "Red 2";
 "红 3" = "Red 3";
