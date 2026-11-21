@@ -1,5 +1,19 @@
+import AppKit
 import SwiftUI
 import DSCore
+
+fileprivate final class FocusTestProbe: NSObject, NSTextFieldDelegate {
+    var textEditingEndedCount = 0
+    var buttonActionCount = 0
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        textEditingEndedCount += 1
+    }
+
+    @objc func focusButtonClicked(_ sender: NSButton) {
+        buttonActionCount += 1
+    }
+}
 
 // Compile with the actual app model and presentation code. Never call start():
 // no sockets, hardware enumeration, saved settings, or physical robot are used.
@@ -342,6 +356,90 @@ struct UIStateTests {
         check(jmRun.joystickSlots.count == 1 && jmRun.joystickSlots[0].axes.first == 0.25, "timer-driven polling populates the visible slot")
         check(jmRun.latestPublishedJoysticks.first?.axes.first == 0.25, "timer-driven polling feeds the control snapshot")
         try? FileManager.default.removeItem(atPath: stallPath)
+
+        // ===== 点击输入框外部退出编辑（2026-11-21）=====
+        // 真实 AppKit 焦点回归：字段编辑器存在 → 空白点击结束编辑且保留文字 → 重新聚焦后框内点击保持编辑。
+        // 再用 delegate 结束通知、按钮 target/action 与跨字段切换证明不是“无条件 resign 后 AppKit 又聚焦”。
+        let previousActivationPolicy = NSApplication.shared.activationPolicy()
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        let focusWindow = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: 320, height: 160),
+                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        focusWindow.isReleasedWhenClosed = false
+        let focusContent = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 160))
+        focusWindow.contentView = focusContent
+        let focusField = NSTextField(frame: NSRect(x: 20, y: 100, width: 200, height: 24))
+        let secondField = NSTextField(frame: NSRect(x: 20, y: 60, width: 200, height: 24))
+        focusContent.addSubview(focusField)
+        focusContent.addSubview(secondField)
+        let focusProbe = FocusTestProbe()
+        focusField.delegate = focusProbe
+        let focusButton = NSButton(title: "Done", target: focusProbe,
+                                   action: #selector(FocusTestProbe.focusButtonClicked(_:)))
+        focusButton.frame = NSRect(x: 240, y: 96, width: 64, height: 28)
+        focusButton.bezelStyle = .rounded
+        focusContent.addSubview(focusButton)
+        focusWindow.orderFront(nil)
+        focusWindow.makeFirstResponder(focusField)
+
+        let shortcutManager = ShortcutManager()
+        shortcutManager.install(model: DSModel())
+
+        func click(_ point: NSPoint) {
+            let timestamp = ProcessInfo.processInfo.systemUptime
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+                                                timestamp: timestamp,
+                                                windowNumber: focusWindow.windowNumber, context: nil,
+                                                eventNumber: 0, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [],
+                                              timestamp: timestamp,
+                                              windowNumber: focusWindow.windowNumber, context: nil,
+                                              eventNumber: 1, clickCount: 1, pressure: 0) else {
+                check(false, "synthetic left-click events are created")
+                return
+            }
+            // 按钮 / 新聚焦的文本视图会在 mouseDown 内跟踪 mouseUp；先把 up 入队，
+            // 让 AppKit 的跟踪循环取走它，否则 sendEvent(down) 会阻塞等待真实鼠标抬起。
+            NSApp.postEvent(up, atStart: true)
+            NSApp.sendEvent(down)
+            if let pendingUp = NSApp.nextEvent(matching: .leftMouseUp, until: Date(),
+                                              inMode: .default, dequeue: true) {
+                NSApp.sendEvent(pendingUp)
+            }
+        }
+
+        focusField.stringValue = "2590"
+        focusField.selectText(nil)
+        // 初始化焦点本身可能产生结束编辑通知；之后的计数只反映交互导致的结束。
+        focusProbe.textEditingEndedCount = 0
+        // 保持 manager 与生产生命周期一致：应用常驻持有；鼠标监听闭包不捕获 self。
+        withExtendedLifetime(shortcutManager) {
+            check(focusField.currentEditor() != nil, "focused text field owns an active field editor")
+            click(NSPoint(x: 270, y: 30))
+            check(focusField.currentEditor() == nil, "clicking outside the text field ends editing")
+            check(focusProbe.textEditingEndedCount == 1,
+                  "clicking outside reports exactly one end-editing notification")
+            check(focusField.stringValue == "2590", "clicking outside keeps the entered text")
+            focusField.selectText(nil)
+            check(focusField.currentEditor() != nil, "refocusing the text field starts editing again")
+            click(NSPoint(x: 60, y: 112))
+            check(focusField.currentEditor() != nil, "clicking inside the text field keeps editing")
+            check(focusProbe.textEditingEndedCount == 1,
+                  "clicking inside does not end editing again")
+            check(focusField.stringValue == "2590", "clicking inside keeps the entered text")
+
+            click(NSPoint(x: 272, y: 110))
+            check(focusProbe.buttonActionCount == 1, "clicking the button triggers its action exactly once")
+            check(focusField.currentEditor() == nil, "clicking the button ends text editing")
+
+            focusField.selectText(nil)
+            check(focusField.currentEditor() != nil, "first field regains editing before the second-field click")
+            click(NSPoint(x: 60, y: 72))
+            check(focusField.currentEditor() == nil, "clicking the second field releases the first editor")
+            check(secondField.currentEditor() != nil, "clicking the second field starts editing there")
+        }
+        focusWindow.orderOut(nil)
+        focusWindow.close()
+        NSApplication.shared.setActivationPolicy(previousActivationPolicy)
 
         print("GHDS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
