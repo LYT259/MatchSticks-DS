@@ -4,7 +4,7 @@ import DSCore
 // Same status source and safety-gated actions as the main window.
 struct MiniView: View {
     let model: DSModel
-    // 语言切换 → .id(effective) 整树重建（与主窗 RootView 同一机制）
+    // 与主窗一样由观察驱动刷新，避免切换语言时重建整树。
     @ObservedObject private var language = LanguageManager.shared
 
     var body: some View {
@@ -49,7 +49,6 @@ struct MiniView: View {
         .frame(width: 420)
         .background(DSTheme.surface)
         .overlay(WindowTitleSync(title: tr("迷你驾驶台")))
-        .id(language.effective)
     }
 }
 

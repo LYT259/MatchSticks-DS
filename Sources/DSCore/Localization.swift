@@ -30,7 +30,7 @@ public final class LanguageManager: ObservableObject, @unchecked Sendable {
     /// 测试不要用 shared——用 init() 自建实例隔离。
     public static let shared = LanguageManager()
 
-    /// UI 观察用（主线程写）：根部 .id(effective) 即可实现语言切换整树重建。
+    /// UI 观察用（主线程写）：观察 effective 即可重算文案，无需重建视图整树。
     @Published public private(set) var effective: AppLanguage
     /// 跨线程 tr() 读用快照（控制环线程、server 线程也会产出用户可见文案）。
     /// 命名避开 @Published 合成的 _effective 存储。

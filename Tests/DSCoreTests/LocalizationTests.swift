@@ -33,6 +33,11 @@ func enTableTests() {
     defer { LanguageManager.shared.setMode(.system) }
     check(tr("使能") == "Enable", "en 表基本键")
     check(tr("急停已锁定") == "E-Stop Latched", "en 表状态键（FRC 术语）")
+    check(tr("设置") == "Settings", "en 表设置页标题")
+    check(tr("连接") == "Connection", "en 表连接页标题")
+    check(tr("通用") == "General", "en 表设置页通用分组")
+    check(tr("配置机器人连接目标，或启动本机模拟器。") == "Configure the robot connection or start the local simulator.", "en 表连接页副标题")
+    check(tr("先在「连接」页配置机器人。") == "Configure the robot on the Connection page first.", "en 表连接引导")
     check(tr("槽位 %d", 3) == "Slot 3", "en 表格式键 %d")
     check(tr("已使能 · %@", "Teleoperated") == "Enabled · Teleoperated", "en 表格式键 %@")
     check(tr("不存在键＿本地化测试") == "不存在键＿本地化测试", "未命中回退中文键")

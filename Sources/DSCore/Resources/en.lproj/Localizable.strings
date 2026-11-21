@@ -26,7 +26,7 @@
 "急停已锁定；复位将请求重启机器人程序。" = "E-Stop latched; resetting will request a robot code restart.";
 "机器人仍报告急停；请在诊断页检查或重启机器人程序。" = "The robot still reports E-Stop; check Diagnostics or restart robot code.";
 "界面心跳异常，使能输出已冻结。" = "UI heartbeat abnormal; enable output is frozen.";
-"先在「连接与设置」中配置机器人。" = "Configure the robot in Connection & Settings first.";
+"先在「连接」页配置机器人。" = "Configure the robot on the Connection page first.";
 "运行中。按 Return 失能，按空格急停。" = "Running. Press Return to disable, Space to E-Stop.";
 "使能后机器人可能运动，请先确认周围安全。" = "The robot may move once enabled; confirm the area is clear first.";
 "复位急停" = "Reset E-Stop";
@@ -40,12 +40,13 @@
 
 /* ===== 侧栏与页面导航（GHDSApp）===== */
 "驾驶" = "Drive";
-"连接与设置" = "Connection & Settings";
+"连接" = "Connection";
 "手柄" = "Joysticks";
 "诊断" = "Diagnostics";
 "数据图表" = "Charts";
 "控制台" = "Console";
 "权限与帮助" = "Permissions & Help";
+"设置" = "Settings";
 "确认连接与模式，然后开始操作。" = "Confirm connection and mode, then start operating.";
 "连接机器人，配置练习和记录偏好。" = "Connect the robot and configure practice and logging preferences.";
 "检查输入，安排机器人接收的手柄顺序。" = "Inspect inputs and set the joystick order the robot receives.";
@@ -59,7 +60,8 @@
 "尚未设置队伍" = "No team set";
 "仅供练习与调试" = "Practice & debugging only";
 
-/* ===== SetupView ===== */
+/* ===== ConnectionView（连接页：机器人目标与模拟器）===== */
+"配置机器人连接目标，或启动本机模拟器。" = "Configure the robot connection or start the local simulator.";
 "仅供练习与测试使用，第三方 Driver Station 不用于正式比赛。" = "For practice and testing only; third-party Driver Stations are not for official matches.";
 "连接机器人" = "Connect Robot";
 "选择机器人类型，填入队伍号，然后应用设置。" = "Choose the robot type, enter the team number, then apply.";
@@ -83,6 +85,8 @@
 "还原" = "Revert";
 "应用连接设置" = "Apply Connection Settings";
 "操作结果：%@" = "Result: %@";
+"已连接" = "Connected";
+"已应用连接设置，正在寻找机器人。" = "Connection settings applied; searching for the robot.";
 "没有机器人？先试用模拟器" = "No Robot? Try the Simulator";
 "在这台 Mac 上模拟 roboRIO，无真实执行机构。" = "Simulates a roboRIO on this Mac; no real actuators.";
 "本机模拟器正在运行" = "Local simulator running";
@@ -91,9 +95,21 @@
 "停止模拟器" = "Stop Simulator";
 "模拟器已停止；连接目标仍为本机，可在上方改回自动连接。" = "Simulator stopped; the target is still local — switch back to auto-connect above.";
 "启动模拟器" = "Start Simulator";
+"无法定位模拟器，请检查应用是否完整。" = "Cannot locate the simulator; check the app bundle.";
+"无法定位 GHDSSim（无可执行目录）" = "Cannot locate GHDSSim (no executable directory)";
+"当前应用未包含模拟器。请使用包含 GHDSSim 的完整应用。" = "This app build does not include the simulator. Use the full app with GHDSSim bundled.";
+"未找到 GHDSSim：%@" = "GHDSSim not found: %@";
+"模拟器启动失败，连接设置未更改。" = "Simulator failed to start; connection settings unchanged.";
+"模拟器启动失败：%@（未改动手动 IP）" = "Simulator failed to start: %@ (manual IP unchanged)";
+"模拟器已启动，连接目标已切换为本机。" = "Simulator started; connection target switched to local.";
+"模拟器已启动（127.0.0.1），手动 IP 已切换" = "Simulator started (127.0.0.1); manual IP switched";
+
+/* ===== SettingsView（设置页：通用设置）===== */
+"通用" = "General";
 "更多设置" = "More Settings";
 "这些选项会即时保存或生效。" = "These options save or take effect immediately.";
 "应用" = "App";
+"Dashboard 应用" = "Dashboard App";
 "启动 Dashboard" = "Launch Dashboard";
 "打开已安装在 Mac 上的 Dashboard 应用。" = "Opens the Dashboard app installed on this Mac.";
 "自动阶段" = "Autonomous";
@@ -123,18 +139,8 @@
 "会话日志已开启" = "Session logs on";
 "会话日志已关闭" = "Session logs off";
 "日志与录制" = "Logs & Recording";
-"已连接" = "Connected";
-"已应用连接设置，正在寻找机器人。" = "Connection settings applied; searching for the robot.";
 "尝试启动 Dashboard：%@" = "Trying to launch Dashboard: %@";
 "启动 Dashboard 失败：%@（%@）——请确认已安装该应用" = "Failed to launch Dashboard: %@ (%@) — make sure the app is installed";
-"无法定位模拟器，请检查应用是否完整。" = "Cannot locate the simulator; check the app bundle.";
-"无法定位 GHDSSim（无可执行目录）" = "Cannot locate GHDSSim (no executable directory)";
-"当前应用未包含模拟器。请使用包含 GHDSSim 的完整应用。" = "This app build does not include the simulator. Use the full app with GHDSSim bundled.";
-"未找到 GHDSSim：%@" = "GHDSSim not found: %@";
-"模拟器启动失败，连接设置未更改。" = "Simulator failed to start; connection settings unchanged.";
-"模拟器启动失败：%@（未改动手动 IP）" = "Simulator failed to start: %@ (manual IP unchanged)";
-"模拟器已启动，连接目标已切换为本机。" = "Simulator started; connection target switched to local.";
-"模拟器已启动（127.0.0.1），手动 IP 已切换" = "Simulator started (127.0.0.1); manual IP switched";
 
 /* ===== DiagnosticsView ===== */
 "确认重启机器人控制器？" = "Restart robot controller?";

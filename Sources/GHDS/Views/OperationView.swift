@@ -3,7 +3,8 @@ import DSCore
 
 struct OperationView: View {
     let model: DSModel
-    var openSetup: () -> Void = {}
+    var openConnection: () -> Void = {}
+    var openSettings: () -> Void = {}
     var openControllers: () -> Void = {}
 
     var body: some View {
@@ -24,21 +25,20 @@ struct OperationView: View {
                             }
                         }
                         DSPanel(title: tr("联盟站位")) {
-                            Picker(tr("联盟站位"), selection: Binding(get: { model.alliance }, set: { model.alliance = $0 })) {
-                                Text(tr("红 1")).tag(AllianceStation.red1)
-                                Text(tr("红 2")).tag(AllianceStation.red2)
-                                Text(tr("红 3")).tag(AllianceStation.red3)
-                                Text(tr("蓝 1")).tag(AllianceStation.blue1)
-                                Text(tr("蓝 2")).tag(AllianceStation.blue2)
-                                Text(tr("蓝 3")).tag(AllianceStation.blue3)
-                            }
-                            .pickerStyle(.segmented).labelsHidden()
+                            DSSegmentedControl(title: tr("联盟站位"), selection: Binding(get: { model.alliance }, set: { model.alliance = $0 }), options: [
+                                DSSelectOption(value: AllianceStation.red1, label: tr("红 1")),
+                                DSSelectOption(value: AllianceStation.red2, label: tr("红 2")),
+                                DSSelectOption(value: AllianceStation.red3, label: tr("红 3")),
+                                DSSelectOption(value: AllianceStation.blue1, label: tr("蓝 1")),
+                                DSSelectOption(value: AllianceStation.blue2, label: tr("蓝 2")),
+                                DSSelectOption(value: AllianceStation.blue3, label: tr("蓝 3")),
+                            ])
                         }
                     }
                     .frame(maxWidth: .infinity)
                     VStack(alignment: .leading, spacing: 18) {
                         DSPanel(title: tr("操作前检查")) {
-                            readinessRow(tr("机器人连接"), detail: model.connectionDetail, ready: model.commConnected, symbol: "network", action: openSetup)
+                            readinessRow(tr("机器人连接"), detail: model.connectionDetail, ready: model.commConnected, symbol: "network", action: openConnection)
                             Divider()
                             readinessRow(tr("机器人程序"), detail: model.commConnected && model.robotTrace.hasRobotCode ? tr("已检测到运行中的程序") : tr("等待机器人回传状态"), ready: model.commConnected && model.robotTrace.hasRobotCode, symbol: "curlybraces")
                             Divider()
@@ -62,7 +62,7 @@ struct OperationView: View {
                             }
                             if model.practiceActive {
                                 Button(tr("停止练习（A-Stop）"), systemImage: "stop.fill") { model.aStop() }
-                                    .buttonStyle(DSActionStyle(color: .red))
+                                    .buttonStyle(DSActionStyle(color: DSTheme.danger))
                                     .keyboardShortcut(.delete, modifiers: [])
                             } else {
                                 Button(tr("开始自动练习"), systemImage: "play.circle") { model.startPractice() }
@@ -70,7 +70,7 @@ struct OperationView: View {
                             }
                             Text(tr("开始后将按时序自动请求使能。阶段间延迟 %d 秒。", Int(model.practiceDelayTime)))
                                 .font(.caption).foregroundStyle(.secondary)
-                            Button(tr("调整练习时长"), action: openSetup).buttonStyle(.link)
+                            Button(tr("调整练习时长"), action: openSettings).buttonStyle(.link)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -110,14 +110,12 @@ struct OperationView: View {
             if model.opModes.isEmpty {
                 Text(tr("等待机器人提供 OpMode 列表…")).font(.callout).foregroundStyle(.secondary)
             } else {
-                Picker("OpMode", selection: Binding(get: { model.selectedOpModeHash }, set: { hash in
+                DSSelectControl(title: "OpMode", selection: Binding(get: { model.selectedOpModeHash }, set: { hash in
                     if let op = model.opModes.first(where: { $0.hash == hash }) { model.selectOpMode(op) }
-                })) {
-                    Text(tr("选择程序")).tag(UInt64(0))
-                    ForEach(model.opModes, id: \.hash) { op in
-                        Text("\(op.group) · \(op.name)").tag(op.hash)
-                    }
-                }
+                }), options: [DSSelectOption(value: UInt64(0), label: tr("选择程序"))] + model.opModes.map {
+                    DSSelectOption(value: $0.hash, label: "\($0.group) · \($0.name)")
+                })
+                .frame(maxWidth: 420)
                 Text(tr("所选程序将在使能时发送给机器人。")).font(.caption).foregroundStyle(.secondary)
             }
         }
