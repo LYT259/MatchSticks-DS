@@ -53,6 +53,13 @@ if [ ! -d "$BUILD_DIR/GHDriverStation_GHDS.bundle" ]; then
     exit 1
 fi
 cp -R "$BUILD_DIR/GHDriverStation_GHDS.bundle" "$APP/Contents/Resources/"
+RESOURCE_DIR="$APP/Contents/Resources/GHDriverStation_GHDS.bundle/Contents/Resources"
+for REQUIRED in FOGHORN.wav Gamepads/dualsense.png Gamepads/xbox-series.png Gamepads/f310.png Gamepads/direwolf4.png Gamepads/extreme3dpro.png; do
+    if [ ! -f "$RESOURCE_DIR/$REQUIRED" ]; then
+        echo "  ✗ 应用资源缺失：$REQUIRED" >&2
+        exit 1
+    fi
+done
 
 # 图标（缺失时跳过，不阻塞打包）
 if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
