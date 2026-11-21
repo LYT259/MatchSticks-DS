@@ -84,6 +84,8 @@ public final class DSClient {
     public var recordSink: ((RecordedDirection, Data) -> Void)?
     /// 每 20ms tick 回调（MRC 模式下发 NT4 ControlData 用；loop queue）
     public var tickHook: (() -> Void)?
+    /// UDP 直连绑定注入（测试用；start 前设置）
+    public var udpBindProviderForTest: (Int32, String) -> DirectInterface.BindResult = DirectInterface.bind
     /// 首连日期 tag 的来源
     public var dateProvider: () -> Date = { Date() }
     public var timeZoneProvider: () -> String = { TimeZone.current.identifier }
@@ -97,6 +99,15 @@ public final class DSClient {
     private var running = false
 
     private var udpSock: Int32 = -1
+    /// UDP 直连绑定缓存（目标/结果/时刻），只在目标切换或约 2s 刷新时重绑
+    private var udpBindTarget: String?
+    private var udpBindResult: DirectInterface.BindResult?
+    private var udpBindAt: Double = 0
+    private var udpBindLogState: [String: (at: Double, line: String)] = [:]
+    private static let udpBindRefreshInterval = 2.0
+    private static let udpBindFailureRetryInterval = 0.1
+    private static let udpBindLogWindow = 10.0
+    private static let udpBindLogMaxTargets = 16
     private var tcpSock: Int32 = -1
     private var tcpBuffer = Data()
     private var tcpConnected = false
@@ -131,6 +142,10 @@ public final class DSClient {
     private var watchdogTripped = false
     private var watchdogTripStart: Double = 0
     private var statsWindowConnected = false
+    /// 自动失能后等待上层实际落 enabled=false 的安全闩锁
+    private var awaitingUpperDisabled = false
+    /// 当前连续绑定失败 episode 是否已上报 autoDisabled
+    private var bindFailureNotified = false
 
     /// 坏应答限流状态（loop queue 所有；按来源 IP 一份）
     private var malformedLogState: [String: (at: Double, suppressed: Int)] = [:]
@@ -253,6 +268,55 @@ public final class DSClient {
 
     // MARK: UDP
 
+    private func resetUDPBindCacheLocked() {
+        udpBindTarget = nil
+        udpBindResult = nil
+        udpBindAt = 0
+        udpBindLogState.removeAll()
+        bindFailureNotified = false
+    }
+
+    private func refreshUDPBindLocked(target: String, now: Double) -> (result: DirectInterface.BindResult, attempted: Bool) {
+        if target == udpBindTarget, let cached = udpBindResult {
+            let interval: Double
+            if case .failed = cached {
+                interval = Self.udpBindFailureRetryInterval
+            } else {
+                interval = Self.udpBindRefreshInterval
+            }
+            if now - udpBindAt < interval { return (cached, false) }
+        }
+        let result = udpBindProviderForTest(udpSock, target)
+        udpBindTarget = target
+        udpBindResult = result
+        udpBindAt = now
+        logUDPBindLocked(target: target, result: result, now: now)
+        return (result, true)
+    }
+
+    private func logUDPBindLocked(target: String, result: DirectInterface.BindResult, now: Double) {
+        let line: String
+        switch result {
+        case .bound(let name, let index):
+            line = tr("UDP 机器人直连：%@ → 网卡 %@（索引 %d）", target, name, Int(index))
+        case .noMatch:
+            line = tr("UDP 未匹配机器人网卡：%@，暂按系统路由发送", target)
+        case .failed(let code):
+            line = tr("UDP 机器人网卡绑定失败：%@（errno %d）", target, Int(code))
+        }
+        if let last = udpBindLogState[target], last.line == line {
+            switch result {
+            case .bound, .noMatch:
+                return
+            case .failed:
+                if now - last.at < Self.udpBindLogWindow { return }
+            }
+        }
+        if udpBindLogState.count >= Self.udpBindLogMaxTargets { udpBindLogState.removeAll() }
+        udpBindLogState[target] = (at: now, line: line)
+        emit(.log(line))
+    }
+
     private func openUDPLocked() {
         closeUDPLocked()
         let fd = socket(AF_INET, SOCK_DGRAM, 0)
@@ -308,7 +372,12 @@ public final class DSClient {
         }
     }
 
+    public var localUDPBoundInterfaceIndexForTest: UInt32? {
+        queue.sync { DirectInterface.boundInterfaceIndex(fd: udpSock) }
+    }
+
     private func closeUDPLocked() {
+        resetUDPBindCacheLocked()
         guard udpSock >= 0 else { return }
         close(udpSock)
         udpSock = -1
@@ -436,8 +505,8 @@ public final class DSClient {
         return String(cString: buf)
     }
 
-    private func sendControlPacketLocked(now: Double) {
-        guard udpSock >= 0, !candidates.isEmpty else { return }
+    private func sendControlPacketLocked(now: Double) -> Bool {
+        guard udpSock >= 0, !candidates.isEmpty else { return !awaitingUpperDisabled }
 
         // 目标轮换：搜索态每 500ms 换下一个候选
         if !isConnectedLocked {
@@ -448,10 +517,25 @@ public final class DSClient {
             }
         }
         guard let target = currentTarget,
-              let addr = sockaddrFor(target, port: config.controlPort) else { return }
+              let addr = sockaddrFor(target, port: config.controlPort) else {
+            return !awaitingUpperDisabled
+        }
+
+        let bind = refreshUDPBindLocked(target: target, now: now)
+        let bindFailure: Int32?
+        if case .failed(let code) = bind.result {
+            bindFailure = code
+        } else {
+            bindFailure = nil
+            bindFailureNotified = false
+        }
 
         let snapshot = snapshotProvider()
         var control = snapshot.control
+
+        if awaitingUpperDisabled, !snapshot.control.enabled {
+            awaitingUpperDisabled = false
+        }
 
         // 看门狗：主线程冻结 → 冻结使能（estop 状态保持透传）
         let beatAge = heartbeatAge()
@@ -474,6 +558,28 @@ public final class DSClient {
             emit(.commState(.searching))
             emit(.autoDisabled(reason: "communication lost (> \(Int(config.silenceLimit * 1000))ms silence)"))
             sentDateTag = false
+            awaitingUpperDisabled = true
+        }
+
+        if let code = bindFailure {
+            if bind.attempted, isConnectedLocked {
+                commState = .searching
+                closeTCPLocked()
+                emit(.commState(.searching))
+                if !bindFailureNotified {
+                    emit(.autoDisabled(reason: "direct interface bind failed for \(target) (errno \(code))"))
+                    bindFailureNotified = true
+                }
+                sentDateTag = false
+            }
+            if bind.attempted {
+                awaitingUpperDisabled = true
+                control.enabled = false
+                return false
+            }
+            control.enabled = false
+        } else if awaitingUpperDisabled {
+            control.enabled = false
         }
 
         var request = RequestWord()
@@ -524,6 +630,7 @@ public final class DSClient {
             txSeq &+= 1; txCount += 1
             recordSink?(.controlOut, packet)
         }
+        return !awaitingUpperDisabled && bindFailure == nil
     }
 
     private func nextCandidateLocked() -> String {
@@ -604,7 +711,7 @@ public final class DSClient {
     /// - timedOut：poll 截止时间到（黑洞链路/物理断线；阻塞式 connect 会挂到内核超时，
     ///   回环实测 ~7.8s、真机 en4 实测 ~75s）
     /// - unreachable：ENETUNREACH / EHOSTUNREACH
-    /// - error：其余错误（含非数字 IP，errno=EINVAL）
+    /// - error：其余错误（含非数字 IP 的 EINVAL、直连绑定失败）
     /// 非 connected 路径均已关闭 fd。
     public enum TCPConnectOutcome: Equatable, Sendable {
         case connected(fd: Int32)
@@ -630,6 +737,13 @@ public final class DSClient {
         let flags = fcntl(fd, F_GETFL, 0)
         guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
             let e = errno; close(fd); return .error(errno: e)
+        }
+        switch DirectInterface.bind(fd: fd, target: ip) {
+        case .bound, .noMatch:
+            break
+        case .failed(let errno):
+            close(fd)
+            return .error(errno: errno)
         }
 
         let rc = withUnsafePointer(to: addr) { ptr in
@@ -776,9 +890,9 @@ public final class DSClient {
         guard running else { return }
         let now = monotonicNow()
         drainUDPLocked(now: now)
-        sendControlPacketLocked(now: now)
+        let allowTickHook = sendControlPacketLocked(now: now)
         ensureTCPLocked(now: now)
-        tickHook?()
+        if allowTickHook { tickHook?() }
 
         // 每秒发一次统计；窗口起点未连接（含连接瞬间的半窗）不计，
         // 否则连接初期会出现 100% 丢包伪影

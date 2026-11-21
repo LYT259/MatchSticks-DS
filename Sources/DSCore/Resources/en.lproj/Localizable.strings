@@ -471,6 +471,10 @@
 "MRC 错误包：code %d（版本不匹配？）" = "MRC error packet: code %d (version mismatch?)";
 "无法解码应答（来自 %@，%d 字节，前缀 %@）——已丢弃，不建立连接" = "Undecodable reply (from %@, %d bytes, prefix %@) — dropped, no connection made";
 "（本窗口另抑制 %d 条同类包）" = " (%d similar packets suppressed in this window)";
+"UDP 机器人直连：%@ → 网卡 %@（索引 %d）" = "UDP robot direct route: %1$@ → interface %2$@ (index %3$d)";
+"UDP 未匹配机器人网卡：%@，暂按系统路由发送" = "No robot interface matched for UDP target %@; using the system route";
+"UDP 机器人网卡绑定失败：%@（errno %d）" = "Robot interface binding failed for UDP target %1$@ (errno %2$d)";
+"NT4 机器人网卡绑定失败（errno %d），已关闭该连接" = "Robot interface binding failed for NT4 (errno %d); connection closed";
 
 /* ===== WebUI 语言键 ===== */
 "语言须为 system/chinese/english" = "Language must be system/chinese/english";
