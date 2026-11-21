@@ -392,6 +392,7 @@ runTest("gamepadProfileRobustness", gamepadProfileRobustnessTests)
 runTest("languageResolve", languageResolveTests)
 runTest("languageManager", languageManagerTests)
 runTest("enTable", enTableTests)
+runTest("localizationSourceCoverage", localizationSourceCoverageTests)
 runTest("webuiLanguage", webuiLanguageTests)
 
 print("\n\(checks) checks, \(failures.count) failures")
