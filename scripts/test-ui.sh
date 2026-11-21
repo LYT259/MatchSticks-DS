@@ -43,5 +43,13 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/GHDS/Views/DSControls.swift Sources/GHDS/PracticeAudioPlayer.swift \
   Sources/GHDS/UpdateFlow.swift .build/uitest/BundleModuleShim.swift \
   Sources/GHDS/Shortcuts.swift \
-  Tests/GHDSUITests/main.swift -o .build/GHDSUIStateTests
+  Sources/GHDS/XInputUSB/F310XInputReport.swift \
+  Sources/GHDS/XInputUSB/F310XInputLifecycle.swift \
+  Sources/GHDS/XInputUSB/F310XInputManager.swift \
+  Sources/GHDS/GamepadInputManager.swift \
+  Sources/GHDS/Views/GamepadArtwork/GamepadArtwork.swift \
+  Tests/GHDSUITests/main.swift Tests/GHDSUITests/F310XInputReportTests.swift \
+  Tests/GHDSUITests/F310XInputLifecycleTests.swift \
+  Tests/GHDSUITests/GamepadArtworkTests.swift Tests/GHDSUITests/GamepadTriggerRangeTests.swift \
+  -o .build/GHDSUIStateTests
 .build/GHDSUIStateTests

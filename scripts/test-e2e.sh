@@ -125,16 +125,16 @@ echo "  ✓ 进程全程存活"
 
 echo "▶ Radio 可达性断言（GHDSSim --radio-port 8080）"
 # 不杀模拟器制造离线：只读日志，离线场景由单元测试覆盖
-grep -Fq "Radio 状态：已响应" "$WORK/e2e.log" 2>/dev/null || {
+grep -Eq "Radio 状态：已响应|Radio status: responding" "$WORK/e2e.log" 2>/dev/null || {
     grep "Radio" "$WORK/e2e.log" 2>/dev/null | tail -5
     fail "e2e.log 未见「Radio 状态：已响应」（radio 端口 8080 未生效？）"
 }
 echo "  ✓ Radio 状态：已响应"
 
-LINES="$(grep "控制环吞吐" "$WORK/e2e.log" 2>/dev/null || true)"
+LINES="$(grep -E "控制环吞吐：|Control loop throughput:" "$WORK/e2e.log" 2>/dev/null || true)"
 [ -n "$LINES" ] || { grep -v "UI stall" "$WORK/e2e.log" 2>/dev/null | tail -8; fail "未见吞吐汇总行（控制包未按节拍发？）"; }
 COUNT="$(printf '%s\n' "$LINES" | wc -l | tr -d ' ')"
-MIN_HZ="$(printf '%s\n' "$LINES" | sed -n 's/.*控制环吞吐：\([0-9.]*\) Hz.*/\1/p' | sort -g | head -1)"
+MIN_HZ="$(printf '%s\n' "$LINES" | sed -E -n 's/.*(吞吐：|throughput: )([0-9.]+) Hz.*/\2/p' | sort -g | head -1)"
 echo "  ✓ 吞吐汇总行 ${COUNT} 条，最低 ${MIN_HZ} Hz"
 awk -v hz="$MIN_HZ" -v floor="$HZ_FLOOR" 'BEGIN { exit (hz+0 >= floor+0) ? 0 : 1 }' \
     || fail "吞吐 ${MIN_HZ}Hz 低于下限 ${HZ_FLOOR}Hz"

@@ -489,18 +489,33 @@
 "MRC 错误包：code %d（版本不匹配？）" = "MRC error packet: code %d (version mismatch?)";
 "无法解码应答（来自 %@，%d 字节，前缀 %@）——已丢弃，不建立连接" = "Undecodable reply (from %@, %d bytes, prefix %@) — dropped, no connection made";
 "（本窗口另抑制 %d 条同类包）" = " (%d similar packets suppressed in this window)";
+"UDP 机器人直连：%@ → 网卡 %@（索引 %d）" = "UDP robot direct route: %1$@ → interface %2$@ (index %3$d)";
+"UDP 未匹配机器人网卡：%@，暂按系统路由发送" = "No robot interface matched for UDP target %@; using the system route";
+"UDP 机器人网卡绑定失败：%@（errno %d）" = "Robot interface binding failed for UDP target %1$@ (errno %2$d)";
+"NT4 机器人网卡绑定失败（errno %d），已关闭该连接" = "Robot interface binding failed for NT4 (errno %d); connection closed";
 
 /* ===== WebUI 语言键 ===== */
 "语言须为 system/chinese/english" = "Language must be system/chinese/english";
 
 /* ===== 手柄造型（GamepadProfile / GamepadSkinView / USBDevicesView）===== */
 "罗技 F310" = "Logitech F310";
+"罗技 Extreme 3D Pro" = "Logitech Extreme 3D Pro";
 "飞智冰原狼 4" = "Flydigi Direwolf 4";
 "PS5 DualSense" = "PS5 DualSense";
+"PS4 DualShock 4" = "PS4 DualShock 4";
+"PS3 DualShock 3" = "PS3 DualShock 3";
+"Xbox 360 手柄" = "Xbox 360 Controller";
+"Xbox One 手柄" = "Xbox One Controller";
 "Xbox Series 手柄" = "Xbox Series Controller";
 "通用手柄" = "Generic Gamepad";
 "手柄造型" = "Gamepad Layout";
 "手柄造型 · %@" = "Gamepad Layout · %@";
+"左摇杆" = "Left Stick";
+"右摇杆" = "Right Stick";
+"主摇杆" = "Main Joystick";
+"Z 扭转" = "Z Twist";
+"X %+.2f，Y %+.2f" = "X %+.2f, Y %+.2f";
+"手柄图片缺失：%@" = "Missing gamepad artwork: %@";
 "自动 · %@" = "Auto · %@";
 "手动 · %@" = "Manual · %@";
 "自动识别（当前：%@）" = "Auto-Detect (current: %@)";
@@ -509,6 +524,7 @@
 "按键 %d 已按下，但当前造型映射表未引用" = "Button %d is pressed but not referenced by this layout's mapping table";
 "扳机 · 轴 %@" = "Trigger · Axis %@";
 "摇杆 · 轴 %@/%@ · 按下为按键 %d" = "Stick · Axes %@/%@ · press is Button %d";
+"摇杆 · 轴 %@/%@" = "Stick · Axes %@/%@";
 "方向键 · POV %d" = "D-Pad · POV %d";
 "方向键" = "D-Pad";
 "后退" = "Back";

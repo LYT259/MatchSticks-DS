@@ -269,7 +269,7 @@ final class DSModel {
     private var lastSlotsPublishAt: TimeInterval = 0
     /// HID 轮询源（默认真实 IOKit 主线程轮询；测试注入假设备流）。
     /// 50Hz 调用、保持主线程——IOKit 路径未在其他线程验证过，不擅自迁移。
-    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { HIDInputManager.shared.pollAll() }
+    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { GamepadInputManager.shared.pollAll() }
 
     // MARK: 慢速设置
 
@@ -427,10 +427,13 @@ final class DSModel {
         installTimers()
         networkMonitor.start()
         macStatusSampler.start()
-        HIDInputManager.shared.onDevicesChanged = { [weak self] in
+        GamepadInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
         }
-        HIDInputManager.shared.start()
+        GamepadInputManager.shared.onError = { [weak self] message in
+            Task { @MainActor in self?.log(message) }
+        }
+        GamepadInputManager.shared.start()
         rescanJoysticks()
 
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
@@ -463,6 +466,9 @@ final class DSModel {
         radioProbe = probe
 
         started = true
+        nt4Server.onLog = { [weak self] line in
+            Task { @MainActor in self?.log(line) }
+        }
         // MRC：NT4 server（6767）随协议启动；ControlData 经 20ms tick 下发
         if protocolKind == .mrc {
             nt4Server.start()
@@ -1283,8 +1289,10 @@ struct JoystickSlot: Identifiable {
     var buttonCount: Int
     var povs: [Int16]
     var isXbox: Bool
-    /// 轴 Y 向约定：true = 已按 FRC 归一（上=-1），false = HID 原生（上=+1）。
-    var yFlipped: Bool
+    var mode: GamepadInputMode
+    var polarity: GamepadStickPolarity
+    var usbLocationID: UInt32?
+    var triggerAxisRange: GamepadTriggerRange
 
     var data: JoystickData {
         JoystickData(axes: axes, buttonCount: buttonCount, buttons: buttons, povs: povs)
@@ -1313,7 +1321,10 @@ struct JoystickSlot: Identifiable {
         self.buttonCount = device.buttonCount
         self.povs = device.povs
         self.isXbox = device.isXbox
-        self.yFlipped = device.yFlipped
+        self.mode = device.mode
+        self.polarity = device.polarity
+        self.usbLocationID = device.usbLocationID
+        self.triggerAxisRange = device.triggerAxisRange
     }
 
     mutating func apply(_ device: HIDDeviceSnapshot) {
@@ -1322,7 +1333,10 @@ struct JoystickSlot: Identifiable {
         buttons = device.buttons
         povs = device.povs
         name = device.name
-        yFlipped = device.yFlipped
+        mode = device.mode
+        polarity = device.polarity
+        usbLocationID = device.usbLocationID
+        triggerAxisRange = device.triggerAxisRange
     }
 }
 
@@ -1331,7 +1345,9 @@ extension GamepadSample {
     init(slot: JoystickSlot) {
         self.init(name: slot.name, vendorID: slot.vendorID, productID: slot.productID,
                   axes: slot.axes, axisUsages: slot.axisUsages,
-                  buttons: slot.buttons, povs: slot.povs, yFlipped: slot.yFlipped)
+                  buttons: slot.buttons, povs: slot.povs,
+                  mode: slot.mode, polarity: slot.polarity,
+                  triggerAxisRange: slot.triggerAxisRange)
     }
 }
 
