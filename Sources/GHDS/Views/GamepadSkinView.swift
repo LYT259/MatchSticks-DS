@@ -3,8 +3,8 @@ import DSCore
 
 // MARK: - 手柄造型皮肤：按下即点亮（呈现层，映射真值在 DSCore/GamepadProfile）
 //
-// 设计稿坐标系 360×220，整体 aspectRatio 适配容器宽度。配色沿用 DSTheme 与强调色
-// （按下 = 强调色填充 + 白色符号，与按键网格 FlowButtons 同一语言）；不引入新视觉参数。
+// PS / Xbox 按系列使用最新实机图片，F310 与冰原狼使用各自实机图片；
+// 动态控件按 GamepadArtwork 标定覆盖。通用设备保留 360×220 矢量示意。
 
 /// 单个可点亮按键面：圆 + 符号。
 private struct FaceKey: View {
@@ -289,10 +289,21 @@ struct GamepadSkinView: View {
 
     var body: some View {
         ZStack {
-            bodyPlate
-            elements
+            if skin == .generic {
+                bodyPlate
+                elements
+            } else {
+                GamepadArtworkOverlay(
+                    spec: GamepadArtworkCatalog.spec(for: skin), layout: layout, state: state,
+                    help: GamepadArtworkHelp(
+                        button: { self.buttonHelp($0) },
+                        trigger: { self.triggerHelp(triggerUsage: $0, button: $1) },
+                        stick: { self.stickHelp(lx: $0, ly: $1, press: $2) },
+                        dpad: dpadHelp),
+                    skin: skin)
+            }
         }
-        .frame(width: 360, height: 220)
+        .frame(width: skin == .generic ? 360 : nil, height: skin == .generic ? 220 : nil)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(tr("手柄造型 · %@", skin.displayName))
     }
@@ -547,7 +558,7 @@ struct GamepadSkinView: View {
     }
 }
 
-/// 皮肤缩放包装：设计稿 360×220，窄容器整体等比缩小（不裁剪、不重排）。
+/// 通用款按 360×220 缩放；实机款按各自图片原始宽高比显示，最大 520×300。
 struct GamepadSkinScaled: View {
     let skin: GamepadSkin
     var layoutSkin: GamepadSkin? = nil
@@ -555,13 +566,18 @@ struct GamepadSkinScaled: View {
     let state: GamepadElementState
 
     var body: some View {
-        GeometryReader { geo in
-            let scale = min(1, min(geo.size.width / 360, geo.size.height / 220))
+        if skin == .generic {
+            GeometryReader { geo in
+                let scale = min(1, min(geo.size.width / 360, geo.size.height / 220))
+                GamepadSkinView(skin: skin, layoutSkin: layoutSkin, mode: mode, state: state)
+                    .scaleEffect(scale)
+                    .frame(width: geo.size.width, height: geo.size.height)
+            }
+            .aspectRatio(360.0 / 220.0, contentMode: .fit)
+            .frame(height: 220)
+        } else {
             GamepadSkinView(skin: skin, layoutSkin: layoutSkin, mode: mode, state: state)
-                .scaleEffect(scale)
-                .frame(width: geo.size.width, height: geo.size.height)
+                .frame(maxWidth: 520, maxHeight: 300)
         }
-        .aspectRatio(360.0 / 220.0, contentMode: .fit)
-        .frame(height: 220)
     }
 }

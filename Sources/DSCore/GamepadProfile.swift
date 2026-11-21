@@ -22,6 +22,10 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
     case xboxSeries    // Xbox Series X|S 手柄
     case generic       // 未识别设备的通用示意造型
 
+    public static let selectableSkins: [GamepadSkin] = [
+        .f310, .direwolf4, .dualsense, .xboxSeries, .generic,
+    ]
+
     public var displayName: String {
         switch self {
         case .f310: return tr("罗技 F310")

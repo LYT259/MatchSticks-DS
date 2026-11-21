@@ -215,7 +215,7 @@ struct JoystickCard: View {
                       ? "checkmark" : "wand.and.stars")
             }
             Divider()
-            ForEach(GamepadSkin.allCases, id: \.self) { skin in
+            ForEach(GamepadSkin.selectableSkins, id: \.self) { skin in
                 Button {
                     model.setGamepadSkinOverride(skin, for: slot)
                 } label: {

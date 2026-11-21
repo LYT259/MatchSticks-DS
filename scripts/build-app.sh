@@ -47,6 +47,13 @@ if [ ! -d "$BUILD_DIR/GHDriverStation_DSCore.bundle" ]; then
 fi
 cp -R "$BUILD_DIR/GHDriverStation_DSCore.bundle" "$APP/Contents/Resources/"
 
+# 手柄实机图片：GHDS 资源 bundle 同样必须进入 Contents/Resources。
+if [ ! -d "$BUILD_DIR/GHDriverStation_GHDS.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 GHDriverStation_GHDS.bundle——手柄实机图片缺失" >&2
+    exit 1
+fi
+cp -R "$BUILD_DIR/GHDriverStation_GHDS.bundle" "$APP/Contents/Resources/"
+
 # 图标（缺失时跳过，不阻塞打包）
 if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
   echo "  生成图标…"

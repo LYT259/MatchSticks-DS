@@ -481,6 +481,10 @@
 "通用手柄" = "Generic Gamepad";
 "手柄造型" = "Gamepad Layout";
 "手柄造型 · %@" = "Gamepad Layout · %@";
+"左摇杆" = "Left Stick";
+"右摇杆" = "Right Stick";
+"X %+.2f，Y %+.2f" = "X %+.2f, Y %+.2f";
+"手柄图片缺失：%@" = "Missing gamepad artwork: %@";
 "自动 · %@" = "Auto · %@";
 "手动 · %@" = "Manual · %@";
 "自动识别（当前：%@）" = "Auto-Detect (current: %@)";

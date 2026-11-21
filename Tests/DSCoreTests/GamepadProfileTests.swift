@@ -72,6 +72,11 @@ func gamepadFamilySupportTests() {
           "PS4 自动使用最新 PS 外观")
     check(GamepadProfile.effectiveSkin(sample: ps4, override: .dualshock4) == .dualshock4,
           "手动仍可指定 PS4 外观")
+    check(!GamepadSkin.selectableSkins.contains(.dualshock3) &&
+          !GamepadSkin.selectableSkins.contains(.dualshock4) &&
+          !GamepadSkin.selectableSkins.contains(.xbox360) &&
+          !GamepadSkin.selectableSkins.contains(.xboxOne),
+          "选择器只展示各家族最新外观，旧型号仍保留在映射层")
 }
 
 // MARK: 冰原狼 4（XInput 归一后语义；轴=已核查，按键=惯例种子待实测）

@@ -26,5 +26,11 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/GHDS/MacStatusMonitor.swift Sources/GHDS/Views/DSStyle.swift \
   Sources/GHDS/UpdateFlow.swift \
   Sources/GHDS/XInputUSB/F310XInputReport.swift \
-  Tests/GHDSUITests/main.swift Tests/GHDSUITests/F310XInputReportTests.swift -o .build/GHDSUIStateTests
+  Sources/GHDS/XInputUSB/F310XInputLifecycle.swift \
+  Sources/GHDS/XInputUSB/F310XInputManager.swift \
+  Sources/GHDS/GamepadInputManager.swift \
+  Sources/GHDS/Views/GamepadArtwork/GamepadArtwork.swift \
+  Tests/GHDSUITests/main.swift Tests/GHDSUITests/F310XInputReportTests.swift \
+  Tests/GHDSUITests/F310XInputLifecycleTests.swift \
+  Tests/GHDSUITests/GamepadArtworkTests.swift -o .build/GHDSUIStateTests
 .build/GHDSUIStateTests
