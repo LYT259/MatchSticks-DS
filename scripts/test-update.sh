@@ -12,13 +12,45 @@ cd "$(dirname "$0")/.."
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
 export DEVELOPER_DIR
 
+# 测试隔离：每次运行生成唯一、合法的反 DNS suite 名，导出给被测进程；
+# 退出时只删本脚本创建的 suite（含 cfprefsd 留下的空 plist），不碰正式域。
+GHDS_SETTINGS_SUITE="org.ghfrc.driverstation.test.update.$$.$(date +%Y%m%d%H%M%S).$RANDOM"
+export GHDS_SETTINGS_SUITE
+cleanup_settings_suite() {
+    local suite="${GHDS_SETTINGS_SUITE:-}"
+    case "$suite" in
+        org.ghfrc.driverstation.test.*) ;;
+        *) return 0 ;;
+    esac
+    defaults delete "$suite" >/dev/null 2>&1 || true
+    rm -f "$HOME/Library/Preferences/$suite.plist" 2>/dev/null || true
+}
+
+WORK=/tmp/ghds-update-e2e
+HTTP_PID=""
+cleanup() {
+    pkill -f "ghds-update-e2e" 2>/dev/null || true
+    pkill -x GHDSSim 2>/dev/null || true
+    if [ -n "${HTTP_PID:-}" ]; then kill "$HTTP_PID" 2>/dev/null || true; fi
+    for _ in 1 2 3 4 5; do
+        pgrep -f "ghds-update-e2e" >/dev/null 2>&1 || break
+        sleep 0.2
+    done
+    pkill -9 -f "ghds-update-e2e" 2>/dev/null || true
+    sleep 0.5
+    cleanup_settings_suite
+}
+trap cleanup EXIT
+
+# 日志断言使用中文键：固定测试 suite 的语言，避免宿主系统语言把断言变成假失败。
+defaults write "$GHDS_SETTINGS_SUITE" ghds.language -string chinese
+
 fail() { echo "✗ $1" >&2; exit 1; }
 
 # 前置：不与真实使用冲突
 if pgrep -x GHDS >/dev/null 2>&1; then fail "已有 GHDS 进程在运行，请先关闭后再跑本测试"; fi
 pkill -x GHDSSim 2>/dev/null || true
 
-WORK=/tmp/ghds-update-e2e
 rm -rf "$WORK"; mkdir -p "$WORK/web"
 
 echo "▶ 测试密钥（构建前生成，经 SU_PUBLIC_ED_KEY 进 Info.plist——签名后改 plist 会破坏资源密封，Sparkle 拒收）"
@@ -55,12 +87,6 @@ APCAST
 
 python3 -m http.server 8123 --directory "$WORK/web" --bind 127.0.0.1 >/dev/null 2>&1 &
 HTTP_PID=$!
-cleanup() {
-    pkill -f "ghds-update-e2e" 2>/dev/null || true
-    pkill -x GHDSSim 2>/dev/null || true
-    kill "$HTTP_PID" 2>/dev/null || true
-}
-trap cleanup EXIT
 sleep 1
 
 version_of() { plutil -extract CFBundleShortVersionString raw "$1/Contents/Info.plist"; }

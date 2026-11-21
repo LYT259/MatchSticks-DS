@@ -1091,6 +1091,64 @@ func practiceSequencerTests() {
     check(seq2.phase == .finished, "A-Stop 后 finished")
     check(abortEvents.contains(.disable) && abortEvents.contains(.aborted), "A-Stop 发失能")
     check(seq2.abort().isEmpty, "重复 A-Stop 幂等")
+
+    check(PracticeTimingPreset.all.map(\.year) == [2022, 2023, 2024, 2025, 2026], "年份预设覆盖 2022–2026")
+    let expectedPresets: [(year: Int, auto: Double, teleop: Double, transition: Double)] = [
+        (2022, 15, 135, 0),
+        (2023, 15, 135, 3),
+        (2024, 15, 135, 3),
+        (2025, 15, 135, 3),
+        (2026, 20, 140, 3),
+    ]
+    for expected in expectedPresets {
+        guard let preset = PracticeTimingPreset.forYear(expected.year) else {
+            check(false, "缺少 \(expected.year) 官方时序")
+            continue
+        }
+        check(preset.autoTime == expected.auto && preset.teleopTime == expected.teleop && preset.teleopDelay == expected.transition,
+              "\(expected.year) 官方 Auto/Teleop/过渡时长")
+    }
+
+    // 开始前等待与 Auto→Teleop 是独立时长；0 秒不应再空耗一个 tick。
+    var split = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 0))
+    var splitEvents = split.start()
+    check(split.phase == .autonomous && split.remaining == 20 && splitEvents.contains(.enable), "0 秒开始等待直接进入 Auto")
+    for _ in 0..<200 { splitEvents = split.tick(0.1) }
+    check(split.phase == .delayBeforeTeleop && abs(split.remaining - 3) < 0.001, "Auto 后独立使用 3 秒过渡")
+
+    var direct = PracticeSequencer(config: .init(autoTime: 15, teleopTime: 135, delayTime: 0, startDelay: 0))
+    _ = direct.start()
+    for _ in 0..<150 { splitEvents = direct.tick(0.1) }
+    check(direct.phase == .teleoperated && direct.remaining == 135 && !splitEvents.contains(.disable),
+          "2022 零过渡直接 Auto→Teleop 且不额外失能")
+
+    var independentStart = PracticeSequencer(config: .init(autoTime: 1, teleopTime: 1, delayTime: 3, startDelay: 2))
+    _ = independentStart.start()
+    check(independentStart.phaseDuration == 2, "开始阶段进度使用独立 startDelay")
+
+    var rebuilt = PracticeSequencer(config: .init(
+        autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 0,
+        teleopBreakdown: .init(transitionShift: 10, allianceShift: 25, endgame: 30)
+    ))
+    _ = rebuilt.start()
+    for _ in 0..<200 { _ = rebuilt.tick(0.1) }
+    for _ in 0..<30 { splitEvents = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .transitionShift && rebuilt.remaining == 10 && splitEvents.contains(.enable),
+          "2026 Teleop 从 10 秒 Transition Shift 开始")
+    for _ in 0..<100 { splitEvents = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .allianceShift1 && rebuilt.remaining == 25 && !splitEvents.contains(.disable),
+          "Transition Shift 后进入 Shift 1 且不额外失能")
+    for _ in 0..<250 { _ = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .allianceShift2, "进入 Alliance Shift 2")
+    for _ in 0..<250 { _ = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .allianceShift3, "进入 Alliance Shift 3")
+    for _ in 0..<250 { _ = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .allianceShift4, "进入 Alliance Shift 4")
+    for _ in 0..<250 { _ = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .endgame && rebuilt.remaining == 30, "四次 Shift 后进入 30 秒 Endgame")
+    for _ in 0..<300 { splitEvents = rebuilt.tick(0.1) }
+    check(rebuilt.phase == .finished && splitEvents.contains(.disable) && splitEvents.contains(.finished),
+          "Endgame 结束后失能并完成练习")
 }
 
 // MARK: PacketRecorder / ReplaySource 单测

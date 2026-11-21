@@ -30,6 +30,14 @@ struct UIStateTests {
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
+        check([AllianceStation.red1, .red2, .red3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceRed },
+              "red alliance selections use official FRC red")
+        check([AllianceStation.blue1, .blue2, .blue3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceBlue },
+              "blue alliance selections use official FRC blue")
+        check(renderedAllianceSelectionMatches(.red1, red: 237 / 255, green: 28 / 255, blue: 36 / 255),
+              "rendered red selection uses official FRC red pixels")
+        check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 102 / 255, blue: 179 / 255),
+              "rendered blue selection uses official FRC blue pixels")
         model.setEnabled(true)
         check(!model.enabled, "offline enable request is refused")
         model.triggerEstop()
@@ -76,7 +84,7 @@ struct UIStateTests {
         check(model.uiStatus == "电池欠压", "brownout is distinct from disabled")
         model.commState = .searching
         check(model.uiStatus == "未连接机器人", "cached brownout is not presented as current while offline")
-        check(model.uiStatusColor == .secondary, "offline status does not retain stale brownout color")
+        check(model.uiStatusColor == DSTheme.textSecondary, "offline status does not retain stale brownout color")
         check(model.connectionDetail == "正在寻找机器人", "search state wording")
         model.robotStatus.brownout = false
         model.robotStatus.enabled = true
@@ -112,6 +120,19 @@ struct UIStateTests {
         snap.resetEstop()
         check(!snap.latestPublishedSnapshotEstop, "reset clears the published estop bit before the request pulse")
         check(snap.enabled == false, "estop path keeps operator disabled")
+
+        // E-Stop 全场雾号：首次触发立即播放，锁存期间不叠放，复位本身静音
+        let estopAudio = DSModel(settingsDefaults: makeSuite("ghds.uitests.estop-audio"), persistenceEnabled: false)
+        var estopAudioPlayCount = 0
+        estopAudio.estopSoundPlayer = { estopAudioPlayCount += 1 }
+        estopAudio.triggerEstop()
+        check(estopAudioPlayCount == 1 && estopAudio.estopEngaged, "E-Stop plays the field foghorn immediately")
+        estopAudio.triggerEstop()
+        check(estopAudioPlayCount == 1, "latched E-Stop does not replay the foghorn")
+        estopAudio.resetEstop()
+        check(estopAudioPlayCount == 1, "E-Stop reset stays silent")
+        estopAudio.triggerEstop()
+        check(estopAudioPlayCount == 2, "a new E-Stop after reset plays the foghorn again")
 
         // 2026-09-27 回归：连接草稿跨导航保留（RootView 常驻 holder）
         let draft = ConnectionDraft()
@@ -349,6 +370,225 @@ struct UIStateTests {
         check(jmRun.latestPublishedJoysticks.first?.axes.first == 0.25, "timer-driven polling feeds the control snapshot")
         try? FileManager.default.removeItem(atPath: stallPath)
 
+        // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
+
+        let suiteNames = (0..<8).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
+
+        // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
+        let envSuite = DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": suiteNames[0]])
+        envSuite.set("probe", forKey: "ghds.envProbe")
+        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "ghds.envProbe") == "probe",
+              "GHDS_SETTINGS_SUITE resolves to an isolated user defaults suite")
+        check(DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": "   "]) === UserDefaults.standard,
+              "blank GHDS_SETTINGS_SUITE falls back to standard defaults")
+        check(DSModel.resolvedSettingsDefaults(environment: [:]) === UserDefaults.standard,
+              "missing GHDS_SETTINGS_SUITE falls back to standard defaults")
+
+        // ⑥ manualIP didSet：启用持久化时保存/清除；禁用时不动已有值，但内存仍更新
+        let persistSuite = makeSuite(suiteNames[1])
+        let persistModel = DSModel(settingsDefaults: persistSuite, persistenceEnabled: true)
+        persistModel.manualIP = "10.25.90.2"
+        check(persistModel.manualIP == "10.25.90.2", "manualIP updates in memory")
+        check(persistSuite.string(forKey: "ghds.manualIP") == "10.25.90.2",
+              "manualIP didSet persists to the injected suite")
+        persistModel.manualIP = ""
+        check(persistSuite.object(forKey: "ghds.manualIP") == nil,
+              "clearing manualIP removes the persisted value through didSet")
+
+        let frozenSuite = makeSuite(suiteNames[2])
+        frozenSuite.set("10.0.0.9", forKey: "ghds.manualIP")
+        let frozenModel = DSModel(settingsDefaults: frozenSuite, persistenceEnabled: false)
+        check(!frozenModel.persistenceEnabled, "injected persistence switch is honored")
+        frozenModel.manualIP = "127.0.0.1"
+        check(frozenModel.manualIP == "127.0.0.1", "manualIP still updates in memory when persistence is disabled")
+        check(frozenSuite.string(forKey: "ghds.manualIP") == "10.0.0.9",
+              "disabled persistence leaves the stored manualIP untouched")
+
+        // ⑦ 已应用手动地址警告：基于 model（非草稿）；127/8 + teamNumber>0 明确本机
+        let warnModel = DSModel(settingsDefaults: makeSuite(suiteNames[3]), persistenceEnabled: true)
+        check(warnModel.appliedManualIPWarning == nil, "no applied-address warning when manualIP is empty")
+        warnModel.manualIP = "10.25.90.2"
+        let ordinaryWarning = warnModel.appliedManualIPWarning ?? ""
+        check(ordinaryWarning.contains("自动发现已关闭") && ordinaryWarning.contains("仅向该地址发送"),
+              "ordinary manual address warns that auto-discovery is off and traffic targets only that address")
+        check(!ordinaryWarning.contains("本机"), "ordinary manual address is not described as loopback")
+        warnModel.teamNumber = 2590
+        warnModel.manualIP = "127.0.0.1"
+        let loopbackWarning = warnModel.appliedManualIPWarning ?? ""
+        check(loopbackWarning.contains("本机") && loopbackWarning.contains("真实机器人"),
+              "127/8 with a team number explicitly points at this Mac, not a real robot")
+        check(loopbackWarning.contains("自动发现已关闭") && loopbackWarning.contains("仅向该地址发送"),
+              "loopback warning keeps the auto-discovery/single-target semantics")
+        warnModel.manualIP = "127.255.255.254"
+        check((warnModel.appliedManualIPWarning ?? "").contains("本机"),
+              "the whole 127/8 range is treated as loopback")
+        warnModel.manualIP = "128.0.0.1"
+        check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"), "128/8 is not loopback")
+        warnModel.manualIP = "127.0.0"
+        check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"),
+              "invalid address is not misclassified as loopback")
+        warnModel.manualIP = "10.25.90.2"
+        let warnDraft = ConnectionDraft()
+        warnDraft.load(from: warnModel)
+        warnDraft.manualIP = "127.0.0.1"
+        check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"),
+              "warning follows the applied model value, not the editable draft")
+
+        // ⑧ Radio 状态日志：仅真实翻转回调记录，重复不刷
+        let radioModel = DSModel(settingsDefaults: makeSuite(suiteNames[4]), persistenceEnabled: true)
+        func radioLogCount(_ needle: String) -> Int {
+            radioModel.dsEvents.filter { $0.text.contains(needle) }.count
+        }
+        radioModel.applyRadioResult(false)
+        check(!radioModel.radioReachable, "initial false result keeps radio offline")
+        check(radioLogCount("Radio 状态") == 0, "initial no-response is not logged as a flip")
+        radioModel.applyRadioResult(true)
+        check(radioModel.radioReachable, "radio response flips state")
+        check(radioLogCount("Radio 状态：已响应") == 1, "first response flip is logged")
+        radioModel.applyRadioResult(true)
+        check(radioLogCount("Radio 状态") == 1, "duplicate response does not spam the event log")
+        radioModel.applyRadioResult(false)
+        check(!radioModel.radioReachable, "radio timeout flips state")
+        check(radioLogCount("Radio 状态：无响应") == 1, "first no-response flip is logged")
+        radioModel.applyRadioResult(false)
+        check(radioLogCount("Radio 状态") == 2, "duplicate no-response does not spam the event log")
+
+        // ⑨ 本机网络状态：检测中 → 实际状态记录一次；变化记录；重复不刷
+        let netModel = DSModel(settingsDefaults: makeSuite(suiteNames[5]), persistenceEnabled: true)
+        func netLogCount(_ needle: String) -> Int {
+            netModel.dsEvents.filter { $0.text.contains(needle) }.count
+        }
+        netModel.applyLocalNetworkSummary(tr("检测中…"))
+        check(netModel.localNetworkSummary == tr("检测中…"), "placeholder summary stays in place")
+        check(netLogCount("本机网络状态") == 0, "placeholder is not logged")
+        netModel.applyLocalNetworkSummary("WiFi")
+        check(netModel.localNetworkSummary == "WiFi", "first real network summary is published")
+        check(netLogCount("本机网络状态：WiFi") == 1, "first real network status is logged")
+        netModel.applyLocalNetworkSummary("WiFi")
+        check(netLogCount("本机网络状态") == 1, "duplicate network summary does not spam the event log")
+        netModel.applyLocalNetworkSummary("有线")
+        check(netModel.localNetworkSummary == "有线", "changed network summary is published")
+        check(netLogCount("本机网络状态：WiFi") == 1 && netLogCount("本机网络状态：有线") == 1,
+              "network status change is logged exactly once")
+        netModel.applyLocalNetworkSummary("有线")
+        check(netLogCount("本机网络状态") == 2, "repeated changed status is not logged again")
+
+        // ⑩ 年份官方时序：一键应用只改设置，并使年份与独立开始前等待跨启动恢复
+        let seasonSuite = makeSuite(suiteNames[6])
+        let seasonModel = DSModel(settingsDefaults: seasonSuite, persistenceEnabled: true)
+        check(seasonModel.practiceSeasonYear == 2026, "practice season defaults to 2026")
+        seasonModel.practiceSeasonYear = 2022
+        seasonModel.applyPracticeTimingPreset()
+        check(seasonModel.practiceAutoTime == 15 && seasonModel.practiceTeleopTime == 135 &&
+              seasonModel.practiceDelayTime == 0 && seasonModel.practiceStartDelay == 0,
+              "2022 preset applies official timing without an extra transition")
+        check(!seasonModel.practiceActive && !seasonModel.enabled, "applying a season preset never starts or enables a robot")
+        let restoredSeason = DSModel(settingsDefaults: seasonSuite, persistenceEnabled: true)
+        restoredSeason.loadPersistedSettings()
+        check(restoredSeason.practiceSeasonYear == 2022 && restoredSeason.practiceStartDelay == 0 &&
+              restoredSeason.practiceDelayTime == 0, "season and independent start delay persist")
+        seasonModel.practiceSeasonYear = 2026
+        seasonModel.applyPracticeTimingPreset()
+        check(seasonModel.practiceAutoTime == 20 && seasonModel.practiceTeleopTime == 140 &&
+              seasonModel.practiceDelayTime == 3 && seasonModel.practiceStartDelay == 0,
+              "2026 preset includes shifts and endgame inside 140-second Teleop")
+        check(seasonModel.practiceTransitionShiftTime == 10 && seasonModel.practiceAllianceShiftTime == 25 &&
+              seasonModel.practiceEndgameTime == 30 && seasonModel.effectivePracticeTeleopTime == 140,
+              "2026 official Teleop breakdown sums to 140 seconds")
+        seasonModel.practiceAllianceShiftTime = 30
+        check(seasonModel.effectivePracticeTeleopTime == 160, "2026 Teleop total follows the shared Alliance Shift slider")
+        let restoredBreakdown = DSModel(settingsDefaults: seasonSuite, persistenceEnabled: true)
+        restoredBreakdown.loadPersistedSettings()
+        check(restoredBreakdown.practiceTransitionShiftTime == 10 && restoredBreakdown.practiceAllianceShiftTime == 30 &&
+              restoredBreakdown.practiceEndgameTime == 30 && restoredBreakdown.effectivePracticeTeleopTime == 160,
+              "2026 breakdown values persist and recompute Teleop")
+
+        // ⑪ 季节音效：目录映射与顺序播放、停止时清空队列
+        let expectedEndgames = [
+            2022: "WARNEOM_2022_2023", 2023: "WARNEOM_2022_2023",
+            2024: "Guitar", 2025: "Sonar", 2026: "WARNEOM_2026",
+        ]
+        for (year, filename) in expectedEndgames {
+            check(PracticeSoundCatalog.fileName(for: .endgame, year: year) == filename,
+                  "\(year) endgame uses the official season file")
+        }
+        for year in 2022...2026 {
+            check(PracticeSoundCatalog.fileName(for: .matchStart, year: year) == "CHARGE", "match start stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .autoEnd, year: year) == "ENDMATCH", "auto end stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .teleopStart, year: year) == "3BELLS", "teleop start stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .matchEnd, year: year) == "ENDMATCH", "match end stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .allianceShift, year: year) == "PowerUp_LinearPop", "shift stays official \(year)")
+        }
+        let player = PracticeAudioPlayer()
+        var played: [String] = []
+        player.playHandler = { played.append($0) }
+        player.finishHandler = {}
+        player.enqueue("CHARGE")
+        player.enqueue("3BELLS")
+        check(played == ["CHARGE"], "audio queue does not overlap the next sound")
+        player.finishCurrent()
+        check(played == ["CHARGE", "3BELLS"], "audio queue advances in order")
+        player.enqueue("ENDMATCH")
+        player.stop()
+        player.finishCurrent()
+        check(played == ["CHARGE", "3BELLS"], "stopping clears pending audio")
+
+        let rebuiltAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        rebuiltAudio.practiceSeasonYear = 2026
+        rebuiltAudio.practiceAutoTime = 0.1
+        rebuiltAudio.practiceDelayTime = 0.1
+        rebuiltAudio.practiceStartDelay = 0
+        rebuiltAudio.practiceTransitionShiftTime = 0.1
+        rebuiltAudio.practiceAllianceShiftTime = 0.1
+        rebuiltAudio.practiceEndgameTime = 0.1
+        var rebuiltPlayed: [String] = []
+        rebuiltAudio.practiceAudio.playHandler = {
+            rebuiltPlayed.append($0)
+            rebuiltAudio.practiceAudio.finishCurrent()
+        }
+        rebuiltAudio.practiceAudio.finishHandler = {}
+        rebuiltAudio.startPractice()
+        let audioDeadline = Date().addingTimeInterval(1.4)
+        while Date() < audioDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(rebuiltPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "PowerUp_LinearPop", "PowerUp_LinearPop",
+                                "PowerUp_LinearPop", "PowerUp_LinearPop", "WARNEOM_2026", "ENDMATCH"],
+              "2026 practice plays official cues in chronological order")
+
+        let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        legacyAudio.practiceSeasonYear = 2022
+        legacyAudio.practiceAutoTime = 0.1
+        legacyAudio.practiceTeleopTime = 0.1
+        legacyAudio.practiceDelayTime = 0
+        legacyAudio.practiceStartDelay = 0
+        var legacyPlayed: [String] = []
+        legacyAudio.practiceAudio.playHandler = {
+            legacyPlayed.append($0)
+            legacyAudio.practiceAudio.finishCurrent()
+        }
+        legacyAudio.practiceAudio.finishHandler = {}
+        legacyAudio.startPractice()
+        let legacyDeadline = Date().addingTimeInterval(0.8)
+        while Date() < legacyDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(legacyPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "ENDMATCH"],
+              "2022 zero-transition practice keeps Buzzer and 3 Bells in order")
+
+        let stopAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        stopAudio.practiceStartDelay = 0
+        var stopPlayed: [String] = []
+        stopAudio.practiceAudio.playHandler = {
+            stopPlayed.append($0)
+            stopAudio.practiceAudio.finishCurrent()
+        }
+        stopAudio.practiceAudio.finishHandler = {}
+        stopAudio.startPractice()
+        stopAudio.aStop()
+        check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
+
+        for name in suiteNames {
+            UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
+        }
+
         // ===== 点击输入框外部退出编辑（2026-11-21）=====
         // 真实 AppKit 焦点回归：字段编辑器存在 → 空白点击结束编辑且保留文字 → 重新聚焦后框内点击保持编辑。
         // 再用 delegate 结束通知、按钮 target/action 与跨字段切换证明不是“无条件 resign 后 AppKit 又聚焦”。
@@ -437,4 +677,31 @@ struct UIStateTests {
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
     }
+}
+
+
+@MainActor
+private func renderedAllianceSelectionMatches(_ station: AllianceStation, red: CGFloat, green: CGFloat, blue: CGFloat) -> Bool {
+    let options = [
+        DSSelectOption(value: AllianceStation.red1, label: "Red 1"),
+        DSSelectOption(value: AllianceStation.blue1, label: "Blue 1"),
+    ]
+    let control = DSSegmentedControl(
+        title: "Alliance Station",
+        selection: .constant(station),
+        options: options,
+        selectedColor: DSTheme.allianceColor(for:)
+    )
+    .frame(width: 240, height: 32)
+    let renderer = ImageRenderer(content: control)
+    renderer.scale = 1
+    guard let image = renderer.nsImage,
+          let data = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: data) else { return false }
+    let x = station == .red1 ? 12 : 228
+    guard let color = bitmap.colorAt(x: x, y: 16) else { return false }
+    let tolerance: CGFloat = 0.03
+    return abs(color.redComponent - red) < tolerance
+        && abs(color.greenComponent - green) < tolerance
+        && abs(color.blueComponent - blue) < tolerance
 }

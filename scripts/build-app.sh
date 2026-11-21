@@ -47,6 +47,13 @@ if [ ! -d "$BUILD_DIR/GHDriverStation_DSCore.bundle" ]; then
 fi
 cp -R "$BUILD_DIR/GHDriverStation_DSCore.bundle" "$APP/Contents/Resources/"
 
+# E-Stop 雾号等 GHDS 自有资源也须随包分发；缺失即失败，避免安全事件无声
+if [ ! -d "$BUILD_DIR/GHDriverStation_GHDS.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 GHDriverStation_GHDS.bundle——应用音频资源缺失即失败" >&2
+    exit 1
+fi
+cp -R "$BUILD_DIR/GHDriverStation_GHDS.bundle" "$APP/Contents/Resources/"
+
 # 图标（缺失时跳过，不阻塞打包）
 if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
   echo "  生成图标…"

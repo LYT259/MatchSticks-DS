@@ -21,10 +21,9 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 18) {
                 connectionPanel
                 simulatorPanel
-                preferencesPanel
                 Label(tr("仅供练习与测试使用，第三方 Driver Station 不用于正式比赛。"), systemImage: "flag.2.crossed")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSTheme.textSecondary)
                     .padding(.horizontal, 4)
             }
             .padding(24)
@@ -54,82 +53,89 @@ struct SetupView: View {
                 if model.commConnected {
                     Text(model.connectionDetail)
                         .font(.callout.monospaced())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSTheme.textSecondary)
                         .textSelection(.enabled)
                 }
                 Spacer()
                 Button(tr("重新扫描手柄")) { model.rescanJoysticks() }
-                    .buttonStyle(DSActionStyle(color: .secondary))
+                    .buttonStyle(DSActionStyle())
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(tr("机器人类型")).font(.callout.weight(.medium))
-                Picker(tr("机器人类型"), selection: $draft.protocolKind) {
-                    Text("roboRIO 1.0 / 2.0").tag(DSClient.ProtocolKind.ni)
-                    Text(tr("SystemCore · 实验性")).tag(DSClient.ProtocolKind.mrc)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                DSSegmentedControl(title: tr("机器人类型"), selection: $draft.protocolKind, options: [
+                    DSSelectOption(value: DSClient.ProtocolKind.ni, label: "roboRIO 1.0 / 2.0"),
+                    DSSelectOption(value: DSClient.ProtocolKind.mrc, label: tr("SystemCore · 实验性")),
+                ])
             }
 
             HStack(alignment: .top, spacing: 20) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(tr("队伍号")).font(.callout.weight(.medium))
                     TextField(tr("例如 1234"), text: $draft.teamNumber)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(DSTextFieldStyle())
                         .font(.system(.body, design: .monospaced))
                         .accessibilityLabel(tr("队伍号"))
                     Text(tr("填 0 时仅自动尝试 USB。"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 .frame(width: 170)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(tr("手动 IP 地址")).font(.callout.weight(.medium))
                     TextField(tr("留空，自动寻找机器人"), text: $draft.manualIP)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(DSTextFieldStyle())
                         .font(.system(.body, design: .monospaced))
                         .accessibilityLabel(tr("手动 IP 地址，留空使用自动连接"))
                     Text(tr("通常无需填写；仅在指定地址连接时使用。"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.circle")
-                    .font(.callout).foregroundStyle(.orange)
+                    .font(.callout).foregroundStyle(DSTheme.warning)
             } else {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(hasConnectionChanges ? tr("应用后将尝试") : tr("当前连接目标"))
-                        .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                        .font(.caption.weight(.medium)).foregroundStyle(DSTheme.textSecondary)
                     Text(targetSummary)
                         .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 }
+            }
+
+            // 已应用的手动地址（model 真值，不是草稿）：自动发现关闭 / 本机回环提醒
+            if let warning = model.appliedManualIPWarning {
+                Label(warning, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(DSTheme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(warning)
             }
 
             Divider()
             HStack(spacing: 12) {
                 if connectionEditingLocked {
                     Label(tr("先失能并结束练习，再更改连接目标。"), systemImage: "lock.fill")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(DSTheme.textSecondary)
                 } else {
                     Text(hasConnectionChanges ? tr("尚未应用；修改会保留到应用或还原") : tr("连接设置已应用"))
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
                 if hasConnectionChanges {
                     Button(tr("还原")) { resetConnectionDraft() }
-                        .buttonStyle(DSActionStyle(color: .secondary))
+                        .buttonStyle(DSActionStyle())
                 }
                 Button(tr("应用连接设置")) { applyConnectionSettings() }
-                    .buttonStyle(DSActionStyle(prominent: true))
+                    .buttonStyle(DSActionStyle(color: DSTheme.accent, prominent: true))
                     .disabled(!hasConnectionChanges || validationMessage != nil || connectionEditingLocked)
             }
             if !actionMessage.isEmpty {
-                Text(actionMessage).font(.caption).foregroundStyle(.secondary)
+                Text(actionMessage).font(.caption).foregroundStyle(DSTheme.textSecondary)
                     .accessibilityLabel(tr("操作结果：%@", actionMessage))
             }
         }
@@ -140,13 +146,13 @@ struct SetupView: View {
             HStack(alignment: .center, spacing: 16) {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 26, weight: .light))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSTheme.textSecondary)
                     .frame(width: 44)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(simProcess?.isRunning == true ? tr("本机模拟器正在运行") : tr("试用连接、控制和状态反馈"))
                         .font(.callout.weight(.medium))
                     Text(tr("启动成功后，连接目标会切换为本机 127.0.0.1。"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
                 if simProcess?.isRunning == true {
@@ -155,7 +161,7 @@ struct SetupView: View {
                         simProcess = nil
                         actionMessage = tr("模拟器已停止；连接目标仍为本机，可在上方改回自动连接。")
                     }
-                    .buttonStyle(DSActionStyle(color: .secondary))
+                    .buttonStyle(DSActionStyle())
                     .disabled(connectionEditingLocked)
                 } else {
                     Button(tr("启动模拟器")) { launchSim() }
@@ -164,100 +170,6 @@ struct SetupView: View {
                 }
             }
         }
-    }
-
-    private var preferencesPanel: some View {
-        DSPanel(title: tr("更多设置"), subtitle: tr("这些选项会即时保存或生效。")) {
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 14) {
-                    Picker(tr("界面语言"), selection: $model.languageMode) {
-                        Text(tr("跟随系统")).tag(LanguageMode.system)
-                        Text("中文").tag(LanguageMode.chinese)
-                        Text("English").tag(LanguageMode.english)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 380)
-                    Text(tr("默认跟随系统语言；手动选择立即生效。"))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.top, 12)
-            } label: {
-                // 「中文 / English」为语言自称，按惯例不翻译
-                settingsLabel(tr("界面语言"), detail: LanguageManager.shared.currentEffective == .chinese ? "中文" : "English", symbol: "globe")
-            }
-
-            Divider()
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(spacing: 12) {
-                        Picker(tr("应用"), selection: $model.dashboardKind) {
-                            ForEach(DashboardKind.allCases) { kind in Text(kind.rawValue).tag(kind) }
-                        }
-                        .frame(maxWidth: 380)
-                        Spacer()
-                        Button(tr("启动 Dashboard")) { launchDashboard() }
-                            .buttonStyle(DSActionStyle())
-                    }
-                    Text(tr("打开已安装在 Mac 上的 Dashboard 应用。"))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.top, 12)
-            } label: { settingsLabel("Dashboard", detail: model.dashboardKind.rawValue, symbol: "rectangle.3.group") }
-
-            Divider()
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 14) {
-                    durationRow(tr("自动阶段"), $model.practiceAutoTime, range: 1...60)
-                    durationRow(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600)
-                    durationRow(tr("阶段间等待"), $model.practiceDelayTime, range: 0...30)
-                    Toggle(tr("播放阶段提示音"), isOn: $model.soundsEnabled)
-                    Text(tr("在「驾驶」页面开始练习；时长设置用于下一次练习。"))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.top, 12)
-            } label: {
-                settingsLabel(tr("练习时序"), detail: tr("自动 %d 秒 · 遥控 %d 秒", Int(model.practiceAutoTime), Int(model.practiceTeleopTime)), symbol: "timer")
-            }
-
-            Divider()
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 14) {
-                    labeledField(tr("赛事名称"), placeholder: tr("可选"), text: $model.competition)
-                    Picker(tr("场次类型"), selection: $model.matchType) {
-                        Text(tr("未指定")).tag(UInt8(0))
-                        Text(tr("练习")).tag(UInt8(1))
-                        Text(tr("资格赛")).tag(UInt8(2))
-                        Text(tr("淘汰赛")).tag(UInt8(3))
-                    }
-                    .pickerStyle(.segmented)
-                    labeledField("Game Data", placeholder: tr("可选的游戏数据"), text: $model.gameData)
-                }
-                .padding(.top, 12)
-            } label: { settingsLabel(tr("比赛信息"), detail: tr("赛事与游戏数据 · 可选"), symbol: "flag") }
-
-            Divider()
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Toggle(tr("记录会话日志"), isOn: $model.dslogEnabled)
-                        Text(tr("保存电池、丢包、CPU、CAN 与运行状态，生成 .dslog 和 .wpilog，可在 AdvantageScope 中查看。"))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Toggle(tr("录制通信数据包"), isOn: $model.recording)
-                        Text(tr("生成 .dsrec 文件，供连接排查与协议回归使用；也支持模拟器会话。"))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Text(tr("文件保存于用户资源库的 Application Support / GHDriverStation：Logs 为会话日志，captures 为通信录制。"))
-                        .font(.caption).foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
-                .padding(.top, 12)
-            } label: {
-                settingsLabel(tr("日志与录制"), detail: model.recording ? tr("正在录制通信数据包") : (model.dslogEnabled ? tr("会话日志已开启") : tr("会话日志已关闭")), symbol: "doc.text")
-            }
-        }
-        .font(.callout)
     }
 
     private var connectionStatus: String {
@@ -291,32 +203,6 @@ struct SetupView: View {
         return "roboRIO-\(team)-FRC.local → 10.\(team / 100).\(team % 100).2 → USB 172.22.11.2"
     }
 
-    private func settingsLabel(_ title: String, detail: String, symbol: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 20)
-            Text(title).font(.callout.weight(.medium))
-            Spacer()
-            Text(detail).font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 3)
-    }
-
-    private func labeledField(_ title: String, placeholder: String, text: Binding<String>) -> some View {
-        HStack(spacing: 16) {
-            Text(title).frame(width: 80, alignment: .leading)
-            TextField(placeholder, text: text).textFieldStyle(.roundedBorder).accessibilityLabel(title)
-        }
-    }
-
-    private func durationRow(_ label: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>) -> some View {
-        HStack(spacing: 16) {
-            Text(label).frame(width: 90, alignment: .leading)
-            Slider(value: value, in: range, step: 1).accessibilityLabel(label)
-            Text(tr("%d 秒", Int(value.wrappedValue)))
-                .font(.callout.monospacedDigit()).frame(width: 60, alignment: .trailing)
-        }
-    }
-
     private func resetConnectionDraft() {
         draft.load(from: model)
         actionMessage = ""
@@ -329,24 +215,6 @@ struct SetupView: View {
         if model.manualIP != normalizedManualIP { model.manualIP = normalizedManualIP }
         resetConnectionDraft()
         actionMessage = tr("已应用连接设置，正在寻找机器人。")
-    }
-
-    private func launchDashboard() {
-        let appName: String
-        switch model.dashboardKind {
-        case .advantageScope: appName = "AdvantageScope"
-        case .shuffleboard: appName = "shuffleboard"
-        case .elastic: appName = "Elastic"
-        }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = ["-a", appName]
-        do {
-            try p.run()
-            model.log(tr("尝试启动 Dashboard：%@", appName))
-        } catch {
-            model.log(tr("启动 Dashboard 失败：%@（%@）——请确认已安装该应用", appName, error.localizedDescription))
-        }
     }
 
     /// GHDSSim is bundled beside GHDS. Keep the process in the parent so navigation does not lose it.

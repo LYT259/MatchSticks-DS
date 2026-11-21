@@ -7,7 +7,7 @@ struct DSStatusBar: View {
     var body: some View {
         HStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(tr("机器人状态")).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(tr("机器人状态")).font(.system(size: 11)).foregroundStyle(DSTheme.textSecondary)
                 Label(model.uiStatus, systemImage: statusSymbol)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(model.uiStatusColor)
@@ -19,15 +19,15 @@ struct DSStatusBar: View {
             statusItem(tr("手柄"), active: !model.joystickSlots.isEmpty)
             Divider().frame(height: 30)
             VStack(alignment: .trailing, spacing: 5) {
-                Text(tr("机器人电池")).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(tr("机器人电池")).font(.system(size: 11)).foregroundStyle(DSTheme.textSecondary)
                 Text(model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "— V")
                     .font(.system(size: 19, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(batteryColor)
             }
         }
         .padding(.horizontal, 18).padding(.vertical, 15)
-        .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DSTheme.line.opacity(0.4)))
+        .background(DSTheme.sidebar, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(DSTheme.line))
         .accessibilityElement(children: .contain)
     }
 
@@ -40,8 +40,8 @@ struct DSStatusBar: View {
     private func statusItem(_ label: String, active: Bool) -> some View {
         VStack(spacing: 6) {
             Image(systemName: active ? "checkmark.circle.fill" : "minus.circle")
-                .font(.system(size: 14)).foregroundStyle(active ? Color.green : Color.secondary)
-            Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.system(size: 14)).foregroundStyle(active ? DSTheme.success : DSTheme.textSecondary)
+            Text(label).font(.system(size: 11)).foregroundStyle(DSTheme.textSecondary)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(tr("%@：%@", label, active ? tr("已检测到") : tr("未检测到")))
@@ -66,7 +66,7 @@ struct LED: View {
     var body: some View {
         Label(on ? label : (offText ?? label), systemImage: symbol)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(on ? onColor : Color.secondary)
+            .foregroundStyle(on ? onColor : DSTheme.textSecondary)
             .accessibilityLabel(tr("%@：%@", label, on ? tr("已检测到") : (offText ?? tr("未检测到"))))
     }
 }
@@ -84,7 +84,7 @@ struct Sparkline: View {
                 p.move(to: pts[0])
                 for pt in pts.dropFirst() { p.addLine(to: pt) }
             }
-            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+            .stroke(DSTheme.accent, style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
         }
     }
 
