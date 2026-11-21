@@ -414,7 +414,7 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<7).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<8).map { _ in "ghds.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
         // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
@@ -545,6 +545,87 @@ struct UIStateTests {
         check(restoredBreakdown.practiceTransitionShiftTime == 10 && restoredBreakdown.practiceAllianceShiftTime == 30 &&
               restoredBreakdown.practiceEndgameTime == 30 && restoredBreakdown.effectivePracticeTeleopTime == 160,
               "2026 breakdown values persist and recompute Teleop")
+
+        // ⑪ 季节音效：目录映射与顺序播放、停止时清空队列
+        let expectedEndgames = [
+            2022: "WARNEOM_2022_2023", 2023: "WARNEOM_2022_2023",
+            2024: "Guitar", 2025: "Sonar", 2026: "WARNEOM_2026",
+        ]
+        for (year, filename) in expectedEndgames {
+            check(PracticeSoundCatalog.fileName(for: .endgame, year: year) == filename,
+                  "\(year) endgame uses the official season file")
+        }
+        for year in 2022...2026 {
+            check(PracticeSoundCatalog.fileName(for: .matchStart, year: year) == "CHARGE", "match start stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .autoEnd, year: year) == "ENDMATCH", "auto end stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .teleopStart, year: year) == "3BELLS", "teleop start stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .matchEnd, year: year) == "ENDMATCH", "match end stays official \(year)")
+            check(PracticeSoundCatalog.fileName(for: .allianceShift, year: year) == "PowerUp_LinearPop", "shift stays official \(year)")
+        }
+        let player = PracticeAudioPlayer()
+        var played: [String] = []
+        player.playHandler = { played.append($0) }
+        player.finishHandler = {}
+        player.enqueue("CHARGE")
+        player.enqueue("3BELLS")
+        check(played == ["CHARGE"], "audio queue does not overlap the next sound")
+        player.finishCurrent()
+        check(played == ["CHARGE", "3BELLS"], "audio queue advances in order")
+        player.enqueue("ENDMATCH")
+        player.stop()
+        player.finishCurrent()
+        check(played == ["CHARGE", "3BELLS"], "stopping clears pending audio")
+
+        let rebuiltAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        rebuiltAudio.practiceSeasonYear = 2026
+        rebuiltAudio.practiceAutoTime = 0.1
+        rebuiltAudio.practiceDelayTime = 0.1
+        rebuiltAudio.practiceStartDelay = 0
+        rebuiltAudio.practiceTransitionShiftTime = 0.1
+        rebuiltAudio.practiceAllianceShiftTime = 0.1
+        rebuiltAudio.practiceEndgameTime = 0.1
+        var rebuiltPlayed: [String] = []
+        rebuiltAudio.practiceAudio.playHandler = {
+            rebuiltPlayed.append($0)
+            rebuiltAudio.practiceAudio.finishCurrent()
+        }
+        rebuiltAudio.practiceAudio.finishHandler = {}
+        rebuiltAudio.startPractice()
+        let audioDeadline = Date().addingTimeInterval(1.4)
+        while Date() < audioDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(rebuiltPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "PowerUp_LinearPop", "PowerUp_LinearPop",
+                                "PowerUp_LinearPop", "PowerUp_LinearPop", "WARNEOM_2026", "ENDMATCH"],
+              "2026 practice plays official cues in chronological order")
+
+        let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        legacyAudio.practiceSeasonYear = 2022
+        legacyAudio.practiceAutoTime = 0.1
+        legacyAudio.practiceTeleopTime = 0.1
+        legacyAudio.practiceDelayTime = 0
+        legacyAudio.practiceStartDelay = 0
+        var legacyPlayed: [String] = []
+        legacyAudio.practiceAudio.playHandler = {
+            legacyPlayed.append($0)
+            legacyAudio.practiceAudio.finishCurrent()
+        }
+        legacyAudio.practiceAudio.finishHandler = {}
+        legacyAudio.startPractice()
+        let legacyDeadline = Date().addingTimeInterval(0.8)
+        while Date() < legacyDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(legacyPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "ENDMATCH"],
+              "2022 zero-transition practice keeps Buzzer and 3 Bells in order")
+
+        let stopAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        stopAudio.practiceStartDelay = 0
+        var stopPlayed: [String] = []
+        stopAudio.practiceAudio.playHandler = {
+            stopPlayed.append($0)
+            stopAudio.practiceAudio.finishCurrent()
+        }
+        stopAudio.practiceAudio.finishHandler = {}
+        stopAudio.startPractice()
+        stopAudio.aStop()
+        check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
 
         for name in suiteNames {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)

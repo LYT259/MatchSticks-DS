@@ -371,6 +371,7 @@ final class DSModel {
     private var webUI: WebUIServer?
     private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
+    let practiceAudio = PracticeAudioPlayer()
     private var practiceTimer: Timer?
     private var pollTimer: Timer?
     private var tickers: [Timer] = []
@@ -809,6 +810,7 @@ final class DSModel {
         enabledSince = nil
         // 同步刷新控制快照：否则快照盒里还是 ≤20ms 前的 estop=0，急停位上线被拖延
         pollAndPublishSnapshot()
+        practiceAudio.stop()
         playEstopSound()
         log(tr("E-STOP 触发（Space）"))
     }
@@ -872,6 +874,7 @@ final class DSModel {
 
     func startPractice() {
         guard !sequencer.phase.isActive else { return }
+        practiceAudio.stop()
         let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026
             ? .init(transitionShift: practiceTransitionShiftTime, allianceShift: practiceAllianceShiftTime,
                     endgame: practiceEndgameTime)
@@ -910,6 +913,7 @@ final class DSModel {
         for event in events {
             switch event {
             case .entered(let phase):
+                let previousPhase = practicePhase
                 practicePhase = mapPhase(phase)
                 practiceRemaining = sequencer.remaining
                 switch phase {
@@ -918,15 +922,28 @@ final class DSModel {
                      .allianceShift3, .allianceShift4, .endgame: setMode(.teleoperated)
                 default: break
                 }
-                if phase.isActive { beep(); log("Practice → \(phase.displayName)") }
+                if previousPhase == .autonomous && phase == .teleoperated {
+                    playPracticeSound(.autoEnd)
+                }
+                switch phase {
+                case .autonomous: playPracticeSound(.matchStart)
+                case .delayBeforeTeleop: playPracticeSound(.autoEnd)
+                case .teleoperated, .transitionShift: playPracticeSound(.teleopStart)
+                case .allianceShift1, .allianceShift2, .allianceShift3, .allianceShift4:
+                    playPracticeSound(.allianceShift)
+                case .endgame: playPracticeSound(.endgame)
+                default: break
+                }
+                if phase.isActive { log("Practice → \(phase.displayName)") }
             case .enable: setEnabled(true)
             case .disable: setEnabled(false)
             case .finished:
+                if practicePhase != .finished { playPracticeSound(.matchEnd) }
                 practicePhase = .finished
                 log(tr("Practice 结束"))
-                beep()
             case .aborted:
                 practicePhase = .finished
+                playPracticeSound(.matchStopped)
                 log(tr("A-STOP：Practice 中止"))
             }
         }
@@ -961,9 +978,9 @@ final class DSModel {
         _ = estopSound?.play()
     }
 
-    private func beep() {
+    private func playPracticeSound(_ event: PracticeSoundEvent) {
         guard soundsEnabled else { return }
-        NSSound.beep()
+        practiceAudio.enqueue(PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear))
     }
 
     // MARK: 事件处理（client 事件 → 主线程状态）
