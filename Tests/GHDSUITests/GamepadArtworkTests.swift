@@ -33,4 +33,27 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
           GamepadArtworkCatalog.spec(for: .direwolf4).imageName == "direwolf4" &&
           GamepadArtworkCatalog.spec(for: .extreme3DPro).imageName == "extreme3dpro",
           "罗技与冰原狼使用各自实机资源，Extreme 3D Pro 使用飞行摇杆资源")
+
+    let calibrated = GamepadArtworkCatalog.spec(for: .dualsense)
+    let expected: [GamepadArtworkRegion: CGRect] = [
+        .leftStick: CGRect(x: 568, y: 372, width: 148, height: 148),
+        .leftStickCap: CGRect(x: 596, y: 400, width: 92, height: 92),
+        .rightStick: CGRect(x: 884, y: 368, width: 148, height: 148),
+        .rightStickCap: CGRect(x: 912, y: 400, width: 92, height: 92),
+        .dpad: CGRect(x: 408, y: 220, width: 188, height: 188),
+        .faceNorth: CGRect(x: 1064, y: 196, width: 92, height: 92),
+        .faceEast: CGRect(x: 1136, y: 276, width: 92, height: 92),
+        .faceSouth: CGRect(x: 1064, y: 352, width: 92, height: 92),
+        .faceWest: CGRect(x: 988, y: 276, width: 92, height: 92),
+        .shoulderL: CGRect(x: 435, y: 126, width: 130, height: 46),
+        .shoulderR: CGRect(x: 1035, y: 126, width: 130, height: 46),
+        .triggerL: CGRect(x: 435, y: 126, width: 130, height: 46),
+        .triggerR: CGRect(x: 1035, y: 126, width: 130, height: 46),
+        .back: CGRect(x: 540, y: 160, width: 60, height: 76),
+        .start: CGRect(x: 988, y: 156, width: 60, height: 84),
+        .guide: CGRect(x: 748, y: 396, width: 92, height: 92),
+        .touchpad: CGRect(x: 604, y: 136, width: 380, height: 212),
+    ]
+    check(calibrated.regions == expected,
+          "清晰无底座 DualSense 的控件标定与已验证的像素匹配一致")
 }

@@ -12,7 +12,7 @@ import Foundation
 
 /// 造型（皮肤）种类：四款原型 + 未识别兜底。
 public enum GamepadSkin: String, CaseIterable, Sendable {
-    case f310          // 罗技 F310（FRC KoP 黑色款；macOS 上只见 D 档 DirectInput）
+    case f310          // 罗技 F310（D 档走 HID，X 档走应用内 XInput reader）
     case extreme3DPro  // 罗技 Extreme 3D Pro 飞行摇杆（T41126）
     case direwolf4     // 飞智冰原狼 4（USB 模式自报 Xbox 360 签名）
     case dualsense     // PS5 DualSense
@@ -127,6 +127,11 @@ public struct GamepadStickPolarity: Sendable, Equatable {
     }
 }
 
+public enum GamepadTriggerRange: String, Sendable {
+    case signed
+    case zeroToOne
+}
+
 /// 从槽位透传的最小输入样本（JoystickCard 现场组装；测试直接构造）。
 public struct GamepadSample: Sendable {
     public var name: String
@@ -139,12 +144,14 @@ public struct GamepadSample: Sendable {
     public var povs: [Int16]
     public var mode: GamepadInputMode
     public var polarity: GamepadStickPolarity
+    public var triggerAxisRange: GamepadTriggerRange
 
     public init(name: String = "", vendorID: Int = 0, productID: Int = 0,
                 axes: [Float], axisUsages: [UInt32], buttons: UInt64 = 0,
                 povs: [Int16] = [], mode: GamepadInputMode = .directInput,
                 polarity: GamepadStickPolarity = GamepadStickPolarity(
-                    xRightIsNegative: false, yUpIsNegative: false)) {
+                    xRightIsNegative: false, yUpIsNegative: false),
+                triggerAxisRange: GamepadTriggerRange = .signed) {
         self.name = name
         self.vendorID = vendorID
         self.productID = productID
@@ -154,6 +161,7 @@ public struct GamepadSample: Sendable {
         self.povs = povs
         self.mode = mode
         self.polarity = polarity
+        self.triggerAxisRange = triggerAxisRange
     }
 }
 
@@ -407,8 +415,10 @@ public struct GamepadLayout: Sendable {
             let v = sample.axes[i]
             return v.isFinite ? max(-1, min(1, v)) : 0
         }
-        /// 归一 -1…+1 → 深度 0…1（扳机量程静止 -1、按满 +1）。
-        func depth(_ v: Float) -> Float { max(0, min(1, (v + 1) / 2)) }
+        func depth(_ v: Float) -> Float {
+            let value = sample.triggerAxisRange == .zeroToOne ? v : (v + 1) / 2
+            return max(0, min(1, value))
+        }
 
         for (pos, number) in face { s.face[pos] = pressed(number) }
         s.shoulderL = pressed(shoulder.l)

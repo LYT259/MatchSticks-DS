@@ -8,7 +8,7 @@ struct F310XInputReport: Equatable, Sendable {
     var triggerDepthR: Float
 
     static let neutral = F310XInputReport(
-        axes: [0, 0, -1, -1, 0, 0], buttons: 0, pov: -1,
+        axes: [0, 0, 0, 0, 0, 0], buttons: 0, pov: -1,
         triggerDepthL: 0, triggerDepthR: 0)
 
     static func parse(_ bytes: [UInt8]) -> F310XInputReport? {
@@ -35,7 +35,7 @@ struct F310XInputReport: Equatable, Sendable {
         let rightX = normalized(int16(bytes, at: 10))
         let rightY = normalized(int16(bytes, at: 12))
         return F310XInputReport(
-            axes: [leftX, -leftY, depthL * 2 - 1, depthR * 2 - 1, rightX, -rightY],
+            axes: [leftX, -leftY, depthL, depthR, rightX, -rightY],
             buttons: buttons, pov: pov,
             triggerDepthL: depthL, triggerDepthR: depthR)
     }

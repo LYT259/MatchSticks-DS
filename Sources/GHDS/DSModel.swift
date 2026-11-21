@@ -1275,6 +1275,7 @@ struct JoystickSlot: Identifiable {
     var mode: GamepadInputMode
     var polarity: GamepadStickPolarity
     var usbLocationID: UInt32?
+    var triggerAxisRange: GamepadTriggerRange
 
     var data: JoystickData {
         JoystickData(axes: axes, buttonCount: buttonCount, buttons: buttons, povs: povs)
@@ -1306,6 +1307,7 @@ struct JoystickSlot: Identifiable {
         self.mode = device.mode
         self.polarity = device.polarity
         self.usbLocationID = device.usbLocationID
+        self.triggerAxisRange = device.triggerAxisRange
     }
 
     mutating func apply(_ device: HIDDeviceSnapshot) {
@@ -1317,6 +1319,7 @@ struct JoystickSlot: Identifiable {
         mode = device.mode
         polarity = device.polarity
         usbLocationID = device.usbLocationID
+        triggerAxisRange = device.triggerAxisRange
     }
 }
 
@@ -1326,7 +1329,8 @@ extension GamepadSample {
         self.init(name: slot.name, vendorID: slot.vendorID, productID: slot.productID,
                   axes: slot.axes, axisUsages: slot.axisUsages,
                   buttons: slot.buttons, povs: slot.povs,
-                  mode: slot.mode, polarity: slot.polarity)
+                  mode: slot.mode, polarity: slot.polarity,
+                  triggerAxisRange: slot.triggerAxisRange)
     }
 }
 

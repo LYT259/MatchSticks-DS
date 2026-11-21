@@ -13,7 +13,7 @@
 
 - `byte[2]`：POV、Start、Back、L3、R3。
 - `byte[3]`：LB、RB、Guide、A、B、X、Y。
-- `byte[4]` / `byte[5]`：LT / RT 的 0…255 真实深度；输出轴映射到静止 -1、按满 +1。
+- `byte[4]` / `byte[5]`：LT / RT 的 0…255 真实深度；输出轴映射到静止 0、按满 1，并保留中间行程。
 - `byte[6…13]`：LX、LY、RX、RY 的小端 Int16。X 右为正，Y 从 XInput 上正转换为 FRC 上负。
 
 按钮映射为 A/B/X/Y=1…4、LB/RB=5/6、Back/Start=7/8、L3/R3=9/10、Guide=11。相反 POV 同时置位、短包、未知类型与错误长度均拒绝。
@@ -24,7 +24,7 @@
 
 - 按 USB 描述符选择 interface 0 的 interrupt IN/OUT pipe，不硬编码端点地址。
 - 读写在每设备独立串行队列异步执行；主线程只读取加锁快照，不执行同步 `ReadPipe`。
-- 超过 100ms 没有有效包，六轴立即回中（双扳机 -1）、按钮清零、POV=-1；原有 0.5s 设备移除防抖继续处理列表移除。
+- 超过 100ms 没有有效包，六轴立即回中（双扳机 0）、按钮清零、POV=-1；原有 0.5s 设备移除防抖继续处理列表移除。
 - 读错、拔线、终止和退出先清零，再销毁 interface user client；inactive 后不再调度新读包。
 - 同 USB location 同时出现时优先完整 XInput reader，避免 HID 与原始 USB 形成重复槽位。
 

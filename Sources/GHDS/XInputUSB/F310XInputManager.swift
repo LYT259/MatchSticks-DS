@@ -173,7 +173,7 @@ private final class F310XInputSession {
             buttons: report.buttons, buttonCount: 11, povs: [report.pov], isXbox: true,
             mode: .xinput,
             polarity: GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true),
-            usbLocationID: locationID)
+            usbLocationID: locationID, triggerAxisRange: .zeroToOne)
     }
 
     func stop() {

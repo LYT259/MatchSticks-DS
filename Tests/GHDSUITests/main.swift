@@ -386,6 +386,7 @@ struct UIStateTests {
         f310XInputReportTests(check)
         f310XInputLifecycleTests(check)
         gamepadArtworkTests(check)
+        gamepadTriggerRangeTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
