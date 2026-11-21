@@ -22,6 +22,15 @@ enum DSTheme {
     static let success = adaptive(0x34C759, 0x30D158)
     static let warning = adaptive(0xFF9500, 0xFF9F0A)
     static let danger = adaptive(0xFF3B30, 0xFF453A)
+    static let allianceBlue = adaptive(0x0066B3, 0x0066B3)
+    static let allianceRed = adaptive(0xED1C24, 0xED1C24)
+
+    static func allianceColor(for station: AllianceStation) -> Color {
+        switch station {
+        case .red1, .red2, .red3: return allianceRed
+        case .blue1, .blue2, .blue3: return allianceBlue
+        }
+    }
 
     private static func adaptive(_ light: UInt32, _ dark: UInt32, lightAlpha: Double = 1, darkAlpha: Double = 1) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
