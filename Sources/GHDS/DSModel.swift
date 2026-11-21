@@ -390,6 +390,9 @@ final class DSModel {
         radioProbe = probe
 
         started = true
+        nt4Server.onLog = { [weak self] line in
+            Task { @MainActor in self?.log(line) }
+        }
         // MRC：NT4 server（6767）随协议启动；ControlData 经 20ms tick 下发
         if protocolKind == .mrc {
             nt4Server.start()

@@ -115,6 +115,14 @@ public final class NT4Server: @unchecked Sendable {
     }
 
     private func handleConnection(_ fd: Int32) {
+        switch DirectInterface.bindAccepted(fd: fd) {
+        case .bound, .noMatch:
+            break
+        case .failed(let code):
+            onLog?(tr("NT4 机器人网卡绑定失败（errno %d），已关闭该连接", Int(code)))
+            close(fd)
+            return
+        }
         guard let request = Self.readHTTPHeader(fd),
               let key = Self.headerValue(request, "Sec-WebSocket-Key"),
               request.lowercased().contains("upgrade: websocket") else {
