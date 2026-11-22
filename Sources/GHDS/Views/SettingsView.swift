@@ -24,26 +24,37 @@ struct SettingsView: View {
 
     private var generalPanel: some View {
         settingsGroup(tr("通用")) {
-            settingsRow(tr("界面语言"), description: tr("默认跟随系统语言；手动选择立即生效。")) {
-                DSSelectControl(title: tr("界面语言"), selection: $model.languageMode, options: [
+            settingsRow(tr("界面语言")) {
+                DSSegmentedControl(title: tr("界面语言"), selection: $model.languageMode, options: [
                     DSSelectOption(value: LanguageMode.system, label: tr("跟随系统")),
                     DSSelectOption(value: LanguageMode.english, label: "English"),
                     DSSelectOption(value: LanguageMode.chinese, label: "简体中文"),
                 ])
-                .frame(width: 240)
+                .frame(width: 360)
+            }
+            settingsSeparator
+            settingsRow(tr("比赛年份")) {
+                DSSelectControl(title: tr("比赛年份"), selection: $model.practiceSeasonYear,
+                                options: model.practiceSeasonYearChoices.map { DSSelectOption(value: $0, label: String($0)) })
+                    .frame(width: 120)
             }
         }
     }
 
     private var dashboardPanel: some View {
         settingsGroup("Dashboard") {
-            settingsRow(tr("应用"), description: tr("打开已安装在 Mac 上的 Dashboard 应用。")) {
-                HStack(spacing: 8) {
-                    DSSelectControl(title: tr("Dashboard 应用"), selection: $model.dashboardKind,
-                                    options: DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) })
-                        .frame(width: 180)
-                    Button(tr("启动 Dashboard")) { launchDashboard() }
+            settingsRow(tr("Dashboard 应用")) {
+                VStack(alignment: .trailing, spacing: 10) {
+                    DSMultiSelectControl(title: tr("Dashboard 应用"),
+                                         selection: $model.dashboardSelection,
+                                         options: DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) })
+                        .frame(width: 460)
+                    Button(tr("启动 Dashboard")) { model.launchSelectedDashboards() }
                         .buttonStyle(DSActionStyle())
+                        .disabled(model.dashboardSelection.isEmpty)
+                        .help(model.dashboardSelection.isEmpty
+                              ? tr("至少选择一个 Dashboard 才能启动")
+                              : tr("同时启动所有选中的 Dashboard"))
                 }
             }
         }
@@ -51,13 +62,14 @@ struct SettingsView: View {
 
     private var practicePanel: some View {
         settingsGroup(tr("练习时序")) {
-            durationRow(tr("自动阶段"), $model.practiceAutoTime, range: 1...60)
+            settingsRow(tr("官方时序")) {
+                Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
+                    .buttonStyle(DSActionStyle())
+            }
             settingsSeparator
-            durationRow(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600)
+            PracticeTimingEditor(model: model)
             settingsSeparator
-            durationRow(tr("阶段间等待"), $model.practiceDelayTime, range: 0...30)
-            settingsSeparator
-            settingsRow(tr("播放阶段提示音"), description: tr("在「驾驶」页面开始练习；时长设置用于下一次练习。")) {
+            settingsRow(tr("播放阶段提示音")) {
                 Toggle(tr("播放阶段提示音"), isOn: $model.soundsEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -69,7 +81,7 @@ struct SettingsView: View {
 
     private var matchPanel: some View {
         settingsGroup(tr("比赛信息")) {
-            settingsRow(tr("赛事名称"), description: tr("可选")) {
+            settingsRow(tr("赛事名称")) {
                 TextField(tr("可选"), text: $model.competition)
                     .textFieldStyle(DSTextFieldStyle())
                     .accessibilityLabel(tr("赛事名称"))
@@ -86,7 +98,7 @@ struct SettingsView: View {
                 .frame(width: 240)
             }
             settingsSeparator
-            settingsRow("Game Data", description: tr("可选的游戏数据")) {
+            settingsRow("Game Data") {
                 TextField(tr("可选的游戏数据"), text: $model.gameData)
                     .textFieldStyle(DSTextFieldStyle())
                     .accessibilityLabel("Game Data")
@@ -97,7 +109,7 @@ struct SettingsView: View {
 
     private var loggingPanel: some View {
         settingsGroup(tr("日志与录制")) {
-            settingsRow(tr("记录会话日志"), description: tr("保存电池、丢包、CPU、CAN 与运行状态，生成 .dslog 和 .wpilog，可在 AdvantageScope 中查看。")) {
+            settingsRow(tr("记录会话日志")) {
                 Toggle(tr("记录会话日志"), isOn: $model.dslogEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
@@ -105,19 +117,13 @@ struct SettingsView: View {
                     .tint(DSTheme.accent)
             }
             settingsSeparator
-            settingsRow(tr("录制通信数据包"), description: tr("生成 .dsrec 文件，供连接排查与协议回归使用；也支持模拟器会话。")) {
+            settingsRow(tr("录制通信数据包")) {
                 Toggle(tr("录制通信数据包"), isOn: $model.recording)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
                     .tint(DSTheme.accent)
             }
-            Text(tr("文件保存于用户资源库的 Application Support / GHDriverStation：Logs 为会话日志，captures 为通信录制。"))
-                .font(.system(size: 12))
-                .foregroundStyle(DSTheme.textSecondary)
-                .textSelection(.enabled)
-                .padding(16)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -135,19 +141,12 @@ struct SettingsView: View {
         }
     }
 
-    private func settingsRow<Control: View>(_ title: String, description: String? = nil,
+    private func settingsRow<Control: View>(_ title: String,
                                             @ViewBuilder control: () -> Control) -> some View {
         HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.system(size: 13, weight: .medium))
-                if let description {
-                    Text(description)
-                        .font(.system(size: 12))
-                        .foregroundStyle(DSTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
             control()
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
@@ -161,37 +160,66 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
             .padding(.leading, 16)
     }
+}
 
-    private func durationRow(_ label: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>) -> some View {
-        settingsRow(label) {
-            HStack(spacing: 12) {
-                Slider(value: value, in: range, step: 1)
-                    .accessibilityLabel(label)
-                    .tint(DSTheme.accent)
-                    .frame(width: 168)
-                Text(tr("%d 秒", Int(value.wrappedValue)))
-                    .font(.system(size: 12).monospacedDigit())
-                    .frame(width: 60, alignment: .trailing)
+/// 多选版分段控件：视觉与 DSSegmentedControl 一致，但每个选项独立开关（可全部关闭）。
+private struct DSMultiSelectControl<Value: Hashable>: View {
+    let title: String
+    @Binding var selection: Set<Value>
+    let options: [DSSelectOption<Value>]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { option in
+                let isSelected = selection.contains(option.value)
+                Button {
+                    toggle(option.value)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(option.label)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                    .foregroundStyle(isSelected ? DSTheme.textPrimary : DSTheme.textSecondary)
+                    .background(isSelected ? DSTheme.segmentSelected : .clear,
+                                in: RoundedRectangle(cornerRadius: 5))
+                    .shadow(color: isSelected ? .black.opacity(0.12) : .clear, radius: 1, y: 1)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(DSMultiSelectButtonStyle(isSelected: isSelected))
+                .accessibilityLabel("\(title)，\(option.label)")
+                .accessibilityValue(isSelected ? tr("已选择") : tr("未选择"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
-            .frame(width: 240)
         }
+        .padding(2)
+        .background(DSTheme.segmentTrack, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
+        .frame(minHeight: 32)
     }
 
-    private func launchDashboard() {
-        let appName: String
-        switch model.dashboardKind {
-        case .advantageScope: appName = "AdvantageScope"
-        case .shuffleboard: appName = "shuffleboard"
-        case .elastic: appName = "Elastic"
+    private func toggle(_ value: Value) {
+        if selection.contains(value) {
+            selection.remove(value)
+        } else {
+            selection.insert(value)
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = ["-a", appName]
-        do {
-            try p.run()
-            model.log(tr("尝试启动 Dashboard：%@", appName))
-        } catch {
-            model.log(tr("启动 Dashboard 失败：%@（%@）——请确认已安装该应用", appName, error.localizedDescription))
-        }
+    }
+}
+
+private struct DSMultiSelectButtonStyle: ButtonStyle {
+    let isSelected: Bool
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(!isSelected && (hovering || configuration.isPressed) ? DSTheme.hover.opacity(0.65) : .clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+            .onHover { hovering = $0 }
     }
 }

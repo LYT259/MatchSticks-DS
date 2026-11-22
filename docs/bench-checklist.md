@@ -101,7 +101,9 @@
       OM5P 在线但 :80 拒绝（RST/refused）时诊断页显示「已响应」——10-31 假阴性场景复测
 - [ ] 手动 IP 填 roboRIO `10.T.E.2` 并应用：radio 灯**不得**变绿（10-31 假绿场景复测）；
       手动 IP 只改变 roboRIO 通信目标，不参与 radio 选址
-- [ ] 队号改为错误相邻网段：探测目标随切换、最终未响应；改回后恢复
+- [ ] 队号改为错误相邻网段：探测目标随切换、最终未响应；改回后恢复。注意：新 UI 中
+      输入队号并应用会清空手动地址；若要验证“保留手动 IP 时改队号仍影响 Radio”，
+      须先改队号并应用，再重新输入手动 roboRIO 地址 `10.T.E.2` 并应用
 - [ ] 队号 0：不探测；AUTO_SIM：目标 `127.0.0.1:8080`
 
 ### 2B-4. 拔线矩阵（期望；每项先失能态、抓包开着）
@@ -191,13 +193,71 @@
 - [ ] **roboRIO SSH 端口监听：未核对**（主机密钥发生变化，按安全提示停止，未绕过验证）。
 - [ ] **电机实际运动：未验证**（未接手柄，只验证了控制包与使能/急停链路，未让机器人运动）。
 - [x] **Mac↔Radio 拔线时延：通过**。失能态拔线后机器人通信 <1s 回搜索态（看门狗链路判定），Radio 指示约 2s 翻为无响应（.wpilog 毫秒时间戳实测）；旧版同场景 Radio 灯 ~75.7s 才翻。插回恢复时间待复测（见下）。
-- [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0。注意 F310 的 X 档（XInput）在 macOS 上系统不绑驱动，任何软件都看不到——Mac 上必须用 D 档。
-- [ ] **台架前置检查（新增）：确认 roboRIO 手动 IP 为空**。残留 manualIP（如 127.0.0.1）会使应答过滤静默拒绝一切真实机器人应答——症状：Radio 绿、ping 通、1740 开，但 commState 永远 searching 且零日志。UI 测试曾污染共享设置，实测前在连接页清空。
+- [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0。F310 D 档（046D:C216）继续走 IOHIDManager；X 档（046D:C21D）已实现应用内 IOUSBHost reader，尚待实物验收，不以系统未绑定 XInput 驱动为由放弃支持。
+- [ ] **台架前置检查（新增）：确认 roboRIO 手动 IP 为空**。残留 manualIP（如 127.0.0.1）会使应答过滤静默拒绝一切真实机器人应答——症状：Radio 绿、ping 通、1740 开，但 commState 永远 searching 且零日志。UI 测试曾污染共享设置；非 USB 真机实测前，在连接页唯一的“队伍号或 IP 地址”输入框中输入真实队号并应用即可清除残留手动 IP——**不要填 `0`**（`0` 仅适用于 USB-only 验证）。应用后输入框应显示该队号、手动地址警告消失；如需直接核对，看 WebUI 的 `manualIP` 为空。
 - [ ] **Radio 反复上下电后可能系统挂死**（L1 链路活、ARP 全 incomplete）：症状为整网失联但网口灯正常；处置 = Radio 断电 10s 重开。Radio 断电回网后机器人可能停止回应 UDP 探测（本日实测：DS 50Hz 发包正常、机器人零回包），根因未查（机器人在场时 SSH 上去看 DS 服务状态/重启 robot code）。
 - [x] **F310 槽位显示与实时值：通过**。操作员在安装版（0.1.0-alpha.9）确认 UI 显示设备并随摇杆/按键实时更新；枚举探针证实 1 设备、4 轴/12 钮/1 帽（D 档，识别名 Logitech Dual Action）。
 
+## 2D. 2026-11-21 无 Radio 台前预备（仅本机证据）
+
+> 本节只记录无硬件预备，不把 2B/2C 中未完成的真机项视为通过。
+
+- [x] **模拟/测试会话设置隔离：通过**。AUTO_SIM 不再持久化回环 manualIP；UI、打包与升级测试使用独立 UserDefaults suite。打包 E2E 前后比较正式域 manualIP 与队号，实际值不输出，二者均未变化。
+- [x] **已应用手动地址警告与断复证据：通过本机回归**。普通手动地址提示自动发现关闭；127/8 回环地址在已设队号时明确提示指向本机。Radio 与本机网络状态翻转写毫秒级事件日志，重复状态不刷屏。
+- [x] **本机基线：通过**。DSCoreTests 488/0、UI 129/0；打包 E2E 最低 50.0Hz，覆盖 WebUI connected、模拟 Radio 已响应、日志落盘与正式设置未变；Sparkle Leg A/B 通过。
+- [x] **最终预备包与 GUI 干跑：通过**。`0.1.0-beta.20261121.radio-preflight` 为 universal 构建，deep/strict 签名及 DMG SHA256 校验通过；经 `open` 启动后核对版本、失能/未急停、WebUI、空 manualIP 与网络事件日志。
+- [ ] **pcap 权限：仍阻塞**。`tcpdump -D` 可列接口，但实际 loopback 抓包被 `/dev/bpf0` Permission denied 拒绝；真机前须按 2B-2 用授权后的 `sudo tcpdump` 先验证写包，不得绕过系统权限。
+
+本轮真机结果见 2E；Wi-Fi 与 pcap 仍未完成。
+
+## 2E. 2026-11-21 OM5P 真机复验（有线，全程失能）
+
+> 实际拓扑：Mac 有线网卡 → Radio → Radio Power Module → roboRIO；VRM 给 Radio Power Module 供电。以下勾选表示已执行，结果以每项标注为准；全程未 Enable、未让电机运动。
+
+- [x] **初始识别失败定位：Radio DHCP 无服务**。有线网卡为 169.254 自分配地址，DHCP `INIT / no server`，到 Radio/roboRIO 的流量错误地走 Wi-Fi 默认路由。Radio 重启后获得有效 10.T.E.x 地址，路由回到有线网卡。
+- [x] **重启后基线：通过**。Radio ping 约 0.8ms、:80 RST 正确判在线，roboRIO 建链、TCP 1740 打开，初始控制环约 50Hz、丢包 0%，全程失能。
+- [x] **Mac↔Radio 断开：通过**。物理链路 inactive，机器人通信回 searching，1.25 秒静默后自动失能；Radio 事件与 WPILog 均转为无响应/false。
+- [x] **Mac↔Radio 普通插回自动恢复：不通过**。物理 link up 后超过 50 秒仍 `DHCP INIT / no server`，回到 169.254，自 Radio 和机器人通信均未恢复；不是 DS 协议解码失败。
+- [x] **Radio 断电重启恢复：最终通过，但有抖动**。首次建链和 Radio 响应后又短暂断开，随后自动恢复；最终 30 个状态采样全 connected，Radio 10 次 ping 0% 丢包。
+- [x] **roboRIO→Radio Power Module 断开：通过**。Mac 链路和地址不变，Radio 保持在线；roboRIO 不可达，DS searching 并自动失能。
+- [x] **roboRIO→Radio Power Module 恢复：重插紧后通过**。首次插回 ARP incomplete，重新插紧且链路灯正常后 ARP/ping 恢复，DS 自动重新建链；期间 Radio 有短暂响应翻转，已留日志。
+- [x] **UI / 控制环性能：不通过**。事件日志共 6,997 条 UI stall；187 条吞吐样本最低 5.0Hz，中段存在持续塌陷，虽最后恢复约 50Hz 仍不得判性能通过。禁止据此构建进行使能类验收。
+- [ ] **Wi-Fi 断复与 pcap：未执行**。本轮使用有线；BPF 权限仍未解决，不能宣称有 pcap 证据。
+
+## 2F. 2026-11-21 后续有线诊断（全程失能）
+
+- [x] **静态 IP 二分：通过，指向 DHCP 路径**。原网卡临时改为 10.T.E.50/24 后 Radio/roboRIO 立即可达并建链；静态 IP 下拔出 Mac↔Radio，11:02:56 自动失能，11:02:59 Radio 恢复，11:03:03 roboRIO 重新建链。pcap 显示 UDP 1110/1150 应答中断后恢复，静态窗口不依赖 DHCP 新租约。测试后两个网卡服务均恢复 DHCP。
+- [x] **pcap：已获取并验证可读**。基线快照有 6,701 个控制出包和 6,701 个应答入包；静态拔插窗口可见单向发包、应答恢复与重新建链。后续更换为不同 MAC 的 USB 网卡后 en7 消失、新 en8 即使同静态地址也不可达，该段不用于反证原结论。
+- [x] **10 分钟稳定性：通信无断链，性能不通过**。600 秒窗口未捕获 commState 断开，但仅 569 次状态采样；161 条 UI stall，139 条吞吐样本最低 13.6Hz、最后恢复 50Hz。期间有一次 DSCoreTests 干扰与负载峰值，不能据此宣称纯 DS 单因素结论，也不能判性能通过。
+- [x] **连接态更新安全门：通过**。失能但 roboRIO 通信活跃时 `updateGateAllowed=false`，原因明确为通信活跃。
+- [ ] **遥测细节：未闭环**。Loss=0、Radio=true、Enabled=false；roboRIO CPU 与 CAN 持续为 0，仍需协议/机器人侧核对。
+- [ ] **roboRIO SSH：未核对**。主机密钥变化，已只读收集当前公开主机密钥指纹，未绕过验证、未执行 `ss -tuln`。
+
+## 2G. 2026-11-21 Wi-Fi / 隔离尝试与取消项
+
+- [x] **Radio Wi-Fi 短暂连通，但断复未执行**。`11019_Arm` 可取得有效地址并短暂建链；Mac 会自动切回原网络，且用户明确指出 Radio Wi-Fi 无互联网，要求停止。已恢复原 H3C 网络与首选列表，移除临时 Radio 首选项，不再切 Wi-Fi。
+- [x] **独立 bundle ID 权限副本：已建立并验证真实通信**。使用独立签名 bundle ID 的测试副本，系统日志有 TCC 请求但无可见弹窗；Radio Wi-Fi 短暂 connected。不得据此宣称完整权限弹窗矩阵已验证。
+- [x] **Radio Power Module 供电链已确认，不能带电绕过**。Mac 实际直连 Radio，Radio→RPM 除数据外还承担供电；拔掉 Radio→RPM 后 Radio/有线链路同时 inactive。已立即恢复供电，未再要求绕过。
+- [x] **当前 en8 对照证据：链路 active 但零接收帧**。静态 10.T.E.50/24 下 Radio ARP incomplete、Host is down，计数器 Ipkts=0；原千兆网卡未接回，随后 Radio 离场，未形成完整的网卡/网线/端口矩阵。
+- [ ] **静态 IP 重复上下电、独立电源下绕过 RPM：未执行**。无独立 Radio 电源与硬件条件，不能伪造结论。诊断副本、专用设置域均已删除，两个 USB 网卡服务均恢复 DHCP。
+
+## 2H. Clash Verge 系统代理 / TUN 直连专项
+
+> 全部先在失能态执行；每项记录实际网卡与日志，不把 simulator/lo0 通过当作真机通过。
+> 实现应自动绑定机器人同子网物理网卡，不得依赖 Clash 私网 DIRECT 例外；测试后恢复 Clash 原始设置。
+>
+> 2026-11-21 本机打包版仿真：系统代理开/关 × TUN 开/关 × 规则/全局/直连共 12 组合均保持 connected、未使能；测试后 Clash 已恢复系统代理开、TUN 关、规则。此结果只证明回环回归，不勾选下方真机项。
+
+- [ ] **系统代理 × 非 TUN**：系统代理开/关分别覆盖规则、全局、直连，机器人保持 connected，UDP 应答和 TCP 1740 正常。
+- [ ] **系统代理 × TUN**：TUN 开启后，系统代理开/关分别覆盖规则、全局、直连；日志显示机器人目标绑定物理网卡而非 utun，机器人保持 connected，UDP 应答和 TCP 1740 正常。
+- [ ] **Radio 与 NT4**：TUN + 全局下 Radio 探测保持真实状态；SystemCore 可用时核对 NT4 握手与 ControlData，回包不进入 utun。
+- [ ] **网络变化与安全**：TUN 开关和网卡切换后自动重选；失联仍自动失能，恢复后不得自动重新使能。
+- [ ] **实际驾驶安全验收**：驱动轮架空、物理急停在手后，短时 Teleop 摇杆运动、Disable、E-Stop 均正常；未满足前置条件则保持未验证。
+
 ## 3. 手柄 HID → DS 报文
 
+- [x] **PS4 DualShock 4（054C:05C4）基础实物验收：通过**。2026-11-21 使用 PS4，默认显示清晰、无底座的 PS5 DualSense 实机外观，自动识别菜单只勾自动项。用户确认面键位置正确；实际页面确认六轴顺序 X/Y/Z/Rz/Rx/Ry，L2/R2 静止均显示 0.00。
+- [ ] **PS4 完整实物矩阵**：双摇杆四方向、L2/R2 全行程、全部肩键、PS/触控板、D-Pad、L3/R3 仍待逐项操作核对。扳机 0…1 连续行程已有回归，但未操作的实物全行程不得标为通过。
 - [ ] **hatswitch 角度次序**：本项目按「有效位从 1 起、顺时针 0° 起」直序映射，
       与 HID Usage Tables 帽用法表次序（1=NE）不同——实物矩阵核对后才改判，
       不凭文档记忆（Attack3 的 hat / Extreme 3D Pro 的 POV）
@@ -210,7 +270,7 @@
       「点亮位置 = 物理按键」——不对的记下按键号改 `GamepadLayout.layout(for:)` 表
   - [ ] 冰原狼 4（USB，045E:028E）：A1/B2/X3/Y4、LB5/RB6、View7/Menu8、Guide9、L3/R3 10/11、
         POV 方向键、M1/M2 背键的上报形态（现不落表，靠「未映射按键」芯片自揭示）
-  - [ ] F310（D 档，046D:C218）：北1/西2/南3/东4、L5/R6、LT7/RT8（数字）、Back9/Start10、
+  - [ ] F310（D 档，046D:C216）：北1/西2/南3/东4、L5/R6、LT7/RT8（数字）、Back9/Start10、
         L3/R3 11/12、右摇杆 = Z/Rz 轴
   - [ ] DualSense（054C:0CE6）：□1/✕2/○3/△4、L1 5/R1 6、L2 7/R2 8、Create9/Options10、
         L3/R3 11/12、PS13、触控板14、轴形态（右摇杆 Z/Rz？扳机 Rx/Ry？方向键 POV？）

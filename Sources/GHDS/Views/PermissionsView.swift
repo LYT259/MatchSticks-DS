@@ -17,7 +17,7 @@ struct PermissionsView: View {
                 firewallPanel
                 if !settingsMessage.isEmpty {
                     Label(settingsMessage, systemImage: "info.circle")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.callout).foregroundStyle(DSTheme.textSecondary)
                 }
             }
             .padding(24)
@@ -29,18 +29,18 @@ struct PermissionsView: View {
     }
 
     private var networkPanel: some View {
-        DSPanel(title: tr("本地网络"), subtitle: tr("用于发现并连接同一网络中的机器人。")) {
+        DSPanel(title: tr("本地网络")) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "network")
-                    .font(.system(size: 25, weight: .light)).foregroundStyle(.secondary)
+                    .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
                     .frame(width: 36)
                 VStack(alignment: .leading, spacing: 8) {
-                    DSBadge(text: networkBadge, color: hasRemoteConnection ? .green : .secondary,
+                    DSBadge(text: networkBadge, color: hasRemoteConnection ? DSTheme.success : .secondary,
                             symbol: hasRemoteConnection ? "checkmark.circle.fill" : "info.circle")
                     Text(networkExplanation)
                         .font(.callout).fixedSize(horizontal: false, vertical: true)
                     Text(tr("应用无法直接读取本地网络授权状态；未连接也可能由网络、地址或机器人状态引起。"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
             }
@@ -52,7 +52,7 @@ struct PermissionsView: View {
             }
             HStack {
                 Text(tr("macOS 15 及更新系统提供本地网络权限设置。"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 Spacer()
                 Button(tr("打开本地网络设置")) {
                     openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
@@ -63,10 +63,10 @@ struct PermissionsView: View {
     }
 
     private var inputPanel: some View {
-        DSPanel(title: tr("键盘快捷键"), subtitle: tr("当前版本的快捷键仅在应用处于前台时生效。")) {
+        DSPanel(title: tr("键盘快捷键")) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "keyboard")
-                    .font(.system(size: 25, weight: .light)).foregroundStyle(.secondary)
+                    .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
                     .frame(width: 36)
                 VStack(alignment: .leading, spacing: 8) {
                     DSBadge(text: tr("无需额外授权"), symbol: "checkmark.circle")
@@ -75,22 +75,22 @@ struct PermissionsView: View {
                     Text(inputMonitoringOK
                          ? tr("系统的「输入监控」已授权，当前版本暂不使用此权限。")
                          : tr("「输入监控」未授权不影响当前功能，无需为此开启权限。"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer(minLength: 0)
             }
             HStack {
                 Text(tr("输入监控仅用于将来的后台按键功能。"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 Spacer()
                 Button(tr("重新检测")) { inputMonitoringOK = CGPreflightListenEventAccess() }
-                    .buttonStyle(DSActionStyle(color: .secondary))
+                    .buttonStyle(DSActionStyle())
             }
         }
     }
 
     private var firewallPanel: some View {
-        DSPanel(title: tr("防火墙"), subtitle: tr("仅在启用防火墙且通信异常时检查。")) {
+        DSPanel(title: tr("防火墙")) {
             Text(tr("在「系统设置 → 网络 → 防火墙 → 选项」中，检查 GH Driver Station 是否允许接收传入连接。保留其他应用的防火墙设置即可。"))
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             HStack {
@@ -99,7 +99,7 @@ struct PermissionsView: View {
                 Button(tr("打开防火墙设置")) {
                     openSettings("x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall")
                 }
-                .buttonStyle(DSActionStyle(color: .secondary))
+                .buttonStyle(DSActionStyle())
             }
         }
     }
@@ -125,7 +125,7 @@ struct PermissionsView: View {
     private func instruction(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text(String(number))
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold)).foregroundStyle(DSTheme.textSecondary)
                 .frame(width: 20, height: 20)
                 .background(DSTheme.canvas, in: Circle())
             Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)

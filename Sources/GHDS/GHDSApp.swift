@@ -67,18 +67,6 @@ struct RootView: View {
             case .settings: return tr("设置")
             }
         }
-        var subtitle: String {
-            switch self {
-            case .operation: return tr("确认连接与模式，然后开始操作。")
-            case .setup: return tr("配置机器人连接目标，或启动本机模拟器。")
-            case .usb: return tr("检查输入，安排机器人接收的手柄顺序。")
-            case .diagnostics: return tr("检查链路、机器人资源和故障信息。")
-            case .charts: return tr("观察电池、处理器和通信质量的变化。")
-            case .messages: return tr("查看机器人输出、错误与驾驶台事件。")
-            case .permissions: return tr("排查连接问题，了解当前快捷键的使用范围。")
-            case .settings: return tr("这些选项会即时保存或生效。")
-            }
-        }
         var symbol: String {
             switch self {
             case .operation: return "steeringwheel"
@@ -100,14 +88,13 @@ struct RootView: View {
                 .ignoresSafeArea(.container, edges: .vertical)
             VStack(spacing: 0) {
                 HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(selection.title).font(.system(size: 22, weight: .semibold))
-                        Text(selection.subtitle).font(.system(size: 12)).foregroundStyle(DSTheme.textSecondary)
-                    }
+                    Text(selection.title).font(.system(size: 22, weight: .semibold))
                     Spacer()
                 }
                 .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 16)
-                DSStatusBar(model: model)
+                DSStatusBar(model: model,
+                            openConnection: { selection = .setup },
+                            openJoysticks: { selection = .usb })
                     .padding(.horizontal, 24).padding(.bottom, 16)
                 Divider()
                 pageContent.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,7 +183,7 @@ struct RootView: View {
 
     @ViewBuilder private var pageContent: some View {
         switch selection {
-        case .operation: OperationView(model: model, openConnection: { selection = .setup }, openSettings: { selection = .settings }, openControllers: { selection = .usb })
+        case .operation: OperationView(model: model, openSettings: { selection = .settings })
         case .setup: SetupView(model: model, simProcess: $simProcess, draft: connectionDraft)
         case .settings: SettingsView(model: model)
         case .usb: USBDevicesView(model: model)
@@ -232,7 +219,7 @@ struct SafetyControlBar: View {
                 Button { model.setEnabled(false) } label: {
                     controlLabel(tr("失能"), hint: "Return", symbol: "stop.fill")
                 }
-                .buttonStyle(DSActionStyle(color: .primary))
+                .buttonStyle(DSActionStyle())
                 Divider().frame(height: 36).padding(.horizontal, 3)
                 Button { model.triggerEstop() } label: {
                     controlLabel(model.estopEngaged ? tr("急停已锁定") : tr("急停"), hint: "Space", symbol: "exclamationmark.octagon.fill")
@@ -254,7 +241,7 @@ struct SafetyControlBar: View {
             }
         }
         .padding(.horizontal, 24).padding(.vertical, 16)
-        .background(DSTheme.surface)
+        .background(DSTheme.sidebar)
     }
 
     private func controlLabel(_ title: String, hint: String, symbol: String) -> some View {

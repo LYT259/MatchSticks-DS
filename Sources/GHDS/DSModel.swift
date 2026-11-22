@@ -130,6 +130,26 @@ final class DSModel {
         return f
     }()
 
+    /// 设置域解析：非空有效的 `GHDS_SETTINGS_SUITE` → 独立 UserDefaults suite
+    /// （测试 / 并行会话隔离），否则标准域。无效名字（UserDefaults 拒绝创建）同样回退标准域。
+    nonisolated static func resolvedSettingsDefaults(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> UserDefaults {
+        let name = (environment["GHDS_SETTINGS_SUITE"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let defaults = UserDefaults(suiteName: name) else {
+            return .standard
+        }
+        return defaults
+    }
+
+    /// `DSModel()` 保持原行为（环境变量解析设置域，AUTO_SIM 禁用持久化）。
+    /// 测试可注入临时 suite 与持久化开关；manualIP 等写入必须真实经过 didSet。
+    init(settingsDefaults: UserDefaults? = nil, persistenceEnabled: Bool? = nil) {
+        settings = SettingsStore(defaults: settingsDefaults ?? Self.resolvedSettingsDefaults())
+        persistenceAllowed = persistenceEnabled ?? !Self.isAutoSim
+    }
+
     // MARK: 连接与配置
 
     var teamNumber: Int = 0 {
@@ -141,9 +161,29 @@ final class DSModel {
     }
     var manualIP: String = "" {
         didSet {
-            settings.set("manualIP", manualIP.isEmpty ? nil : manualIP)
+            // AUTO_SIM / 禁用持久化的会话仍更新内存与 client 配置，仅跳过落盘
+            if persistenceEnabled {
+                settings.set("manualIP", manualIP.isEmpty ? nil : manualIP)
+            }
             syncClientConfig()
         }
+    }
+    /// 已应用手动地址的提示（读 model，不读编辑中的草稿）。
+    /// 普通手动地址：自动发现已关闭，仅向该地址发送；
+    /// 合法 127/8 且已设队号：明确提示这是本机回环地址，不是真实机器人。
+    var appliedManualIPWarning: String? {
+        let address = manualIP.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !address.isEmpty else { return nil }
+        if teamNumber > 0, Self.isLoopbackIPv4(address) {
+            return tr("已应用手动地址 %@：该地址指向本机，而非真实机器人；自动发现已关闭，仅向该地址发送。", address)
+        }
+        return tr("已应用手动地址 %@：自动发现已关闭，仅向该地址发送。", address)
+    }
+
+    static func isLoopbackIPv4(_ address: String) -> Bool {
+        var addr = in_addr()
+        guard inet_pton(AF_INET, address, &addr) == 1 else { return false }
+        return UInt32(bigEndian: addr.s_addr) >> 24 == 127
     }
     var radioReachable = false
     var opModes: [MRCOpModeInfo] = []
@@ -187,6 +227,8 @@ final class DSModel {
     }
     private(set) var enabled = false
     private(set) var estopEngaged = false
+    var estopSoundPlayer: (() -> Void)?
+    private var estopSound: NSSound?
     var enabledSince: Date?
     var enabledElapsed: TimeInterval = 0
 
@@ -227,21 +269,40 @@ final class DSModel {
     private var lastSlotsPublishAt: TimeInterval = 0
     /// HID 轮询源（默认真实 IOKit 主线程轮询；测试注入假设备流）。
     /// 50Hz 调用、保持主线程——IOKit 路径未在其他线程验证过，不擅自迁移。
-    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { HIDInputManager.shared.pollAll() }
+    var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { GamepadInputManager.shared.pollAll() }
 
     // MARK: 慢速设置
 
     var gameData: String = ""
     var competition: String = ""
     var matchType: UInt8 = 0
-    var dashboardKind: DashboardKind = .advantageScope {
-        didSet { settings.set("dashboardKind", dashboardKind.rawValue) }
+    // MARK: Dashboard 选择（多选 0–3 个；空选择只禁用 Launch）
+
+    /// 真源：多选集合（无序）。展示与启动一律走 `selectedDashboards`（字母序），
+    /// didSet 即时落盘；重启时优先读 `dashboards`，缺失则回退旧版单选键。
+    var dashboardSelection: Set<DashboardKind> = [.advantageScope] {
+        didSet { persistDashboardSelection() }
     }
+    /// 规范顺序（AdvantageScope、Elastic、Shuffleboard）：UI 左中右与启动顺序同源。
+    var selectedDashboards: [DashboardKind] {
+        DashboardKind.allCases.filter { dashboardSelection.contains($0) }
+    }
+    /// 旧版单选设置 / WebUI 旧键的兼容视图：读首个选中项（无选中为 nil），写等于只选该项。
+    var dashboardKind: DashboardKind? {
+        get { selectedDashboards.first }
+        set {
+            if let newValue { dashboardSelection = [newValue] } else { dashboardSelection = [] }
+        }
+    }
+    /// 启动器：默认真实 `open -a`；测试注入记录闭包，绝不打开外部 App。
+    var dashboardLauncher = DashboardLauncher()
 
     // MARK: Practice 时序
 
     enum PracticePhase: String, Sendable {
-        case idle, delayBeforeAuto, autonomous, delayBeforeTeleop, teleoperated, finished
+        case idle, delayBeforeAuto, autonomous, delayBeforeTeleop, teleoperated
+        case transitionShift, allianceShift1, allianceShift2, allianceShift3, allianceShift4, endgame
+        case finished
     }
     var practicePhase: PracticePhase = .idle
     var practiceRemaining: TimeInterval = 0
@@ -254,9 +315,40 @@ final class DSModel {
     var practiceDelayTime: TimeInterval = 2 {
         didSet { settings.set("practiceDelayTime", practiceDelayTime) }
     }
+    var practiceStartDelay: TimeInterval = 2 {
+        didSet { settings.set("practiceStartDelay", practiceStartDelay) }
+    }
+    var practiceSeasonYear = 2026 {
+        didSet {
+            settings.set("practiceSeasonYear", practiceSeasonYear)
+            if timeoutActive { cancelTimeout() }
+        }
+    }
+    /// 年份下拉的展示顺序：新 → 旧（2026、2025、…）。
+    /// 只改 UI 顺序；`PracticeTimingPreset.all` 的事实顺序保持原样。
+    var practiceSeasonYearChoices: [Int] {
+        PracticeTimingPreset.all.map(\.year).sorted(by: >)
+    }
+    var practiceTransitionShiftTime: TimeInterval = 10 {
+        didSet { settings.set("practiceTransitionShiftTime", practiceTransitionShiftTime) }
+    }
+    var practiceAllianceShiftTime: TimeInterval = 25 {
+        didSet { settings.set("practiceAllianceShiftTime", practiceAllianceShiftTime) }
+    }
+    var practiceEndgameTime: TimeInterval = 30 {
+        didSet { settings.set("practiceEndgameTime", practiceEndgameTime) }
+    }
+    var effectivePracticeTeleopTime: TimeInterval {
+        guard practiceSeasonYear >= 2026 else { return practiceTeleopTime }
+        return practiceTransitionShiftTime + practiceAllianceShiftTime * 4 + practiceEndgameTime
+    }
+    var currentPracticePhaseDuration: TimeInterval { sequencer.phaseDuration }
     var soundsEnabled = true {
         didSet { settings.set("soundsEnabled", soundsEnabled) }
     }
+    var timeoutDuration: TimeInterval = 480
+    var timeoutRemaining: TimeInterval = 0
+    var timeoutActive: Bool { timeoutSequencer.phase == .running }
 
     // MARK: 界面语言（中英双语：默认跟随系统，可手动覆盖；查找逻辑在 DSCore/Localization.swift）
 
@@ -299,14 +391,18 @@ final class DSModel {
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
     private let radioTeamBox = RadioTeamBox()
-    private let settings = SettingsStore()
+    private let settings: SettingsStore
+    private let persistenceAllowed: Bool
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
     private let nt4Server = NT4Server(port: 6767)
     private var webUI: WebUIServer?
     private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
+    let practiceAudio = PracticeAudioPlayer()
     private var practiceTimer: Timer?
+    private var timeoutSequencer = TimeoutSequencer()
+    private var timeoutTimer: Timer?
     private var pollTimer: Timer?
     private var tickers: [Timer] = []
     // 吞吐汇总行状态（打包版 E2E 判活断言用；Diag 镜像，不进 UI 日志）
@@ -315,7 +411,7 @@ final class DSModel {
 
     // MARK: 生命周期
 
-    var persistenceEnabled: Bool { !DSModel.isAutoSim }
+    var persistenceEnabled: Bool { persistenceAllowed }
 
     func loadPersistedSettings() {
         // 语言不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
@@ -326,15 +422,34 @@ final class DSModel {
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }
         if let raw = settings.string("alliance"), let a = AllianceStation(rawValue: UInt8(raw) ?? 255) { alliance = a }
-        if let kind = settings.string("dashboardKind").flatMap(DashboardKind.init(rawValue:)) { dashboardKind = kind }
+        // 新多选键优先；缺失或损坏时回退旧版单选键（空串 = 全部取消，属合法值）
+        if let stored = settings.string("dashboards").flatMap(DashboardKind.selection(from:)) {
+            dashboardSelection = stored
+        } else if let kind = settings.string("dashboardKind").flatMap(DashboardKind.init(rawValue:)) {
+            dashboardSelection = [kind]
+        }
         if let v = settings.double("practiceAutoTime"), v >= 1 { practiceAutoTime = v }
         if let v = settings.double("practiceTeleopTime"), v >= 15 { practiceTeleopTime = v }
         if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
+        if let v = settings.double("practiceStartDelay"), v >= 0 { practiceStartDelay = v }
+        if let year = settings.integer("practiceSeasonYear"), PracticeTimingPreset.forYear(year) != nil {
+            practiceSeasonYear = year
+        }
+        if let v = settings.double("practiceTransitionShiftTime"), v >= 0 { practiceTransitionShiftTime = v }
+        if let v = settings.double("practiceAllianceShiftTime"), v >= 1 { practiceAllianceShiftTime = v }
+        if let v = settings.double("practiceEndgameTime"), v >= 0 { practiceEndgameTime = v }
         if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
         if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
         if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
             protocolKind = kind
         }
+    }
+
+    /// 多选即时落盘：新键存规范顺序的逗号列表（空串 = 全不选），旧单选键同步为首选项。
+    private func persistDashboardSelection() {
+        guard persistenceEnabled else { return }
+        settings.set("dashboards", selectedDashboards.map(\.rawValue).joined(separator: ","))
+        settings.set("dashboardKind", dashboardKind?.rawValue)
     }
 
     func start() {
@@ -354,10 +469,13 @@ final class DSModel {
         installTimers()
         networkMonitor.start()
         macStatusSampler.start()
-        HIDInputManager.shared.onDevicesChanged = { [weak self] in
+        GamepadInputManager.shared.onDevicesChanged = { [weak self] in
             Task { @MainActor in self?.rescanJoysticks() }
         }
-        HIDInputManager.shared.start()
+        GamepadInputManager.shared.onError = { [weak self] message in
+            Task { @MainActor in self?.log(message) }
+        }
+        GamepadInputManager.shared.start()
         rescanJoysticks()
 
         client.snapshotProvider = { [snapshotBox] in snapshotBox.get() }
@@ -384,12 +502,15 @@ final class DSModel {
             RadioProbe.autoTarget(autoSim: DSModel.isAutoSim, teamNumber: radioTeamBox.get())
         }
         probe.onResult = { [weak self] ok in
-            Task { @MainActor in self?.radioReachable = ok }
+            Task { @MainActor in self?.applyRadioResult(ok) }
         }
         probe.start()
         radioProbe = probe
 
         started = true
+        nt4Server.onLog = { [weak self] line in
+            Task { @MainActor in self?.log(line) }
+        }
         // MRC：NT4 server（6767）随协议启动；ControlData 经 20ms tick 下发
         if protocolKind == .mrc {
             nt4Server.start()
@@ -448,6 +569,25 @@ final class DSModel {
             cfg.manualIP = self.manualIP.isEmpty ? nil : self.manualIP
             cfg.protocolKind = self.protocolKind
         }
+    }
+
+    /// Radio 探测结果落库：仅真实翻转时写日志。
+    /// RadioProbe.onResult 本身只在值变化时回调；这里再守一次，重复回调与直接调用都不刷。
+    func applyRadioResult(_ reachable: Bool) {
+        guard reachable != radioReachable else { return }
+        radioReachable = reachable
+        log(reachable ? tr("Radio 状态：已响应") : tr("Radio 状态：无响应"))
+    }
+
+    /// 本机网络摘要落库：从「检测中…」进入实际状态、以及实际状态变化时各记一条；
+    /// 相同摘要重复上报不刷日志（NWPathMonitor 回调可能很频繁）。
+    @discardableResult
+    func applyLocalNetworkSummary(_ summary: String) -> Bool {
+        guard summary != localNetworkSummary else { return false }
+        localNetworkSummary = summary
+        guard summary != tr("检测中…") else { return false }
+        log(tr("本机网络状态：%@", summary))
+        return true
     }
 
     // MARK: 主线程 50Hz：轮询 HID → 刷新槽位 → 填快照盒子
@@ -587,7 +727,9 @@ final class DSModel {
             "manualIP": manualIP,
             "protocolKind": protocolKind.rawValue,
             "alliance": String(alliance.rawValue),
-            "dashboardKind": dashboardKind.rawValue,
+            // 旧单选键保留（首个选中项；无选中为空串），新客户端读 dashboards 拿完整多选
+            "dashboardKind": dashboardKind?.rawValue ?? "",
+            "dashboards": selectedDashboards.map(\.rawValue).joined(separator: ","),
             "practiceAutoTime": String(practiceAutoTime),
             "practiceTeleopTime": String(practiceTeleopTime),
             "practiceDelayTime": String(practiceDelayTime),
@@ -613,8 +755,20 @@ final class DSModel {
             guard let raw = UInt8(value), let a = AllianceStation(rawValue: raw) else { return tr("非法站位值") }
             alliance = a
         case "dashboardKind":
-            guard let d = DashboardKind(rawValue: value) else { return tr("未知 Dashboard：%@", value) }
-            dashboardKind = d
+            // 旧键 = 单选语义（WebUI 旧客户端兼容）；空串 = 全部取消（与快照可往返）
+            if value.isEmpty {
+                dashboardSelection = []
+            } else if let d = DashboardKind(rawValue: value) {
+                dashboardKind = d
+            } else {
+                return tr("未知 Dashboard：%@", value)
+            }
+        case "dashboards":
+            // 新键 = 逗号分隔多选；空串 = 全部取消
+            guard let selection = DashboardKind.selection(from: value) else {
+                return tr("Dashboard 须为 AdvantageScope / Elastic / Shuffleboard 的逗号分隔列表")
+            }
+            dashboardSelection = selection
         case "practiceAutoTime":
             guard let v = Double(value), v >= 1 else { return tr("自动阶段时长须 ≥1 秒") }
             practiceAutoTime = v
@@ -665,7 +819,7 @@ final class DSModel {
     }
 
     var canEnable: Bool {
-        SafetyGate.canEnableNow(SafetyGate.State(
+        !timeoutActive && SafetyGate.canEnableNow(SafetyGate.State(
             commConnected: commConnected,
             watchdogHealthy: watchdogHealthy,
             estopEngaged: estopEngaged,
@@ -687,6 +841,10 @@ final class DSModel {
         // 计时器复位并重复写日志（迷你视图 ENABLE 曾因此可被误点）
         if on == enabled { return }
         if on {
+            guard !timeoutActive else {
+                log(tr("拒绝使能：%@", tr("Timeout 进行中")))
+                return
+            }
             let state = SafetyGate.State(
                 commConnected: commConnected,
                 watchdogHealthy: watchdogHealthy,
@@ -712,6 +870,9 @@ final class DSModel {
         enabledSince = nil
         // 同步刷新控制快照：否则快照盒里还是 ≤20ms 前的 estop=0，急停位上线被拖延
         pollAndPublishSnapshot()
+        cancelTimeout()
+        practiceAudio.stop()
+        playEstopSound()
         log(tr("E-STOP 触发（Space）"))
     }
 
@@ -759,12 +920,47 @@ final class DSModel {
         log(tr("OpMode 选择：%@（hash 0x%@）", op.name, String(op.hash, radix: 16)))
     }
 
+    // MARK: Dashboard 启动
+
+    /// 一次启动全部选中项（空选择 = 无动作）；返回实际提交给系统的项，便于测试。
+    /// 启动失败逐项记录，不因一项失败中断其余项。
+    @discardableResult
+    func launchSelectedDashboards() -> [DashboardKind] {
+        let outcome = dashboardLauncher.launch(selectedDashboards)
+        for kind in outcome.launched {
+            log(tr("尝试启动 Dashboard：%@", kind.rawValue))
+        }
+        for kind in DashboardKind.allCases {
+            guard let reason = outcome.failures[kind] else { continue }
+            log(tr("启动 Dashboard 失败：%@（%@）——请确认已安装该应用", kind.rawValue, reason))
+        }
+        return outcome.launched
+    }
+
     // MARK: Practice 时序
 
+    func applyPracticeTimingPreset() {
+        guard let preset = PracticeTimingPreset.forYear(practiceSeasonYear) else { return }
+        practiceAutoTime = preset.autoTime
+        practiceTeleopTime = preset.teleopTime
+        practiceDelayTime = preset.teleopDelay
+        practiceStartDelay = 0
+        practiceTransitionShiftTime = 10
+        practiceAllianceShiftTime = 25
+        practiceEndgameTime = 30
+    }
+
     func startPractice() {
-        guard !sequencer.phase.isActive else { return }
+        guard !sequencer.phase.isActive, !timeoutActive else { return }
+        practiceAudio.stop()
+        let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026
+            ? .init(transitionShift: practiceTransitionShiftTime, allianceShift: practiceAllianceShiftTime,
+                    endgame: practiceEndgameTime)
+            : nil
         sequencer = PracticeSequencer(config: .init(
-            autoTime: practiceAutoTime, teleopTime: practiceTeleopTime, delayTime: practiceDelayTime
+            autoTime: practiceAutoTime, teleopTime: effectivePracticeTeleopTime, delayTime: practiceDelayTime,
+            startDelay: practiceStartDelay, teleopBreakdown: breakdown,
+            teleopWarningTime: PracticeTimingPreset.forYear(practiceSeasonYear)?.endgameWarningTime
         ))
         applyPracticeEvents(sequencer.start())
         practiceTimer?.invalidate()
@@ -783,8 +979,63 @@ final class DSModel {
         practiceTimer = nil
     }
 
+    func startTimeout() {
+        guard practiceSeasonYear == 2022, !timeoutActive, !practiceActive, !estopEngaged else { return }
+        setEnabled(false)
+        practiceAudio.stop()
+        timeoutSequencer = TimeoutSequencer(duration: timeoutDuration)
+        applyTimeoutEvents(timeoutSequencer.start())
+        guard timeoutActive else { return }
+        timeoutTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.timeoutTick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        timeoutTimer = timer
+    }
+
+    func cancelTimeout() {
+        let wasActive = timeoutActive
+        timeoutSequencer.cancel()
+        timeoutRemaining = 0
+        timeoutTimer?.invalidate()
+        timeoutTimer = nil
+        if wasActive {
+            practiceAudio.stop()
+            log("Timeout cancelled")
+        }
+    }
+
+    private func timeoutTick() {
+        applyTimeoutEvents(timeoutSequencer.tick(0.1))
+        timeoutRemaining = timeoutSequencer.remaining
+        if !timeoutActive {
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
+        }
+    }
+
+    private func applyTimeoutEvents(_ events: [TimeoutSequencer.Event]) {
+        for event in events {
+            switch event {
+            case .started:
+                timeoutRemaining = timeoutSequencer.remaining
+                log("Timeout started")
+            case .warning:
+                playPracticeSound(.timeoutWarning)
+                log("Timeout warning: 1:00 remaining")
+            case .finished:
+                timeoutRemaining = 0
+                setEnabled(false)
+                playPracticeSound(.timeoutEnd)
+                log("Timeout ended")
+            }
+        }
+    }
+
     private func practiceTick() {
         applyPracticeEvents(sequencer.tick(0.1))
+        practiceRemaining = max(0, sequencer.remaining)
         if !sequencer.phase.isActive {
             practiceTimer?.invalidate()
             practiceTimer = nil
@@ -795,22 +1046,39 @@ final class DSModel {
         for event in events {
             switch event {
             case .entered(let phase):
+                let previousPhase = practicePhase
                 practicePhase = mapPhase(phase)
                 practiceRemaining = sequencer.remaining
                 switch phase {
                 case .autonomous: setMode(.autonomous)
-                case .teleoperated: setMode(.teleoperated)
+                case .teleoperated, .transitionShift, .allianceShift1, .allianceShift2,
+                     .allianceShift3, .allianceShift4, .endgame: setMode(.teleoperated)
                 default: break
                 }
-                if phase.isActive { beep(); log("Practice → \(phase.displayName)") }
+                if previousPhase == .autonomous && phase == .teleoperated {
+                    playPracticeSound(.autoEnd)
+                }
+                switch phase {
+                case .autonomous: playPracticeSound(.matchStart)
+                case .delayBeforeTeleop: playPracticeSound(.autoEnd)
+                case .teleoperated, .transitionShift: playPracticeSound(.teleopStart)
+                case .allianceShift1, .allianceShift2, .allianceShift3, .allianceShift4:
+                    playPracticeSound(.allianceShift)
+                case .endgame: playPracticeSound(.endgame)
+                default: break
+                }
+                if phase.isActive { log("Practice → \(phase.displayName)") }
             case .enable: setEnabled(true)
             case .disable: setEnabled(false)
             case .finished:
+                if practicePhase != .finished { playPracticeSound(.matchEnd) }
                 practicePhase = .finished
                 log(tr("Practice 结束"))
-                beep()
+            case .endgameWarning:
+                playPracticeSound(.endgame)
             case .aborted:
                 practicePhase = .finished
+                playPracticeSound(.matchStopped)
                 log(tr("A-STOP：Practice 中止"))
             }
         }
@@ -823,13 +1091,32 @@ final class DSModel {
         case .autonomous: return .autonomous
         case .delayBeforeTeleop: return .delayBeforeTeleop
         case .teleoperated: return .teleoperated
+        case .transitionShift: return .transitionShift
+        case .allianceShift1: return .allianceShift1
+        case .allianceShift2: return .allianceShift2
+        case .allianceShift3: return .allianceShift3
+        case .allianceShift4: return .allianceShift4
+        case .endgame: return .endgame
         case .finished: return .finished
         }
     }
 
-    private func beep() {
-        guard soundsEnabled else { return }
-        NSSound.beep()
+    private func playEstopSound() {
+        if let estopSoundPlayer {
+            estopSoundPlayer()
+            return
+        }
+        if estopSound == nil {
+            guard let url = Bundle.module.url(forResource: "FOGHORN", withExtension: "wav") else { return }
+            estopSound = NSSound(contentsOf: url, byReference: false)
+        }
+        _ = estopSound?.play()
+    }
+
+    private func playPracticeSound(_ event: PracticeSoundEvent) {
+        guard soundsEnabled,
+              let filename = PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear) else { return }
+        practiceAudio.enqueue(filename)
     }
 
     // MARK: 事件处理（client 事件 → 主线程状态）
@@ -1040,7 +1327,7 @@ final class DSModel {
         if let sampled = macStatusSampler.latest {
             macStatus = sampled
         }
-        localNetworkSummary = networkMonitor.summary
+        applyLocalNetworkSummary(networkMonitor.summary)
         appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }
         var entry = DSLogEntry()
@@ -1138,8 +1425,10 @@ struct JoystickSlot: Identifiable {
     var buttonCount: Int
     var povs: [Int16]
     var isXbox: Bool
-    /// 轴 Y 向约定：true = 已按 FRC 归一（上=-1），false = HID 原生（上=+1）。
-    var yFlipped: Bool
+    var mode: GamepadInputMode
+    var polarity: GamepadStickPolarity
+    var usbLocationID: UInt32?
+    var triggerAxisRange: GamepadTriggerRange
 
     var data: JoystickData {
         JoystickData(axes: axes, buttonCount: buttonCount, buttons: buttons, povs: povs)
@@ -1168,7 +1457,10 @@ struct JoystickSlot: Identifiable {
         self.buttonCount = device.buttonCount
         self.povs = device.povs
         self.isXbox = device.isXbox
-        self.yFlipped = device.yFlipped
+        self.mode = device.mode
+        self.polarity = device.polarity
+        self.usbLocationID = device.usbLocationID
+        self.triggerAxisRange = device.triggerAxisRange
     }
 
     mutating func apply(_ device: HIDDeviceSnapshot) {
@@ -1177,7 +1469,10 @@ struct JoystickSlot: Identifiable {
         buttons = device.buttons
         povs = device.povs
         name = device.name
-        yFlipped = device.yFlipped
+        mode = device.mode
+        polarity = device.polarity
+        usbLocationID = device.usbLocationID
+        triggerAxisRange = device.triggerAxisRange
     }
 }
 
@@ -1186,7 +1481,9 @@ extension GamepadSample {
     init(slot: JoystickSlot) {
         self.init(name: slot.name, vendorID: slot.vendorID, productID: slot.productID,
                   axes: slot.axes, axisUsages: slot.axisUsages,
-                  buttons: slot.buttons, povs: slot.povs, yFlipped: slot.yFlipped)
+                  buttons: slot.buttons, povs: slot.povs,
+                  mode: slot.mode, polarity: slot.polarity,
+                  triggerAxisRange: slot.triggerAxisRange)
     }
 }
 
@@ -1267,9 +1564,65 @@ struct LossPoint: Sendable {
 
 // MARK: - Dashboard
 
+/// 声明顺序即展示与启动顺序（字母序：AdvantageScope、Elastic、Shuffleboard）。
+/// rawValue 是持久化值与 WebUI 旧键取值，改名属契约变更，不顺手改。
 enum DashboardKind: String, CaseIterable, Identifiable {
     case advantageScope = "AdvantageScope"
-    case shuffleboard = "Shuffleboard"
     case elastic = "Elastic"
+    case shuffleboard = "Shuffleboard"
+
     var id: String { rawValue }
+
+    /// `open -a` 的应用名：与既有启动逻辑逐项一致（Shuffleboard 安装名是小写）。
+    var applicationName: String {
+        switch self {
+        case .advantageScope: return "AdvantageScope"
+        case .elastic: return "Elastic"
+        case .shuffleboard: return "shuffleboard"
+        }
+    }
+
+    /// 逗号分隔列表解析（持久化新键与 WebUI 新键共用）。
+    /// 空串 = 全部取消（合法）；含未知项 = 非法（nil），由调用方决定回退或报错。
+    static func selection(from raw: String) -> Set<DashboardKind>? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return [] }
+        var result: Set<DashboardKind> = []
+        for token in trimmed.split(separator: ",") {
+            let name = token.trimmingCharacters(in: .whitespaces)
+            guard let kind = DashboardKind(rawValue: name) else { return nil }
+            result.insert(kind)
+        }
+        return result
+    }
+}
+
+/// Dashboard 启动（一次启动所有选中项）。
+/// `open` 可注入：单元测试只记录调用，绝不真正打开外部 App。
+struct DashboardLauncher {
+    /// 默认实现：`/usr/bin/open -a <应用名>`（沿用原有启动路径）。
+    static func openWithSystem(_ kind: DashboardKind) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", kind.applicationName]
+        try process.run()
+    }
+
+    var open: (DashboardKind) throws -> Void = DashboardLauncher.openWithSystem
+
+    /// 按字母序启动；单项失败不阻断其余项。返回成功提交给系统的项与失败原因。
+    func launch(_ kinds: [DashboardKind]) -> (launched: [DashboardKind], failures: [DashboardKind: String]) {
+        let ordered = DashboardKind.allCases.filter { kinds.contains($0) }
+        var launched: [DashboardKind] = []
+        var failures: [DashboardKind: String] = [:]
+        for kind in ordered {
+            do {
+                try open(kind)
+                launched.append(kind)
+            } catch {
+                failures[kind] = error.localizedDescription
+            }
+        }
+        return (launched, failures)
+    }
 }
