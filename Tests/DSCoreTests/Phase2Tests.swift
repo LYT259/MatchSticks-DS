@@ -1395,6 +1395,7 @@ func runAllPhase2Tests() {
     runTest("safetyGateTests", safetyGateTests)
     runTest("povHatTests", povHatTests)
     runTest("practiceSequencerTests", practiceSequencerTests)
+    runTest("practiceTimelineTests", practiceTimelineTests)
     runTest("recorderTests", recorderTests)
     runTest("estopLatchScenario", estopLatchScenario)
     runTest("rebootOutageScenario", rebootOutageScenario)

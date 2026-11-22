@@ -746,6 +746,126 @@ struct UIStateTests {
         unsupportedTimeout.practiceSeasonYear = 2023
         unsupportedTimeout.startTimeout()
         check(!unsupportedTimeout.timeoutActive, "Timeout audio simulation is specific to the 2022 rules")
+        // ⑫ 比赛年份：下拉新→旧；Preset.all 事实顺序不变
+        let orderedYearModel = DSModel()
+        check(orderedYearModel.practiceSeasonYearChoices == [2026, 2025, 2024, 2023, 2022],
+              "season picker lists years newest first")
+        check(PracticeTimingPreset.all.map(\.year) == [2022, 2023, 2024, 2025, 2026],
+              "preset fact order is untouched by UI ordering")
+
+        // ⑬ Dashboard 多选：字母序、即时持久化、重启恢复、旧键兼容、空选择
+        check(DashboardKind.allCases.map(\.rawValue) == ["AdvantageScope", "Elastic", "Shuffleboard"],
+              "dashboard controls are ordered AdvantageScope, Elastic, Shuffleboard")
+        let dashboardSuite = makeSuite(suiteNames[8])
+        let dashboardModel = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
+        check(dashboardModel.selectedDashboards == [.advantageScope],
+              "fresh install keeps the legacy AdvantageScope default")
+        dashboardModel.dashboardSelection = [.shuffleboard, .advantageScope]
+        check(dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
+              "selection is presented in alphabetical order")
+        check(dashboardSuite.string(forKey: "ghds.dashboards") == "AdvantageScope,Shuffleboard",
+              "selection persists immediately in canonical order")
+        check(dashboardSuite.string(forKey: "ghds.dashboardKind") == "AdvantageScope",
+              "legacy single-select key mirrors the first selection")
+        let restoredDashboard = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
+        restoredDashboard.loadPersistedSettings()
+        check(restoredDashboard.dashboardSelection == [.advantageScope, .shuffleboard],
+              "multi-selection restores after restart")
+
+        dashboardModel.dashboardSelection = []
+        check(dashboardSuite.string(forKey: "ghds.dashboards") == "",
+              "empty selection persists as an empty list")
+        let restoredEmpty = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
+        restoredEmpty.loadPersistedSettings()
+        check(restoredEmpty.dashboardSelection.isEmpty,
+              "empty selection survives restart instead of falling back to a default")
+        check(restoredEmpty.dashboardKind == nil,
+              "legacy view reports no selection when all dashboards are unchecked")
+
+        // 旧版单选键：新键缺失 → 直接恢复；新键损坏 → 回退旧键（外部数据容错）
+        let legacySuite = makeSuite(suiteNames[9])
+        legacySuite.set("Shuffleboard", forKey: "ghds.dashboardKind")
+        let legacyDashboard = DSModel(settingsDefaults: legacySuite, persistenceEnabled: true)
+        legacyDashboard.loadPersistedSettings()
+        check(legacyDashboard.dashboardSelection == [.shuffleboard],
+              "legacy dashboardKind setting restores as a single selection")
+        legacySuite.set("AdvantageScope,Bogus", forKey: "ghds.dashboards")
+        let corruptDashboard = DSModel(settingsDefaults: legacySuite, persistenceEnabled: true)
+        corruptDashboard.loadPersistedSettings()
+        check(corruptDashboard.dashboardSelection == [.shuffleboard],
+              "corrupt multi-select value falls back to the legacy key")
+
+        // WebUI：旧键仍按单选生效，新键支持逗号多选；非法项拒绝且不改现状
+        check(dashboardModel.applyWebSetting(key: "dashboardKind", value: "Elastic") == nil &&
+              dashboardModel.dashboardSelection == [.elastic],
+              "WebUI legacy key maps to a single selection")
+        check(dashboardModel.applyWebSetting(key: "dashboards", value: "AdvantageScope, Shuffleboard") == nil &&
+              dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
+              "WebUI multi-select key accepts a comma-separated list")
+        check(dashboardModel.applyWebSetting(key: "dashboards", value: "AdvantageScope,Unknown") != nil &&
+              dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
+              "unknown dashboard entries are rejected without changing state")
+        check(dashboardModel.applyWebSetting(key: "dashboards", value: "") == nil &&
+              dashboardModel.dashboardSelection.isEmpty,
+              "clearing all dashboards through the WebUI key is allowed")
+        dashboardModel.dashboardSelection = [.elastic, .shuffleboard]
+        let webSnapshot = dashboardModel.webSettingsSnapshot()
+        check(webSnapshot["dashboardKind"] == "Elastic" && webSnapshot["dashboards"] == "Elastic,Shuffleboard",
+              "WebUI snapshot exposes both the legacy key and the full selection")
+        check(dashboardModel.applyWebSetting(key: "dashboardKind", value: "") == nil &&
+              dashboardModel.dashboardSelection.isEmpty,
+              "empty legacy key clears the selection for snapshot round-trips")
+
+        // 启动器注入：测试只记录调用，绝不打开真实 App；单项失败不阻断其余项
+        let launchModel = DSModel(settingsDefaults: makeSuite(suiteNames[10]), persistenceEnabled: false)
+        var opened: [String] = []
+        launchModel.dashboardLauncher.open = { opened.append($0.applicationName) }
+        launchModel.dashboardSelection = [.shuffleboard, .elastic]
+        let launched = launchModel.launchSelectedDashboards()
+        check(opened == ["Elastic", "shuffleboard"],
+              "launch opens every selected dashboard in alphabetical order")
+        check(launched == [.elastic, .shuffleboard],
+              "launch reports the dashboards handed to the system")
+        opened.removeAll()
+        launchModel.dashboardSelection = []
+        check(launchModel.launchSelectedDashboards().isEmpty && opened.isEmpty,
+              "empty selection launches nothing")
+
+        enum FakeLaunchError: Error { case missing }
+        launchModel.dashboardSelection = [.advantageScope, .elastic, .shuffleboard]
+        launchModel.dashboardLauncher.open = { kind in
+            if kind == .elastic { throw FakeLaunchError.missing }
+            opened.append(kind.applicationName)
+        }
+        let partial = launchModel.launchSelectedDashboards()
+        check(opened == ["AdvantageScope", "shuffleboard"] && partial == [.advantageScope, .shuffleboard],
+              "one failed dashboard does not stop the remaining launches")
+        check(launchModel.dsEvents.contains { $0.text.contains("启动 Dashboard 失败") && $0.text.contains("Elastic") },
+              "a failed dashboard launch is logged")
+
+        // 任意 1–3 个组合：一次启动恰好全部选中项，顺序恒为字母序
+        let subsetModel = DSModel(settingsDefaults: makeSuite(suiteNames[10]), persistenceEnabled: false)
+        var plan: [String] = []
+        subsetModel.dashboardLauncher.open = { plan.append($0.applicationName) }
+        let allDashboards = DashboardKind.allCases
+        var matchingSubsets = 0
+        for mask in 1..<(1 << allDashboards.count) {
+            let subset = Set(allDashboards.indices.filter { mask & (1 << $0) != 0 }.map { allDashboards[$0] })
+            subsetModel.dashboardSelection = subset
+            plan.removeAll()
+            let result = subsetModel.launchSelectedDashboards()
+            let expected = allDashboards.filter { subset.contains($0) }
+            if result == expected && plan == expected.map(\.applicationName) { matchingSubsets += 1 }
+        }
+        check(matchingSubsets == 7, "every 1–3 dashboard combination launches exactly the selected apps")
+
+        // 禁用持久化（AUTO_SIM / 测试注入）只改内存，不写正式设置
+        let frozenDashSuite = makeSuite(suiteNames[10])
+        let frozenDash = DSModel(settingsDefaults: frozenDashSuite, persistenceEnabled: false)
+        frozenDash.dashboardSelection = [.elastic]
+        check(frozenDash.selectedDashboards == [.elastic], "selection still updates in memory")
+        check(frozenDashSuite.object(forKey: "ghds.dashboards") == nil,
+              "disabled persistence leaves dashboard storage untouched")
 
         for name in suiteNames {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)

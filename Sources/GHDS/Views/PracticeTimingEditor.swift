@@ -4,6 +4,9 @@ import DSCore
 struct PracticeTimingEditor: View {
     @Bindable var model: DSModel
 
+    private static let labelMinimumWidth: Double = 56
+    private static let clockMinimumWidth: Double = 84
+
     var body: some View {
         VStack(spacing: 0) {
             timeline
@@ -23,43 +26,71 @@ struct PracticeTimingEditor: View {
                 Text(tr("比赛时间线"))
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                Text(clock(totalDuration))
+                Text(clock(configuration.totalDuration))
                     .font(.system(size: 20, weight: .semibold).monospacedDigit())
             }
             GeometryReader { geometry in
-                let items = timelineItems
-                let widths = segmentWidths(for: items, totalWidth: geometry.size.width)
+                let layout = PracticeTimeline.layout(for: configuration,
+                                                     totalWidth: geometry.size.width)
                 VStack(spacing: 6) {
-                    HStack(spacing: 0) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            VStack(spacing: 2) {
-                                Text(item.title)
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .lineLimit(2)
-                                    .minimumScaleFactor(0.75)
-                                Text(tr("%d 秒", Int(item.duration)))
-                                    .font(.system(size: 11, weight: .medium).monospacedDigit())
-                            }
-                            .foregroundStyle(item.textColor)
-                            .frame(width: widths[index], height: 64)
-                            .background(item.color)
+                    timelineTrack(layout)
+                    timelineClocks(layout)
+                }
+                .frame(width: CGFloat(layout.totalWidth), alignment: .leading)
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+            .frame(height: 84)
+        }
+    }
+
+    /// 真实比例轨道：区段位置与宽度只由时长占比决定，标签不参与几何计算。
+    private func timelineTrack(_ layout: PracticeTimeline.Layout) -> some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(DSTheme.segmentTrack)
+            ForEach(layout.items) { item in
+                let presentation = presentation(for: item.segment.kind)
+                ZStack {
+                    Rectangle().fill(presentation.color)
+                    if item.width >= Self.labelMinimumWidth {
+                        VStack(spacing: 2) {
+                            Text(presentation.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.75)
+                            Text(tr("%d 秒", Int(item.segment.duration)))
+                                .font(.system(size: 11, weight: .medium).monospacedDigit())
                         }
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    HStack(spacing: 0) {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            Text("\(clock(item.start))–\(clock(item.end))")
-                                .font(.system(size: 9).monospacedDigit())
-                                .foregroundStyle(DSTheme.textPrimary)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .frame(width: widths[index])
-                        }
+                        .foregroundStyle(presentation.textColor)
+                        .padding(.horizontal, 4)
                     }
                 }
+                .frame(width: CGFloat(item.width), height: 64)
+                .clipped()
+                .offset(x: CGFloat(item.x))
+                .help("\(presentation.title) \(tr("%d 秒", Int(item.segment.duration)))")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(presentation.title) \(tr("%d 秒", Int(item.segment.duration)))")
             }
-            .frame(height: 92)
         }
+        .frame(width: CGFloat(layout.totalWidth), height: 64, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// 时间刻度同样是标签层：只显示在宽度足够的区段，不反向影响轨道。
+    private func timelineClocks(_ layout: PracticeTimeline.Layout) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(PracticeTimeline.labels(in: layout, minimumWidth: Self.clockMinimumWidth)) { item in
+                Text("\(clock(item.segment.start))–\(clock(item.segment.end))")
+                    .font(.system(size: 9).monospacedDigit())
+                    .foregroundStyle(DSTheme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: CGFloat(item.width), alignment: .leading)
+                    .offset(x: CGFloat(item.x))
+            }
+        }
+        .frame(width: CGFloat(layout.totalWidth), height: 12, alignment: .topLeading)
     }
 
     private var legacyControls: some View {
@@ -71,6 +102,9 @@ struct PracticeTimingEditor: View {
             fullSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
             Divider().padding(.leading, 16)
             fullSlider(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600, color: .matchBlue)
+            Divider().padding(.leading, 16)
+            durationSummary
+                .padding(16)
         }
     }
 
@@ -90,18 +124,39 @@ struct PracticeTimingEditor: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            HStack {
-                Text("Teleop")
-                    .font(.system(size: 13, weight: .semibold))
-                Spacer()
-                Text(clock(model.effectivePracticeTeleopTime))
-                    .font(.system(size: 20, weight: .semibold).monospacedDigit())
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14).padding(.vertical, 12)
-            .background(Color.matchNavy, in: RoundedRectangle(cornerRadius: 8))
+            durationSummary
         }
         .padding(16)
+    }
+
+    private var durationSummary: some View {
+        HStack(spacing: 12) {
+            durationCard(tr("自动阶段"), value: configuration.autoTime,
+                         background: .matchNavy, foreground: .white)
+            durationCard(transitionTitle, value: configuration.transitionTotal,
+                         background: .matchYellow, foreground: .matchDarkText)
+            durationCard("Teleop", value: configuration.teleopTotal,
+                         background: .matchBlue, foreground: .white)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func durationCard(_ title: String, value: TimeInterval,
+                              background: Color, foreground: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(clock(value))
+                .font(.system(size: 20, weight: .semibold).monospacedDigit())
+        }
+        .foregroundStyle(foreground)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+        .background(background, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 
     private func fullSlider(_ title: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>, color: Color) -> some View {
@@ -138,67 +193,44 @@ struct PracticeTimingEditor: View {
         }
     }
 
-    private var totalDuration: TimeInterval {
-        model.practiceStartDelay + model.practiceAutoTime + model.practiceDelayTime + model.effectivePracticeTeleopTime
+    /// 时间线与摘要卡片使用同一份配置，Start Delay 等滑杆改动即时反映到比例轨道。
+    private var configuration: PracticeTimingConfiguration {
+        PracticeTimingConfiguration(
+            seasonYear: model.practiceSeasonYear,
+            startDelay: model.practiceStartDelay,
+            autoTime: model.practiceAutoTime,
+            delayTime: model.practiceDelayTime,
+            teleopTime: model.practiceTeleopTime,
+            transitionShift: model.practiceTransitionShiftTime,
+            allianceShift: model.practiceAllianceShiftTime,
+            endgame: model.practiceEndgameTime
+        )
     }
 
-    private var timelineItems: [TimelineItem] {
-        var items: [TimelineItem] = []
-        var elapsed: TimeInterval = 0
-        func append(_ id: String, _ title: String, _ duration: TimeInterval, _ color: Color, _ textColor: Color = .white) {
-            guard duration > 0 else { return }
-            items.append(TimelineItem(id: id, title: title, duration: duration, start: elapsed,
-                                      end: elapsed + duration, color: color, textColor: textColor))
-            elapsed += duration
-        }
-        append("start", tr("开始前等待"), model.practiceStartDelay, .matchNeutral, .matchDarkText)
-        append("auto", tr("自动阶段"), model.practiceAutoTime, .matchNavy)
-        append("delay", tr("过渡"), model.practiceDelayTime, .matchNeutral, .matchDarkText)
-        if model.practiceSeasonYear >= 2026 {
-            append("transition", "Transition Shift", model.practiceTransitionShiftTime, .matchYellow, .matchDarkText)
-            append("shift1", "Shift 1", model.practiceAllianceShiftTime, .matchBlue)
-            append("shift2", "Shift 2", model.practiceAllianceShiftTime, .matchRed)
-            append("shift3", "Shift 3", model.practiceAllianceShiftTime, .matchBlue)
-            append("shift4", "Shift 4", model.practiceAllianceShiftTime, .matchRed)
-            append("endgame", "Endgame", model.practiceEndgameTime, .matchYellow, .matchDarkText)
-        } else {
-            append("teleop", "Teleop", model.practiceTeleopTime, .matchBlue)
-        }
-        return items
+    /// 旧赛季没有 Transition Shift，用 Auto → Teleop 过渡表示；不虚构阶段。
+    private var transitionTitle: String {
+        configuration.usesRebuiltTeleop ? "Transition Shift" : tr("Auto → Teleop 过渡")
     }
 
-    private func segmentWidths(for items: [TimelineItem], totalWidth: CGFloat) -> [CGFloat] {
-        let minimums = items.map { item -> CGFloat in
-            switch item.id {
-            case "delay": return 38
-            case "transition": return 82
-            case "shift1", "shift2", "shift3", "shift4": return 104
-            case "auto": return 76
-            default: return 92
-            }
+    private func presentation(for kind: PracticeTimeline.SegmentKind) -> (title: String, color: Color, textColor: Color) {
+        switch kind {
+        case .startDelay: return (tr("开始前等待"), .matchNeutral, .matchDarkText)
+        case .autonomous: return (tr("自动阶段"), .matchNavy, .white)
+        case .autoToTeleop: return (tr("过渡"), .matchNeutral, .matchDarkText)
+        case .transitionShift: return ("Transition Shift", .matchYellow, .matchDarkText)
+        case .allianceShift1: return ("Shift 1", .matchBlue, .white)
+        case .allianceShift2: return ("Shift 2", .matchRed, .white)
+        case .allianceShift3: return ("Shift 3", .matchBlue, .white)
+        case .allianceShift4: return ("Shift 4", .matchRed, .white)
+        case .endgame: return ("Endgame", .matchYellow, .matchDarkText)
+        case .teleoperated: return ("Teleop", .matchBlue, .white)
         }
-        let minimumTotal = minimums.reduce(0, +)
-        let scale = min(1, totalWidth / max(minimumTotal, 1))
-        let bases = minimums.map { $0 * scale }
-        let remaining = max(0, totalWidth - bases.reduce(0, +))
-        let durationTotal = max(items.reduce(0) { $0 + $1.duration }, 1)
-        return items.indices.map { bases[$0] + remaining * items[$0].duration / durationTotal }
     }
 
     private func clock(_ seconds: TimeInterval) -> String {
         let value = Int(seconds.rounded())
         return String(format: "%d:%02d", value / 60, value % 60)
     }
-}
-
-private struct TimelineItem {
-    let id: String
-    let title: String
-    let duration: TimeInterval
-    let start: TimeInterval
-    let end: TimeInterval
-    let color: Color
-    let textColor: Color
 }
 
 private extension Color {
