@@ -186,7 +186,7 @@ struct RootView: View {
 
     @ViewBuilder private var pageContent: some View {
         switch selection {
-        case .operation: OperationView(model: model, openSettings: { selection = .settings })
+        case .operation: OperationView(model: model)
         case .setup: SetupView(model: model, simProcess: $simProcess, draft: connectionDraft)
         case .settings: SettingsView(model: model)
         case .usb: USBDevicesView(model: model)

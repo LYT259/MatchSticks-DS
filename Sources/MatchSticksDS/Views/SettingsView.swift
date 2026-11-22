@@ -10,7 +10,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 generalPanel
                 dashboardPanel
-                practicePanel
+                audioPanel
                 matchPanel
                 loggingPanel
             }
@@ -60,17 +60,18 @@ struct SettingsView: View {
         }
     }
 
-    private var practicePanel: some View {
-        settingsGroup(tr("练习时序")) {
-            settingsRow(tr("官方时序")) {
-                Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
-                    .buttonStyle(DSActionStyle())
-            }
-            settingsSeparator
-            PracticeTimingEditor(model: model)
-            settingsSeparator
+    private var audioPanel: some View {
+        settingsGroup(tr("声音")) {
             settingsRow(tr("播放阶段提示音")) {
                 Toggle(tr("播放阶段提示音"), isOn: $model.soundsEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(DSTheme.accent)
+            }
+            settingsSeparator
+            settingsRow(tr("播放使能/失能音效")) {
+                Toggle(tr("播放使能/失能音效"), isOn: $model.enableDisableSoundsEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)

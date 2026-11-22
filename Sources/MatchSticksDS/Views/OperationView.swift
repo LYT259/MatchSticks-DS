@@ -3,84 +3,104 @@ import DSCore
 
 struct OperationView: View {
     let model: DSModel
-    var openSettings: () -> Void = {}
 
     var body: some View {
         ScrollView {
-            HStack(alignment: .top, spacing: 18) {
-                DSPanel(title: tr("驾驶模式")) {
-                    VStack(spacing: 8) {
-                        modeRow(.teleoperated, title: tr("遥控"), detail: tr("用手柄直接控制机器人"), symbol: "gamecontroller")
-                        modeRow(.autonomous, title: tr("自动"), detail: tr("运行机器人预设的自动程序"), symbol: "point.topleft.down.to.point.bottomright.curvepath")
-                        modeRow(.test, title: tr("测试"), detail: tr("调试机器人程序中的测试功能"), symbol: "wrench.and.screwdriver")
-                    }
-                    .disabled(model.enabled)
-                    if model.protocolKind == .mrc {
-                        Divider()
-                        opModePicker
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 18) {
-                    DSPanel(title: tr("联盟站位")) {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(alignment: .top, spacing: 12) {
-                                blueAllianceGroup
-                                redAllianceGroup
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        DSPanel(title: tr("驾驶模式")) {
+                            VStack(spacing: 8) {
+                                modeRow(.teleoperated, title: tr("遥控"), detail: tr("用手柄直接控制机器人"), symbol: "gamecontroller")
+                                modeRow(.autonomous, title: tr("自动"), detail: tr("运行机器人预设的自动程序"), symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                                modeRow(.test, title: tr("测试"), detail: tr("调试机器人程序中的测试功能"), symbol: "wrench.and.screwdriver")
                             }
-                            VStack(alignment: .leading, spacing: 12) {
-                                blueAllianceGroup
-                                redAllianceGroup
+                            .disabled(model.enabled)
+                            if model.protocolKind == .mrc {
+                                Divider()
+                                opModePicker
                             }
                         }
-                    }
-                    DSPanel(title: tr("自动练习")) {
-                        HStack(spacing: 18) {
-                            duration(tr("自动"), model.practiceAutoTime)
-                            Image(systemName: "arrow.right").foregroundStyle(DSTheme.textSecondary)
-                            duration(tr("遥控"), model.effectivePracticeTeleopTime)
-                        }
-                        if model.practicePhase != .idle {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(model.practicePhase.displayName)
-                                    Spacer()
-                                    Text(String(format: "%.1f s", max(0, model.practiceRemaining))).monospacedDigit()
-                                }.font(.callout)
-                                ProgressView(value: practiceProgress)
-                                    .tint(DSTheme.accent)
-                                    .controlSize(.small)
+                        DSPanel(title: tr("联盟站位")) {
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .top, spacing: 12) {
+                                    blueAllianceGroup
+                                    redAllianceGroup
+                                }
+                                VStack(alignment: .leading, spacing: 12) {
+                                    blueAllianceGroup
+                                    redAllianceGroup
+                                }
                             }
                         }
-                        if model.practiceActive {
-                            Button(tr("停止练习（A-Stop）"), systemImage: "stop.fill") { model.aStop() }
-                                .buttonStyle(DSActionStyle(color: DSTheme.danger))
-                                .keyboardShortcut(.delete, modifiers: [])
-                        } else {
-                            Button(tr("开始自动练习"), systemImage: "play.circle") { model.startPractice() }
-                                .disabled(model.estopEngaged)
-                        }
-                        Button(tr("调整练习时长"), action: openSettings).buttonStyle(.link)
                     }
-                    if model.practiceSeasonYear == 2022 {
-                        DSPanel(title: "2022 Timeout") {
-                            duration("Timeout", model.timeoutActive ? model.timeoutRemaining : model.timeoutDuration)
-                            if model.timeoutActive {
-                                ProgressView(value: timeoutProgress)
-                                    .tint(DSTheme.accent)
-                                    .controlSize(.small)
-                                Button(tr("取消 Timeout"), systemImage: "stop.fill") { model.cancelTimeout() }
+                    .frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: 18) {
+                        DSPanel(title: tr("自动练习")) {
+                            HStack(spacing: 18) {
+                                duration(tr("自动"), model.practiceAutoTime)
+                                Image(systemName: "arrow.right").foregroundStyle(DSTheme.textSecondary)
+                                duration(tr("遥控"), model.effectivePracticeTeleopTime)
+                            }
+                            if model.practicePhase != .idle {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(model.practicePhase.displayName)
+                                        Spacer()
+                                        Text(String(format: "%.1f s", max(0, model.practiceRemaining))).monospacedDigit()
+                                    }.font(.callout)
+                                    ProgressView(value: practiceProgress)
+                                        .tint(DSTheme.accent)
+                                        .controlSize(.small)
+                                }
+                            }
+                            if model.practiceActive {
+                                Button(tr("停止练习（A-Stop）"), systemImage: "stop.fill") { model.aStop() }
                                     .buttonStyle(DSActionStyle(color: DSTheme.danger))
+                                    .keyboardShortcut(.delete, modifiers: [])
                             } else {
-                                Button(tr("开始 Timeout"), systemImage: "pause.circle") { model.startTimeout() }
-                                    .disabled(model.enabled || model.practiceActive || model.estopEngaged)
+                                Button(tr("开始自动练习"), systemImage: "play.circle") { model.startPractice() }
+                                    .disabled(model.estopEngaged)
+                            }
+                        }
+                        if model.practiceSeasonYear == 2022 {
+                            DSPanel(title: "2022 Timeout") {
+                                duration("Timeout", model.timeoutActive ? model.timeoutRemaining : model.timeoutDuration)
+                                if model.timeoutActive {
+                                    ProgressView(value: timeoutProgress)
+                                        .tint(DSTheme.accent)
+                                        .controlSize(.small)
+                                    Button(tr("取消 Timeout"), systemImage: "stop.fill") { model.cancelTimeout() }
+                                        .buttonStyle(DSActionStyle(color: DSTheme.danger))
+                                } else {
+                                    Button(tr("开始 Timeout"), systemImage: "pause.circle") { model.startTimeout() }
+                                        .disabled(model.enabled || model.practiceActive || model.estopEngaged)
+                                }
                             }
                         }
                     }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+                practiceTimingPanel
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
+        }
+    }
+
+    private var practiceTimingPanel: some View {
+        DSPanel(title: tr("练习时序"), subtitle: tr("时长设置用于下一次练习。")) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    Text(tr("官方时序"))
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                    Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
+                        .buttonStyle(DSActionStyle())
+                }
+                .padding(.bottom, 12)
+                PracticeTimingEditor(model: model)
+            }
         }
     }
 

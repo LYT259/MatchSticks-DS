@@ -347,6 +347,9 @@ final class DSModel {
     var soundsEnabled = true {
         didSet { settings.set("soundsEnabled", soundsEnabled) }
     }
+    var enableDisableSoundsEnabled = true {
+        didSet { settings.set("enableDisableSoundsEnabled", enableDisableSoundsEnabled) }
+    }
     var timeoutDuration: TimeInterval = 480
     var timeoutRemaining: TimeInterval = 0
     var timeoutActive: Bool { timeoutSequencer.phase == .running }
@@ -441,6 +444,7 @@ final class DSModel {
         if let v = settings.double("practiceAllianceShiftTime"), v >= 1 { practiceAllianceShiftTime = v }
         if let v = settings.double("practiceEndgameTime"), v >= 0 { practiceEndgameTime = v }
         if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
+        if let b = settings.bool("enableDisableSoundsEnabled") { enableDisableSoundsEnabled = b }
         if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
         if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
             protocolKind = kind
@@ -745,6 +749,7 @@ final class DSModel {
             "practiceTeleopTime": String(practiceTeleopTime),
             "practiceDelayTime": String(practiceDelayTime),
             "soundsEnabled": soundsEnabled ? "true" : "false",
+            "enableDisableSoundsEnabled": enableDisableSoundsEnabled ? "true" : "false",
             "dslogEnabled": dslogEnabled ? "true" : "false",
             "language": languageMode.rawValue,
         ]
@@ -792,6 +797,9 @@ final class DSModel {
         case "soundsEnabled":
             guard value == "true" || value == "false" else { return tr("须为 true/false") }
             soundsEnabled = (value == "true")
+        case "enableDisableSoundsEnabled":
+            guard value == "true" || value == "false" else { return tr("须为 true/false") }
+            enableDisableSoundsEnabled = (value == "true")
         case "dslogEnabled":
             guard value == "true" || value == "false" else { return tr("须为 true/false") }
             dslogEnabled = (value == "true")
@@ -847,7 +855,13 @@ final class DSModel {
 
     // MARK: 操作员指令（安全门全部集中在这里）
 
+    private enum EnableSoundSource { case operatorAction, automatic }
+
     func setEnabled(_ on: Bool) {
+        setEnabled(on, soundSource: .operatorAction)
+    }
+
+    private func setEnabled(_ on: Bool, soundSource: EnableSoundSource) {
         // 幂等：与当前状态相同则不动作——否则重复点 Enable 会把 enabledSince
         // 计时器复位并重复写日志（迷你视图 ENABLE 曾因此可被误点）
         if on == enabled { return }
@@ -872,6 +886,7 @@ final class DSModel {
         enabledSince = on ? Date() : nil
         if !on { enabledElapsed = 0 }
         log(on ? "ENABLED（\(mode.displayName)）" : "Disabled")
+        if soundSource == .operatorAction { playEnableDisableSound() }
     }
 
     func triggerEstop() {
@@ -992,7 +1007,7 @@ final class DSModel {
 
     func startTimeout() {
         guard practiceSeasonYear == 2022, !timeoutActive, !practiceActive, !estopEngaged else { return }
-        setEnabled(false)
+        setEnabled(false, soundSource: .automatic)
         practiceAudio.stop()
         timeoutSequencer = TimeoutSequencer(duration: timeoutDuration)
         applyTimeoutEvents(timeoutSequencer.start())
@@ -1037,7 +1052,7 @@ final class DSModel {
                 log("Timeout warning: 1:00 remaining")
             case .finished:
                 timeoutRemaining = 0
-                setEnabled(false)
+                setEnabled(false, soundSource: .automatic)
                 playPracticeSound(.timeoutEnd)
                 log("Timeout ended")
             }
@@ -1079,8 +1094,8 @@ final class DSModel {
                 default: break
                 }
                 if phase.isActive { log("Practice → \(phase.displayName)") }
-            case .enable: setEnabled(true)
-            case .disable: setEnabled(false)
+            case .enable: setEnabled(true, soundSource: .automatic)
+            case .disable: setEnabled(false, soundSource: .automatic)
             case .finished:
                 if practicePhase != .finished { playPracticeSound(.matchEnd) }
                 practicePhase = .finished
@@ -1133,6 +1148,26 @@ final class DSModel {
     private func playPracticeSoundImmediately(_ event: PracticeSoundEvent) {
         let filename = soundsEnabled ? PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear) : nil
         practiceAudio.playImmediately(filename)
+    }
+
+    static func enableDisableSoundFileName(mode: NIMode, enabled: Bool, year: Int) -> String? {
+        let event: PracticeSoundEvent
+        switch (mode, enabled) {
+        case (.teleoperated, true): event = .teleopStart
+        case (.teleoperated, false): event = .matchEnd
+        case (.autonomous, true): event = .matchStart
+        case (.autonomous, false): event = .autoEnd
+        case (.test, _): return nil
+        }
+        return PracticeSoundCatalog.fileName(for: event, year: year)
+    }
+
+    private func playEnableDisableSound() {
+        guard enableDisableSoundsEnabled,
+              let filename = Self.enableDisableSoundFileName(
+                  mode: mode, enabled: enabled, year: practiceSeasonYear
+              ) else { return }
+        practiceAudio.enqueue(filename)
     }
 
     // MARK: 事件处理（client 事件 → 主线程状态）
