@@ -302,7 +302,10 @@ final class DSModel {
         didSet { settings.set("practiceStartDelay", practiceStartDelay) }
     }
     var practiceSeasonYear = 2026 {
-        didSet { settings.set("practiceSeasonYear", practiceSeasonYear) }
+        didSet {
+            settings.set("practiceSeasonYear", practiceSeasonYear)
+            if timeoutActive { cancelTimeout() }
+        }
     }
     var practiceTransitionShiftTime: TimeInterval = 10 {
         didSet { settings.set("practiceTransitionShiftTime", practiceTransitionShiftTime) }
@@ -321,6 +324,9 @@ final class DSModel {
     var soundsEnabled = true {
         didSet { settings.set("soundsEnabled", soundsEnabled) }
     }
+    var timeoutDuration: TimeInterval = 480
+    var timeoutRemaining: TimeInterval = 0
+    var timeoutActive: Bool { timeoutSequencer.phase == .running }
 
     // MARK: 界面语言（中英双语：默认跟随系统，可手动覆盖；查找逻辑在 DSCore/Localization.swift）
 
@@ -373,6 +379,8 @@ final class DSModel {
     private var sequencer = PracticeSequencer()
     let practiceAudio = PracticeAudioPlayer()
     private var practiceTimer: Timer?
+    private var timeoutSequencer = TimeoutSequencer()
+    private var timeoutTimer: Timer?
     private var pollTimer: Timer?
     private var tickers: [Timer] = []
     // 吞吐汇总行状态（打包版 E2E 判活断言用；Diag 镜像，不进 UI 日志）
@@ -763,7 +771,7 @@ final class DSModel {
     }
 
     var canEnable: Bool {
-        SafetyGate.canEnableNow(SafetyGate.State(
+        !timeoutActive && SafetyGate.canEnableNow(SafetyGate.State(
             commConnected: commConnected,
             watchdogHealthy: watchdogHealthy,
             estopEngaged: estopEngaged,
@@ -785,6 +793,10 @@ final class DSModel {
         // 计时器复位并重复写日志（迷你视图 ENABLE 曾因此可被误点）
         if on == enabled { return }
         if on {
+            guard !timeoutActive else {
+                log(tr("拒绝使能：%@", tr("Timeout 进行中")))
+                return
+            }
             let state = SafetyGate.State(
                 commConnected: commConnected,
                 watchdogHealthy: watchdogHealthy,
@@ -810,6 +822,7 @@ final class DSModel {
         enabledSince = nil
         // 同步刷新控制快照：否则快照盒里还是 ≤20ms 前的 estop=0，急停位上线被拖延
         pollAndPublishSnapshot()
+        cancelTimeout()
         practiceAudio.stop()
         playEstopSound()
         log(tr("E-STOP 触发（Space）"))
@@ -873,7 +886,7 @@ final class DSModel {
     }
 
     func startPractice() {
-        guard !sequencer.phase.isActive else { return }
+        guard !sequencer.phase.isActive, !timeoutActive else { return }
         practiceAudio.stop()
         let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026
             ? .init(transitionShift: practiceTransitionShiftTime, allianceShift: practiceAllianceShiftTime,
@@ -898,6 +911,60 @@ final class DSModel {
         applyPracticeEvents(sequencer.abort())
         practiceTimer?.invalidate()
         practiceTimer = nil
+    }
+
+    func startTimeout() {
+        guard practiceSeasonYear == 2022, !timeoutActive, !practiceActive, !estopEngaged else { return }
+        setEnabled(false)
+        practiceAudio.stop()
+        timeoutSequencer = TimeoutSequencer(duration: timeoutDuration)
+        applyTimeoutEvents(timeoutSequencer.start())
+        guard timeoutActive else { return }
+        timeoutTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.timeoutTick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        timeoutTimer = timer
+    }
+
+    func cancelTimeout() {
+        let wasActive = timeoutActive
+        timeoutSequencer.cancel()
+        timeoutRemaining = 0
+        timeoutTimer?.invalidate()
+        timeoutTimer = nil
+        if wasActive {
+            practiceAudio.stop()
+            log("Timeout cancelled")
+        }
+    }
+
+    private func timeoutTick() {
+        applyTimeoutEvents(timeoutSequencer.tick(0.1))
+        timeoutRemaining = timeoutSequencer.remaining
+        if !timeoutActive {
+            timeoutTimer?.invalidate()
+            timeoutTimer = nil
+        }
+    }
+
+    private func applyTimeoutEvents(_ events: [TimeoutSequencer.Event]) {
+        for event in events {
+            switch event {
+            case .started:
+                timeoutRemaining = timeoutSequencer.remaining
+                log("Timeout started")
+            case .warning:
+                playPracticeSound(.timeoutWarning)
+                log("Timeout warning: 1:00 remaining")
+            case .finished:
+                timeoutRemaining = 0
+                setEnabled(false)
+                playPracticeSound(.timeoutEnd)
+                log("Timeout ended")
+            }
+        }
     }
 
     private func practiceTick() {
@@ -979,8 +1046,9 @@ final class DSModel {
     }
 
     private func playPracticeSound(_ event: PracticeSoundEvent) {
-        guard soundsEnabled else { return }
-        practiceAudio.enqueue(PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear))
+        guard soundsEnabled,
+              let filename = PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear) else { return }
+        practiceAudio.enqueue(filename)
     }
 
     // MARK: 事件处理（client 事件 → 主线程状态）
