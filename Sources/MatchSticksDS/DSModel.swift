@@ -1089,7 +1089,7 @@ final class DSModel {
                 playPracticeSound(.endgame)
             case .aborted:
                 practicePhase = .finished
-                playPracticeSound(.matchStopped)
+                playPracticeSoundImmediately(.matchStopped)
                 log(tr("A-STOP：Practice 中止"))
             }
         }
@@ -1128,6 +1128,11 @@ final class DSModel {
         guard soundsEnabled,
               let filename = PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear) else { return }
         practiceAudio.enqueue(filename)
+    }
+
+    private func playPracticeSoundImmediately(_ event: PracticeSoundEvent) {
+        let filename = soundsEnabled ? PracticeSoundCatalog.fileName(for: event, year: practiceSeasonYear) : nil
+        practiceAudio.playImmediately(filename)
     }
 
     // MARK: 事件处理（client 事件 → 主线程状态）

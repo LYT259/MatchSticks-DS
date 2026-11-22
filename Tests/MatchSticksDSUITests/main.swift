@@ -30,14 +30,16 @@ struct UIStateTests {
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
-        check([AllianceStation.red1, .red2, .red3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceRed },
-              "red alliance selections use official FRC red")
-        check([AllianceStation.blue1, .blue2, .blue3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceBlue },
-              "blue alliance selections use official FRC blue")
-        check(renderedAllianceSelectionMatches(.red1, red: 237 / 255, green: 28 / 255, blue: 36 / 255),
-              "rendered red selection uses official FRC red pixels")
-        check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 102 / 255, blue: 179 / 255),
-              "rendered blue selection uses official FRC blue pixels")
+        check(DSTheme.allianceRed == DSTheme.danger &&
+              [AllianceStation.red1, .red2, .red3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.danger },
+              "red alliance selections use semantic danger color")
+        check(DSTheme.allianceBlue == DSTheme.accent &&
+              [AllianceStation.blue1, .blue2, .blue3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.accent },
+              "blue alliance selections use semantic accent color")
+        check(renderedAllianceSelectionMatches(.red1, red: 1, green: 59 / 255, blue: 48 / 255),
+              "rendered red selection uses semantic danger pixels")
+        check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 122 / 255, blue: 1),
+              "rendered blue selection uses semantic accent pixels")
         model.setEnabled(true)
         check(!model.enabled, "offline enable request is refused")
         model.triggerEstop()
@@ -706,6 +708,32 @@ struct UIStateTests {
         stopAudio.startPractice()
         stopAudio.aStop()
         check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
+
+        let interruptedAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        interruptedAudio.practiceSeasonYear = 2026
+        interruptedAudio.practiceAutoTime = 0.1
+        interruptedAudio.practiceDelayTime = 0.1
+        interruptedAudio.practiceStartDelay = 0
+        interruptedAudio.practiceTransitionShiftTime = 0.1
+        interruptedAudio.practiceAllianceShiftTime = 5
+        interruptedAudio.practiceEndgameTime = 5
+        var interruptedPlayed: [String] = []
+        // 不自动 finishCurrent：模拟音效仍在播放，后续普通音效只能排队
+        interruptedAudio.practiceAudio.playHandler = { interruptedPlayed.append($0) }
+        interruptedAudio.practiceAudio.finishHandler = {}
+        interruptedAudio.startPractice()
+        let interruptedDeadline = Date().addingTimeInterval(0.45)
+        while Date() < interruptedDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        interruptedAudio.practiceAudio.finishCurrent() // CHARGE 结束 → ENDMATCH
+        interruptedAudio.practiceAudio.finishCurrent() // ENDMATCH 结束 → 3BELLS 开始播放
+        check(interruptedPlayed == ["CHARGE", "ENDMATCH", "3BELLS"],
+              "A-Stop setup: Teleop start is playing while later cues wait in the queue")
+        interruptedAudio.aStop()
+        check(interruptedPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "FOGHORN"],
+              "A-Stop preempts the playing cue and discards queued cues before Foghorn")
+        interruptedAudio.practiceAudio.finishCurrent()
+        check(interruptedPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "FOGHORN"],
+              "no queued practice cue resumes after the A-Stop Foghorn")
 
         check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2022) == "Fanfare",
               "2022 Timeout warning uses the official trumpet Fanfare")
