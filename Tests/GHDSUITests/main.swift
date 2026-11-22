@@ -708,6 +708,32 @@ struct UIStateTests {
         stopAudio.aStop()
         check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
 
+        let interruptedAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        interruptedAudio.practiceSeasonYear = 2026
+        interruptedAudio.practiceAutoTime = 0.1
+        interruptedAudio.practiceDelayTime = 0.1
+        interruptedAudio.practiceStartDelay = 0
+        interruptedAudio.practiceTransitionShiftTime = 0.1
+        interruptedAudio.practiceAllianceShiftTime = 5
+        interruptedAudio.practiceEndgameTime = 5
+        var interruptedPlayed: [String] = []
+        // 不自动 finishCurrent：模拟音效仍在播放，后续普通音效只能排队
+        interruptedAudio.practiceAudio.playHandler = { interruptedPlayed.append($0) }
+        interruptedAudio.practiceAudio.finishHandler = {}
+        interruptedAudio.startPractice()
+        let interruptedDeadline = Date().addingTimeInterval(0.45)
+        while Date() < interruptedDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        interruptedAudio.practiceAudio.finishCurrent() // CHARGE 结束 → ENDMATCH
+        interruptedAudio.practiceAudio.finishCurrent() // ENDMATCH 结束 → 3BELLS 开始播放
+        check(interruptedPlayed == ["CHARGE", "ENDMATCH", "3BELLS"],
+              "A-Stop setup: Teleop start is playing while later cues wait in the queue")
+        interruptedAudio.aStop()
+        check(interruptedPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "FOGHORN"],
+              "A-Stop preempts the playing cue and discards queued cues before Foghorn")
+        interruptedAudio.practiceAudio.finishCurrent()
+        check(interruptedPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "FOGHORN"],
+              "no queued practice cue resumes after the A-Stop Foghorn")
+
         check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2022) == "Fanfare",
               "2022 Timeout warning uses the official trumpet Fanfare")
         check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2023) == nil,
