@@ -11,7 +11,7 @@ struct MiniView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "GH Driver Station")
+                    Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "MatchSticks DS")
                         .font(.system(size: 13, weight: .semibold)).monospacedDigit()
                     Text(model.connectionDetail).font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }

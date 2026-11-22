@@ -4,13 +4,20 @@
 > 真机到手后逐项执行：每项先跑「操作」，再回写协议档案（已核查/差异）与本手册勾选。
 > 台架纪律：**不能让电机动**——首次联调以失能态抓包/对灯为主；使能验证前确认
 > 机器人架空、急停在手。
+>
+> **计数口径**：本手册 2B/2C/2D 等历史章节里的检查数是各自执行当日的快照（如 382/92、
+> 376/92、488/129），**不是当前结果**。2026-11-22 更名分支曾记录 DSCoreTests 852/0、
+> UI 321/0；随后迁移测试继续扩充，计数已变化。当前门禁以 `swift run DSCoreTests` 与
+> `scripts/test-ui.sh` 的 0 failures 为准，不绑定固定检查数。
 
 ## 0. 台架准备
+
+> 2026-11-22 更名：应用为 `MatchSticks DS`，模拟器可执行为 `MatchSticksDSSim`；环境变量用 `MATCHSTICKS_DS_*`（旧 `GHDS_*` 仍兼容读取）；数据目录为 `~/Library/Application Support/MatchSticksDS`（旧 `GHDriverStation` 保留，不删除）。
 
 - [ ] DS 装「仍要打开」流程走通（首次）；本地网络授权「允许」已点
 - [x] `bash scripts/test-e2e.sh` 本机全绿（打包版基线）
 - [ ] 抓包开启：Settings 页抓包录制（.dsrec）全程留存；镜像 lsusb/系统报告
-- [x] GHDSSim 回归先跑一遍作对照（`swift run DSCoreTests` 全绿基线）
+- [x] MatchSticksDSSim 回归先跑一遍作对照（`swift run DSCoreTests` 全绿基线）
 
 ## 1. MRC / SystemCore（真机抓包比对）
 
@@ -19,7 +26,7 @@
 - [ ] **/Dscomm/* 机器人侧回写键位**：OpModeSelection 等（NT4 6767 通道已联测，
       键位以真机为准）
 - [ ] **console/error TCP tag id**（0x0B–0x19 范围内确定具体值）
-- [ ] **摄像头流协议**：现仅 MOCK 通道（GHDSSim :6769 HTTP JPEG）；抓真机流，
+- [ ] **摄像头流协议**：现仅 MOCK 通道（MatchSticksDSSim :6769 HTTP JPEG）；抓真机流，
       定协议（容器/端口/限流语义），按实物替换 DS 侧数据源（UI 槽位与限流保留）
 - [ ] **0x2E → 物理手柄震动**：协议侧已核查（编码金样本 + 端到端同值）；真机发
       不同 rumble 值观察手柄震动强度/通道对应（L/R/双扳机），必要时调整映射
@@ -70,8 +77,8 @@
 
 ### 2B-0. 前置基线（本机完成，不占真机时间；任一失败不进入真机联调）
 
-- [ ] `swift run DSCoreTests` = 382/0、`scripts/test-ui.sh` = 92/0（2026-11-14 已在本工作树
-      全绿；台架当日重跑一遍确认工作树未漂移）
+- [ ] `swift run DSCoreTests` 与 `scripts/test-ui.sh` 均以 0 failures 为准（2026-11-14 历史基线
+      为 382/92，**非当前计数**；台架当日重跑一遍确认工作树未漂移，以实际输出为准）
 - [ ] `scripts/test-e2e.sh`（打包版判活：进程存活 + 控制环吞吐 ≥40Hz + WebUI connected）——
       2026-11-14 本工作树已通过，吞吐汇总行最低 49.9Hz；台架当日重跑确认工作树未漂移
 - [ ] `scripts/test-update.sh`（Sparkle 升级链路 + 更新安全门双阻断）——
@@ -80,7 +87,7 @@
 ### 2B-1. macOS 本地网络权限（连接失败第一嫌疑）
 
 - [ ] 打包版首次启动出现本地网络弹窗并点「允许」；系统设置 → 隐私与安全性 → 本地网络中
-      GH DS 处于开启；PermissionsView 自检页复核
+      MatchSticks DS 处于开启；PermissionsView 自检页复核
 - [ ] 权限专项一律用 Finder/`open` 启动 GUI：Terminal 直执行 .app 内二进制属 CLI 启动、
       权限豁免/归属改变，「命令行能通、GUI 连不上」属预期差异，不得据此误判协议问题
 
@@ -120,7 +127,7 @@
 ### 2B-5. 零应答判别：协议漂移 vs 机器人静默（原始异常收包日志）
 
 - [ ] 现象复现（.dsrec：controlOut 持续、responseIn=0）时，先读持久化事件日志（应用内
-      事件列表只留 1000 行滑窗，须用 `open --env GHDS_LOG_FILE=…` 启动留档）：
+      事件列表只留 1000 行滑窗，须用 `open --env MATCHSTICKS_DS_LOG_FILE=…` 启动留档）：
       出现「无法解码应答（来自 10.T.E.2，n 字节，前缀 …）——已丢弃，不建立连接」=
       **有包但解码失败 → 协议漂移嫌疑**：留存日志 + pcap + 首包 hex，差异回写协议档案，
       改解码逻辑必须走 feat/fix 分支 + 金样本回归，不当场改判
@@ -133,7 +140,7 @@
 - [ ] 「控制环吞吐：… Hz」汇总行全程 ≥40Hz（E2E 同门限；协议名义 50Hz），无 10-31 的
       33→6Hz 塌陷趋势；按分钟重算 .dsrec 复核（方法同 10-31）
 - [ ] UI stall 行（>100ms 探针）从 10-31 的数千条/10 分钟降至个位或零；>200ms 看门狗
-      触发 0 次；仍密集 → 带 `GHDS_LOG_STDERR=1` 复测定位，不勾选
+      触发 0 次；仍密集 → 带 `MATCHSTICKS_DS_LOG_STDERR=1` 复测定位，不勾选
 - [ ] 看门狗若触发：必须伴随自动失能 + 事件日志「看门狗触发…」留痕，恢复后不自动重新
       使能（需人工）
 
@@ -159,8 +166,8 @@
 ### 2B-9. 证据归档（每会话；公开文档只引用脱敏名）
 
 - [ ] `.dsrec`（Settings 页抓包全程开，captures/ 目录）、`.wpilog`/`.dslog`
-      （`~/Library/Application Support/GHDriverStation/Logs/`）
-- [ ] `GHDS_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（诊断/权限页）
+      （`~/Library/Application Support/MatchSticksDS/Logs/`）
+- [ ] `MATCHSTICKS_DS_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（诊断/权限页）
 - [ ] tcpdump pcap + 2B-2 判别命令的终端输出（nc/lsof/roboRIO 侧 ss）+ 如复用 10-31 的
       JSONL 监测则一并；全部收入当日证据目录（持久路径，勿只放 /tmp），工程日志记路径
 
@@ -169,7 +176,8 @@
 - [ ] **红色信号立即停**：Space E-Stop + Enter Disable 双保险，必要时拔网线——适用于电机
       意外动作、使能态下断链而未失能、E-Stop 无效、看门狗触发后输出未冻结
 - [ ] 安全类失败（急停/看门狗/失能方向任一不符预期）→ 当日台架终止，不换参数重试；证据
-      收齐后走修复流程，修复必须先过本机安全链测试（376/92/E2E）再约下次
+      收齐后走修复流程，修复必须先过本机安全链测试（DSCoreTests + UI + E2E，均 0 failures；
+      2026-11-14 历史基线 376/92，非当前计数）再约下次
 - [ ] 非安全失败（radio 灯时延、UI stall、吞吐塌陷）→ 允许继续失能态抓包取证，但冻结
       一切使能类项目（2B-8 不执行）
 - [ ] 归因二分：真机疑似回归时退回 stable（v0.1.0-alpha.7 基线）同场景重测对照；未过
@@ -186,14 +194,14 @@
 - [x] **E-Stop 锁存与复位：通过**。Space 后显示急停锁存并使能不可用；复位后解除锁存且保持失能。
 - [x] **控制环：通过**。真机吞吐约 50Hz、当前丢包 0%；无旧 33Hz 轮换天花板。
 - [x] **队号切换：通过**。切到 8810 后目标立即改为 `10.88.10.x` 并回搜索态，不保留旧 11019 连接；切回后可恢复连接。
-- [x] **本机与打包回归：通过**。DSCoreTests 386/0、UI 92/0、打包 E2E（最低 49.9Hz）与 Sparkle Leg A/B。
+- [x] **本机与打包回归：通过**。DSCoreTests 386/0、UI 92/0（2026-11-14 当时计数，非当前结果）、打包 E2E（最低 49.9Hz）与 Sparkle Leg A/B。
 - [ ] **物理手柄轴/按键/POV：未验证**（本次无手柄接入，不能据此宣称可实际驾驶）。
 - [ ] **Wi-Fi 断线与恢复：未验证**（本轮使用有线连接）。
 - [ ] **pcap 抓包：未获取**（本机 BPF 权限拒绝；已用 UDP 1150 实际监听证明真机应答目标端口）。
 - [ ] **roboRIO SSH 端口监听：未核对**（主机密钥发生变化，按安全提示停止，未绕过验证）。
 - [ ] **电机实际运动：未验证**（未接手柄，只验证了控制包与使能/急停链路，未让机器人运动）。
 - [x] **Mac↔Radio 拔线时延：通过**。失能态拔线后机器人通信 <1s 回搜索态（看门狗链路判定），Radio 指示约 2s 翻为无响应（.wpilog 毫秒时间戳实测）；旧版同场景 Radio 灯 ~75.7s 才翻。插回恢复时间待复测（见下）。
-- [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0。F310 D 档（046D:C216）继续走 IOHIDManager；X 档（046D:C21D）已实现应用内 IOUSBHost reader，尚待实物验收，不以系统未绑定 XInput 驱动为由放弃支持。
+- [x] **F310 接入即崩溃缺陷：已修复并回归**。D 档（DirectInput）接入触发 `IOHIDDeviceGetValue` IUO-inout 强解包 Trap（真实设备路径首次执行即炸）；修复后带手柄启动稳定，DSCoreTests 386/0 + UI 92/0（当时计数，非当前结果）。F310 D 档（046D:C216）继续走 IOHIDManager；X 档（046D:C21D）已实现应用内 IOUSBHost reader，尚待实物验收，不以系统未绑定 XInput 驱动为由放弃支持。
 - [ ] **台架前置检查（新增）：确认 roboRIO 手动 IP 为空**。残留 manualIP（如 127.0.0.1）会使应答过滤静默拒绝一切真实机器人应答——症状：Radio 绿、ping 通、1740 开，但 commState 永远 searching 且零日志。UI 测试曾污染共享设置；非 USB 真机实测前，在连接页唯一的“队伍号或 IP 地址”输入框中输入真实队号并应用即可清除残留手动 IP——**不要填 `0`**（`0` 仅适用于 USB-only 验证）。应用后输入框应显示该队号、手动地址警告消失；如需直接核对，看 WebUI 的 `manualIP` 为空。
 - [ ] **Radio 反复上下电后可能系统挂死**（L1 链路活、ARP 全 incomplete）：症状为整网失联但网口灯正常；处置 = Radio 断电 10s 重开。Radio 断电回网后机器人可能停止回应 UDP 探测（本日实测：DS 50Hz 发包正常、机器人零回包），根因未查（机器人在场时 SSH 上去看 DS 服务状态/重启 robot code）。
 - [x] **F310 槽位显示与实时值：通过**。操作员在安装版（0.1.0-alpha.9）确认 UI 显示设备并随摇杆/按键实时更新；枚举探针证实 1 设备、4 轴/12 钮/1 帽（D 档，识别名 Logitech Dual Action）。
@@ -204,7 +212,7 @@
 
 - [x] **模拟/测试会话设置隔离：通过**。AUTO_SIM 不再持久化回环 manualIP；UI、打包与升级测试使用独立 UserDefaults suite。打包 E2E 前后比较正式域 manualIP 与队号，实际值不输出，二者均未变化。
 - [x] **已应用手动地址警告与断复证据：通过本机回归**。普通手动地址提示自动发现关闭；127/8 回环地址在已设队号时明确提示指向本机。Radio 与本机网络状态翻转写毫秒级事件日志，重复状态不刷屏。
-- [x] **本机基线：通过**。DSCoreTests 488/0、UI 129/0；打包 E2E 最低 50.0Hz，覆盖 WebUI connected、模拟 Radio 已响应、日志落盘与正式设置未变；Sparkle Leg A/B 通过。
+- [x] **本机基线：通过**。DSCoreTests 488/0、UI 129/0（2026-11-21 当时基线，**非当前计数**）；打包 E2E 最低 50.0Hz，覆盖 WebUI connected、模拟 Radio 已响应、日志落盘与正式设置未变；Sparkle Leg A/B 通过。
 - [x] **最终预备包与 GUI 干跑：通过**。`0.1.0-beta.20261121.radio-preflight` 为 universal 构建，deep/strict 签名及 DMG SHA256 校验通过；经 `open` 启动后核对版本、失能/未急停、WebUI、空 manualIP 与网络事件日志。
 - [ ] **pcap 权限：仍阻塞**。`tcpdump -D` 可列接口，但实际 loopback 抓包被 `/dev/bpf0` Permission denied 拒绝；真机前须按 2B-2 用授权后的 `sudo tcpdump` 先验证写包，不得绕过系统权限。
 

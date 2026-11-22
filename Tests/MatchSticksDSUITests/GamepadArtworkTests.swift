@@ -39,7 +39,7 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
           "DualSense 使用原生图片的透明边界裁切尺寸")
     let imageURL = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Sources/GHDS/Resources/Gamepads/dualsense.png")
+        .appendingPathComponent("Sources/MatchSticksDS/Resources/Gamepads/dualsense.png")
     let image = NSImage(contentsOf: imageURL)?.cgImage(forProposedRect: nil, context: nil, hints: nil)
     check(image?.width == 1192 && image?.height == 848,
           "DualSense 实际资源与标定参考尺寸一致")

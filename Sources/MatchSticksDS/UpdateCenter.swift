@@ -2,7 +2,7 @@ import Foundation
 import Sparkle
 import DSCore
 
-// MARK: - Sparkle 装配层（GHDS 专属；不进 test-ui.sh 编译清单）
+// MARK: - Sparkle 装配层（MatchSticks DS 专属；不进 test-ui.sh 编译清单）
 //
 // UX（报告 §5.5 / CLAUDE.md 分发章）：启动静默查 → 静默后台下载 → 固定角落进度角标
 // （可忽略、无弹窗）→ 点击一键重启安装；下载失败静默跳过、下次启动再试、永不阻塞使用。
@@ -29,10 +29,11 @@ final class UpdateCenter {
     /// 事件日志（接入 DSModel.log；亦随 Diag 镜像到 stderr/文件，E2E 断言用）
     var logLine: ((String) -> Void)?
 
-    /// E2E 测试钩子：GHDS_UPDATE_AUTOTAP=1 时就绪后替操作员点击角标（安全门照常现场求值）；
-    /// GHDS_UPDATE_AUTOTAP_DELAY=<秒> 可延时点击（Leg B 等连接建立后再点，消除竞态）
-    private let autoTap = ProcessInfo.processInfo.environment["GHDS_UPDATE_AUTOTAP"] == "1"
-    private let autoTapDelay = TimeInterval(ProcessInfo.processInfo.environment["GHDS_UPDATE_AUTOTAP_DELAY"] ?? "") ?? 0
+    /// E2E 测试钩子：MATCHSTICKS_DS_UPDATE_AUTOTAP=1 时就绪后替操作员点击角标
+    /// （安全门照常现场求值；旧 GHDS_UPDATE_AUTOTAP 仍兼容）；
+    /// MATCHSTICKS_DS_UPDATE_AUTOTAP_DELAY=<秒> 可延时点击（Leg B 等连接建立后再点，消除竞态）
+    private let autoTap = DSEnvironment.isEnabled("UPDATE_AUTOTAP")
+    private let autoTapDelay = TimeInterval(DSEnvironment.string("UPDATE_AUTOTAP_DELAY") ?? "") ?? 0
 
     private var updater: SPUUpdater?
     private var pendingVersion = ""
@@ -55,8 +56,16 @@ final class UpdateCenter {
     func start() {
         // 仅 .app bundle 内启用（.build 裸跑 / UI 干测试不打扰）；可用环境变量显式关闭
         guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
-        guard ProcessInfo.processInfo.environment["GHDS_DISABLE_UPDATE"] != "1" else {
-            logLine?(tr("更新组件已禁用（GHDS_DISABLE_UPDATE=1）"))
+        guard !DSEnvironment.isEnabled("DISABLE_UPDATE") else {
+            // 日志同时说明新旧 env；旧 GHDS_ 前缀仍经 DSEnvironment 回退生效。
+            let legacyNote: String
+            switch LanguageManager.shared.currentEffective {
+            case .chinese:
+                legacyNote = "；旧 GHDS_DISABLE_UPDATE=1 同样生效"
+            case .english:
+                legacyNote = " / legacy GHDS_DISABLE_UPDATE=1 also applies"
+            }
+            logLine?(tr("更新组件已禁用（MATCHSTICKS_DS_DISABLE_UPDATE=1）") + legacyNote)
             return
         }
         let delegate = UpdateDelegate(center: self)
@@ -74,7 +83,7 @@ final class UpdateCenter {
         // 立即回 .install 保持，UX 与报告 §5.5 一致（无窗、无确认、低打扰）。
         updater.automaticallyDownloadsUpdates = false
         // 测试钩子：缩短检查周期（升级链路 E2E Leg B 防竞态——等连接建立后再放出 appcast）
-        if let raw = ProcessInfo.processInfo.environment["GHDS_UPDATE_CHECK_INTERVAL"],
+        if let raw = DSEnvironment.string("UPDATE_CHECK_INTERVAL"),
            let interval = TimeInterval(raw), interval > 0 {
             updater.updateCheckInterval = interval
         }
@@ -84,7 +93,7 @@ final class UpdateCenter {
 
         do {
             try updater.start()
-            let feed = ProcessInfo.processInfo.environment["GHDS_FEED_URL"]
+            let feed = DSEnvironment.string("FEED_URL")
                 ?? (Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String ?? tr("未配置"))
             logLine?(tr("更新组件就绪（当前版本 %@，feed %@）", currentVersion, feed))
             // 启动即静默检查（不等 24h 周期；后台低打扰，无更新完全无感）
@@ -267,10 +276,10 @@ private final class UpdateDelegate: NSObject, SPUUpdaterDelegate {
     weak var center: UpdateCenter?
     init(center: UpdateCenter) { self.center = center }
 
-    /// feed 地址：环境变量 GHDS_FEED_URL 覆盖（本地升级链路 E2E 用）；
-    /// 否则回落 Info.plist SUFeedURL（生产 = GitHub Releases 托管 appcast）。
+    /// feed 地址：环境变量 MATCHSTICKS_DS_FEED_URL（旧 GHDS_FEED_URL 兼容）覆盖
+    /// （本地升级链路 E2E 用）；否则回落 Info.plist SUFeedURL（生产 = GitHub Releases 托管 appcast）。
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
-        ProcessInfo.processInfo.environment["GHDS_FEED_URL"]
+        DSEnvironment.string("FEED_URL")
     }
 
     /// 安装咽喉点（见 UpdateCenter 文件头）：返回 true 接管——此后仅当

@@ -1,4 +1,4 @@
-// GH Driver Station 应用图标生成器（CoreGraphics 直绘，无外部依赖）
+// MatchSticks DS 应用图标生成器（CoreGraphics 直绘，无外部依赖）
 // 用法：swift scripts/make-icon.swift <输出目录>
 import Foundation
 import CoreGraphics
@@ -33,13 +33,13 @@ for (radius, alpha, width) in [(300.0, 0.95, 64.0), (420.0, 0.55, 48.0), (540.0,
 ctx.setFillColor(CGColor(srgbRed: 0.20, green: 0.86, blue: 0.45, alpha: 1))
 ctx.fillEllipse(in: CGRect(x: center.x - 90, y: center.y - 90, width: 180, height: 180))
 
-// 底部字标 "GH DRIVER STATION"
+// 底部字标 "MATCHSTICKS DS"
 let font = CTFontCreateWithName("SFProDisplay-Bold" as CFString, 88, nil)
 let attrs: [CFString: Any] = [
     kCTFontAttributeName: font,
     kCTForegroundColorAttributeName: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.92),
 ]
-let attrStr = CFAttributedStringCreate(nil, "GH DRIVER STATION" as CFString, attrs as CFDictionary)!
+let attrStr = CFAttributedStringCreate(nil, "MATCHSTICKS DS" as CFString, attrs as CFDictionary)!
 let line = CTLineCreateWithAttributedString(attrStr)
 let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
 ctx.textPosition = CGPoint(x: (CGFloat(S) - bounds.width) / 2, y: 120)

@@ -165,18 +165,18 @@ struct SetupView: View {
         actionMessage = tr("已应用连接设置，正在寻找机器人。")
     }
 
-    /// GHDSSim is bundled beside GHDS. Keep the process in the parent so navigation does not lose it.
+    /// MatchSticksDSSim is bundled beside MatchSticksDS. Keep the process in the parent so navigation does not lose it.
     private func launchSim() {
         guard !connectionEditingLocked, simProcess?.isRunning != true else { return }
         guard let dir = Bundle.main.executableURL?.deletingLastPathComponent() else {
             actionMessage = tr("无法定位模拟器，请检查应用是否完整。")
-            model.log(tr("无法定位 GHDSSim（无可执行目录）"))
+            model.log(tr("无法定位 MatchSticksDSSim（无可执行目录）"))
             return
         }
-        let simURL = dir.appendingPathComponent("GHDSSim")
+        let simURL = dir.appendingPathComponent("MatchSticksDSSim")
         guard FileManager.default.fileExists(atPath: simURL.path) else {
-            actionMessage = tr("当前应用未包含模拟器。请使用包含 GHDSSim 的完整应用。")
-            model.log(tr("未找到 GHDSSim：%@", simURL.path))
+            actionMessage = tr("当前应用未包含模拟器。请使用包含 MatchSticksDSSim 的完整应用。")
+            model.log(tr("未找到 MatchSticksDSSim：%@", simURL.path))
             return
         }
         let p = Process()

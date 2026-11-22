@@ -47,9 +47,9 @@ final class HeartbeatBox: @unchecked Sendable {
 // MARK: 诊断输出（log() 在 MainActor、心跳探针在主 runloop、测试线程均可能调用；写器自身线程安全）
 enum Diag {
     /// 事件日志镜像到 stderr（性能测量 / E2E 验证用；默认关闭，行为零差异）
-    static let toStderr = ProcessInfo.processInfo.environment["GHDS_LOG_STDERR"] == "1"
+    static let toStderr = DSEnvironment.isEnabled("LOG_STDERR")
     /// 写入指定文件（open 启动的 GUI 无 stderr 可读时用；常驻 O_APPEND 句柄，懒打开）
-    static let filePath = ProcessInfo.processInfo.environment["GHDS_LOG_FILE"]
+    static let filePath = DSEnvironment.string("LOG_FILE")
     static var enabled: Bool { toStderr || ensureFileOutput() }
 
     private static let writerLock = NSLock()
@@ -121,7 +121,7 @@ final class RadioTeamBox: @unchecked Sendable {
 @MainActor
 @Observable
 final class DSModel {
-    static let isAutoSim = ProcessInfo.processInfo.environment["GHDS_AUTO_SIM"] == "1"
+    static let isAutoSim = DSEnvironment.isEnabled("AUTO_SIM")
     /// log() 时间戳 formatter：创建一次复用（每次新建 DateFormatter 约 1ms，
     /// 消息高峰期会放大主线程负担）
     private static let logTimeFormatter: DateFormatter = {
@@ -130,12 +130,13 @@ final class DSModel {
         return f
     }()
 
-    /// 设置域解析：非空有效的 `GHDS_SETTINGS_SUITE` → 独立 UserDefaults suite
-    /// （测试 / 并行会话隔离），否则标准域。无效名字（UserDefaults 拒绝创建）同样回退标准域。
+    /// 设置域解析：非空有效的 `MATCHSTICKS_DS_SETTINGS_SUITE`（旧 `GHDS_SETTINGS_SUITE` 兼容）
+    /// → 独立 UserDefaults suite（测试 / 并行会话隔离），否则标准域。
+    /// 无效名字（UserDefaults 拒绝创建）同样回退标准域。
     nonisolated static func resolvedSettingsDefaults(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> UserDefaults {
-        let name = (environment["GHDS_SETTINGS_SUITE"] ?? "")
+        let name = (DSEnvironment.string("SETTINGS_SUITE", environment: environment) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, let defaults = UserDefaults(suiteName: name) else {
             return .standard
@@ -392,6 +393,7 @@ final class DSModel {
     private let heartbeatBox = HeartbeatBox()
     private let radioTeamBox = RadioTeamBox()
     private let settings: SettingsStore
+    private var appSupportDirectory: AppSupportDirectory?
     private let persistenceAllowed: Bool
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
@@ -452,6 +454,17 @@ final class DSModel {
         settings.set("dashboardKind", dashboardKind?.rawValue)
     }
 
+    /// 数据目录首次使用时解析（DSModel 初始化不触碰用户目录；UI 干测试不产生副作用）。
+    /// 旧目录补齐由 AppSupportDirectory 在后台队列执行，不阻塞主线程；
+    /// WebUI 日志列表、dslog、抓包录制全部由此返回的同一实例派生。
+    /// 测试可用 `MATCHSTICKS_DS_APPLICATION_SUPPORT` 覆盖 Application Support 根。
+    private func appSupport() -> AppSupportDirectory {
+        if let appSupportDirectory { return appSupportDirectory }
+        let resolved = AppSupportDirectory()
+        appSupportDirectory = resolved
+        return resolved
+    }
+
     func start() {
         // 幂等：installTimers 往 main runloop 加 4 个定时器且从不清理，
         // 重复执行（多窗口 / 状态恢复再跑一次 .task）会叠加定时器与心跳源
@@ -464,7 +477,7 @@ final class DSModel {
         // .latencyCritical 对该进程关闭 App Nap 与相关节流。
         latencyToken = ProcessInfo.processInfo.beginActivity(
             options: [.latencyCritical],
-            reason: "GH DS 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
+            reason: "MatchSticks DS 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
         loadPersistedSettings()
         installTimers()
         networkMonitor.start()
@@ -551,15 +564,15 @@ final class DSModel {
 
         startWebUI()
         client.start()
-        log(tr("GH DS 控制环已启动（20ms）"))
+        log(tr("MatchSticks DS 控制环已启动（20ms）"))
 
         if DSModel.isAutoSim {
             manualIP = "127.0.0.1"
-            log(tr("GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
+            log(tr("MATCHSTICKS_DS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
         }
-        if ProcessInfo.processInfo.environment["GHDS_AUTO_MRC"] == "1" {
+        if DSEnvironment.isEnabled("AUTO_MRC") {
             protocolKind = .mrc
-            log(tr("GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
+            log(tr("MATCHSTICKS_DS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
         }
     }
 
@@ -675,7 +688,7 @@ final class DSModel {
         return false
     }
 
-    // MARK: 更新安全门状态映射（GHDS UpdateCenter 读取；点击重启时刻现场求值，不缓存）
+    // MARK: 更新安全门状态映射（UpdateCenter 读取；点击重启时刻现场求值，不缓存）
     var updateGateState: UpdateSafetyGate.State {
         UpdateSafetyGate.State(
             enabled: enabled,
@@ -688,11 +701,9 @@ final class DSModel {
 
     private func startWebUI() {
         guard webUI == nil else { return }
+        let logsDirectory = appSupport().subdirectory("Logs")
         let env = WebUIServer.Environment(
-            logsDirectory: {
-                FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                    .appendingPathComponent("GHDriverStation/Logs", isDirectory: true)
-            },
+            logsDirectory: { logsDirectory },
             listSettings: { [weak self] in
                 guard let self else { return [:] }
                 return DispatchQueue.main.sync {
@@ -1300,9 +1311,7 @@ final class DSModel {
     private func updateDSLogWriter() {
         if dslogEnabled {
             guard dslogWriter == nil else { return }
-            let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("GHDriverStation/Logs", isDirectory: true)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dir = appSupport().subdirectory("Logs")
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy_MM_dd HH_mm_ss"
             let base = formatter.string(from: Date())
@@ -1501,7 +1510,7 @@ final class OpModeHashBox: @unchecked Sendable {
 extension DSModel {
     fileprivate func updateRecorder() {
         if recording {
-            recorderBox.start { url in
+            recorderBox.start(directory: appSupport().subdirectory("captures")) { url in
                 let formatter = DateFormatter()
                 formatter.dateFormat = "yyyyMMdd-HHmmss"
                 return url.appendingPathComponent("capture-\(formatter.string(from: Date())).dsrec")
@@ -1523,13 +1532,11 @@ final class RecorderBox: @unchecked Sendable {
         recorder?.record(dir, data)
     }
 
-    func start(naming: @escaping (URL) -> URL) {
+    func start(directory: URL, naming: @escaping (URL) -> URL) {
         lock.lock(); defer { lock.unlock() }
         guard recorder == nil else { return }
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("GHDriverStation/captures", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let url = naming(dir)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = naming(directory)
         do {
             recorder = try PacketRecorder(fileURL: url)
             currentFileName = url.lastPathComponent

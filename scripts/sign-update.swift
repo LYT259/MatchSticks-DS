@@ -3,7 +3,7 @@
 // 用法：
 //   swift scripts/sign-update.swift genkey <私钥文件路径>
 //     生成 Ed25519 密钥对：私钥（base64 种子）写入文件（0600），打印公钥 base64
-//     （放入 .app Info.plist 的 SUPublicEDKey 与 build-app.sh 参数）。
+//     （放入 .app Info.plist 的 SUPublicEDKey；本地打包经 build-app.sh 的 SU_PUBLIC_ED_KEY 环境变量）。
 //   swift scripts/sign-update.swift sign <私钥文件路径> <待签名文件>
 //     打印 appcast item 属性串：sparkle:edSignature="…" length="…"
 //     （Sparkle 2 校验的即 RFC 8032 Ed25519 签名，与官方 sign_update 工具互验）。

@@ -47,7 +47,7 @@ struct PermissionsView: View {
             Divider()
             VStack(alignment: .leading, spacing: 10) {
                 instruction(1, tr("打开「系统设置」，进入「隐私与安全性 → 本地网络」。"))
-                instruction(2, tr("找到 GH Driver Station 并开启访问权限。"))
+                instruction(2, tr("找到 MatchSticks DS 并开启访问权限。"))
                 instruction(3, tr("回到应用，确认 Mac 与机器人位于同一网络，并核对连接设置。"))
             }
             HStack {
@@ -91,7 +91,7 @@ struct PermissionsView: View {
 
     private var firewallPanel: some View {
         DSPanel(title: tr("防火墙")) {
-            Text(tr("在「系统设置 → 网络 → 防火墙 → 选项」中，检查 GH Driver Station 是否允许接收传入连接。保留其他应用的防火墙设置即可。"))
+            Text(tr("在「系统设置 → 网络 → 防火墙 → 选项」中，检查 MatchSticks DS 是否允许接收传入连接。保留其他应用的防火墙设置即可。"))
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             HStack {
                 DSBadge(text: tr("未检测系统防火墙配置"), symbol: "info.circle")

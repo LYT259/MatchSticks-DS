@@ -9,7 +9,7 @@ import Combine
 //   未命中回退中文键并在 DEBUG 打缺失告警——只维护一张 en 表，无两表漂移问题。
 // - 回退策略：system 模式按系统首选语言解析，zh*（含繁体）→ 中文，其余（en/ja/fr/…）→ 英文。
 // - 持久化不走本类：与其他设置一致，由 DSModel 的 languageMode 属性 didSet 写 SettingsStore
-//   （键 ghds.language），启动时读回并 setMode；WebUI 的 language 键也走同一条链。
+//   （键 matchsticks.language），启动时读回并 setMode；WebUI 的 language 键也走同一条链。
 // - 线程模型：setMode 仅主线程调用；tr() 任意线程可调（内部以锁读当前语言快照）。
 
 /// 语言选择（持久化的值）：跟随系统 / 手动中文 / 手动英文。
