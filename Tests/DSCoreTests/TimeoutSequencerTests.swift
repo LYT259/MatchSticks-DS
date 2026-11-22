@@ -1,5 +1,5 @@
 import Foundation
-@testable import DSCore
+import DSCore
 
 func timeoutSequencerTests() {
     var sequence = TimeoutSequencer()
