@@ -17,8 +17,6 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
     case direwolf4     // 飞智冰原狼 4（USB 模式自报 Xbox 360 签名）
     case dualsense     // PS5 DualSense
     case dualshock4    // PS4 DualShock 4（CUH-ZCT1 / CUH-ZCT2）
-    case xbox360       // Xbox 360 手柄
-    case xboxOne       // Xbox One / One S 手柄
     case xboxSeries    // Xbox Series X|S 手柄
     case generic       // 未识别设备，沿用通用 HID 映射
 
@@ -33,8 +31,6 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
         case .direwolf4: return tr("飞智冰原狼 4")
         case .dualsense: return tr("PS5 DualSense")
         case .dualshock4: return tr("PS4 DualShock 4")
-        case .xbox360: return tr("Xbox 360 手柄")
-        case .xboxOne: return tr("Xbox One 手柄")
         case .xboxSeries: return tr("Xbox Series 手柄")
         case .generic: return tr("通用手柄")
         }
@@ -48,7 +44,7 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
         case .direwolf4: aliases = "Flydigi Direwolf 4"
         case .dualshock4: aliases = "Sony PlayStation 4 DualShock 4"
         case .dualsense: aliases = "Sony PlayStation 5 DualSense"
-        case .xbox360, .xboxOne, .xboxSeries: aliases = "Microsoft Xbox Controller"
+        case .xboxSeries: aliases = "Microsoft Xbox Controller"
         case .generic: aliases = "Generic HID Gamepad Logitech F310 罗技"
         }
         return "\(displayName) \(aliases) \(rawValue)"
@@ -205,11 +201,6 @@ public enum GamepadProfile {
             return .f310
         case (0x054C, 0x0CE6), (0x054C, 0x0DF2):   // DualSense / DualSense Edge
             return .dualsense
-        case (0x045E, 0x028E), (0x045E, 0x0719):   // Xbox 360 有线 / 无线接收器
-            return .xbox360
-        case (0x045E, 0x02D1), (0x045E, 0x02DD), (0x045E, 0x02EA),
-             (0x045E, 0x02E0), (0x045E, 0x02FD):
-            return .xboxOne
         case (0x045E, 0x0B12), (0x045E, 0x0B13),
              (0x045E, 0x0B20), (0x045E, 0x0B22):
             return .xboxSeries
@@ -325,7 +316,7 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: 0x35),
                 triggerUsage: (lt: nil, rt: nil))
-        case .direwolf4, .xbox360:
+        case .direwolf4:
             // Xbox 360 兼容序（xpad 惯例）：A1 B2 X3 Y4、LB5 RB6、Back7 Start8、Guide9、L3/R3 10/11；
             // M1/M2 背键暴露形态未知（待实测）——不落表，按「未映射芯片」自揭示。
             // 轴 = 已核查实测签名（经 XInputAxisOrder 归一，usage 跟随重排）。
@@ -353,8 +344,8 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: 0x35),
                 triggerUsage: (lt: 0x33, rt: 0x34))
-        case .xboxSeries, .xboxOne:
-            // Xbox One/Series HID 惯例序：A1 B2 X3 Y4、LB5 RB6、View7 Menu8、L3/R3 9/10、Share 11
+        case .xboxSeries:
+            // Xbox Series HID 惯例序：A1 B2 X3 Y4、LB5 RB6、View7 Menu8、L3/R3 9/10、Share 11
             // （Guide 常不暴露）。轴 = 六轴 XInput 签名语义（同冰原狼，usage 取归一后语义）。
             return GamepadLayout(
                 face: [.south: 1, .east: 2, .west: 3, .north: 4],

@@ -33,17 +33,17 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
           GamepadArtworkCatalog.spec(for: .generic).regions == GamepadArtworkCatalog.spec(for: .f310).regions,
           "通用手柄复用 F310 外观与坐标，不改变映射")
     let ps4 = GamepadArtworkCatalog.spec(for: .dualshock4)
+    check(ps4.referenceSize == CGSize(width: 967, height: 604), "PS4 使用干净的官方产品图及原生尺寸")
     check(abs((ps4.regions[.leftStickCap]?.midY ?? -1) - (ps4.regions[.rightStickCap]?.midY ?? 0)) <= 1,
           "PS4 对称布局的双摇杆中心应在同一水平线")
     let d4 = GamepadArtworkCatalog.spec(for: .direwolf4)
-    check(d4.referenceSize == CGSize(width: 913, height: 657), "冰原狼 4 使用未拉伸的 913×657 正视商品图主体")
+    check(d4.referenceSize == CGSize(width: 492, height: 341), "冰原狼 4 使用飞智配置软件中的原生正视素材")
     check((d4.regions[.rightStickCap]?.midY ?? 0) > (d4.regions[.leftStickCap]?.midY ?? 0) &&
           (d4.regions[.rightStickCap]?.midX ?? 0) > (d4.regions[.leftStickCap]?.midX ?? 0),
           "冰原狼 4 正视保留真实的非对称摇杆布局，不强行拉平")
-    check(GamepadArtworkCatalog.spec(for: .xbox360).imageName == "xbox-series" &&
-          GamepadArtworkCatalog.spec(for: .xboxOne).imageName == "xbox-series" &&
+    check(GamepadSkin.selectableSkins.filter { $0.rawValue.hasPrefix("xbox") } == [.xboxSeries] &&
           GamepadArtworkCatalog.spec(for: .xboxSeries).imageName == "xbox-series",
-          "Xbox 全系列统一使用 Series 实机资源")
+          "Xbox 只保留 Series，360 与 One 不再出现在支持列表")
     check(GamepadArtworkCatalog.spec(for: .f310).imageName == "f310" &&
           GamepadArtworkCatalog.spec(for: .extreme3DPro).imageName == "extreme3dpro-base",
           "罗技使用各自实机资源，Extreme 3D Pro 使用俯视底座资源")

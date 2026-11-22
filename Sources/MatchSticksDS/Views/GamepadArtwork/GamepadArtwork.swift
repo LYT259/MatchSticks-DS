@@ -76,7 +76,7 @@ enum GamepadArtworkCatalog {
         switch skin {
         case .dualshock4: return dualshock4
         case .dualsense: return dualsense
-        case .xboxSeries, .xboxOne, .xbox360: return xboxSeries
+        case .xboxSeries: return xboxSeries
         case .f310, .generic: return f310
         case .extreme3DPro: return extreme3DPro
         case .direwolf4: return direwolf4
@@ -84,21 +84,21 @@ enum GamepadArtworkCatalog {
     }
 
     private static let dualshock4 = GamepadArtworkSpec(
-        imageName: "dualshock4", referenceSize: CGSize(width: 2344, height: 1524),
+        imageName: "dualshock4", referenceSize: CGSize(width: 967, height: 604),
         regions: [
-            .leftStick: CGRect(x: 542.56, y: 403.51, width: 442.58, height: 491.98),
-            .leftStickCap: CGRect(x: 615.08, y: 511.28, width: 279.09, height: 261.32),
-            .rightStick: CGRect(x: 1325.67, y: 438.50, width: 429.05, height: 422),
-            .rightStickCap: CGRect(x: 1386.34, y: 502.24, width: 294.61, height: 279.41),
-            .dpad: CGRect(x: 213.36, y: 95.12, width: 436.49, height: 457.25),
-            .faceNorth: CGRect(x: 1782.10, y: 95.63, width: 188.95, height: 166.06),
-            .faceEast: CGRect(x: 1978.07, y: 253.25, width: 210.20, height: 190.41),
-            .faceSouth: CGRect(x: 1799.20, y: 438.42, width: 191.05, height: 159.13),
-            .faceWest: CGRect(x: 1647.48, y: 251.94, width: 193.71, height: 180.45),
-            .back: CGRect(x: 652.74, y: 69.75, width: 79.10, height: 130.16),
-            .start: CGRect(x: 1600.33, y: 85.53, width: 81.47, height: 115.10),
-            .guide: CGRect(x: 1104.01, y: 627.12, width: 132, height: 126.97),
-            .touchpad: CGRect(x: 788, y: 58, width: 770, height: 367),
+            .leftStick: CGRect(x: 243.20, y: 232.59, width: 173.60, height: 184.20),
+            .leftStickCap: CGRect(x: 271.84, y: 260.17, width: 117.71, height: 109.04),
+            .rightStick: CGRect(x: 547.43, y: 234.25, width: 177.25, height: 182.73),
+            .rightStickCap: CGRect(x: 584.22, y: 259.91, width: 117.80, height: 109.53),
+            .dpad: CGRect(x: 89.46, y: 86.55, width: 193.75, height: 183.05),
+            .faceNorth: CGRect(x: 754.86, y: 78.28, width: 68.03, height: 63.10),
+            .faceEast: CGRect(x: 829.47, y: 135.91, width: 55.00, height: 65.17),
+            .faceSouth: CGRect(x: 751.95, y: 208.83, width: 68.19, height: 66.06),
+            .faceWest: CGRect(x: 687.77, y: 136.81, width: 58.93, height: 62.59),
+            .back: CGRect(x: 263.97, y: 45.82, width: 35.93, height: 60.11),
+            .start: CGRect(x: 665.75, y: 45.05, width: 31.64, height: 55.49),
+            .guide: CGRect(x: 458.59, y: 291.73, width: 50.14, height: 52.13),
+            .touchpad: CGRect(x: 326, y: 31, width: 318, height: 182),
         ])
 
     private static let dualsense = GamepadArtworkSpec(
@@ -189,20 +189,20 @@ enum GamepadArtworkCatalog {
         movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 797, y: 662))
 
     private static let direwolf4 = GamepadArtworkSpec(
-        imageName: "direwolf4", referenceSize: CGSize(width: 913, height: 657),
+        imageName: "direwolf4", referenceSize: CGSize(width: 492, height: 341),
         regions: [
-            .leftStick: CGRect(x: 136, y: 77.31, width: 150.97, height: 150.75),
-            .leftStickCap: CGRect(x: 143.13, y: 86.66, width: 96.69, height: 96.48),
-            .rightStick: CGRect(x: 482.65, y: 207.85, width: 154.54, height: 162.51),
-            .rightStickCap: CGRect(x: 487.79, y: 217.99, width: 105.86, height: 100.14),
-            .dpad: CGRect(x: 221.26, y: 185.99, width: 159.75, height: 171.38),
-            .faceNorth: CGRect(x: 641.32, y: 66.95, width: 69.06, height: 60.15),
-            .faceEast: CGRect(x: 702.85, y: 120.22, width: 69.27, height: 67.10),
-            .faceSouth: CGRect(x: 637.60, y: 171.37, width: 70.52, height: 71.80),
-            .faceWest: CGRect(x: 576.03, y: 114.50, width: 70.12, height: 68),
-            .back: CGRect(x: 338.34, y: 103.25, width: 53.46, height: 45.83),
-            .start: CGRect(x: 479.10, y: 102.67, width: 57.98, height: 48.76),
-            .guide: CGRect(x: 412.07, y: 36.97, width: 59.05, height: 68),
+            .leftStick: CGRect(x: 83.87, y: 55.40, width: 86.77, height: 85.50),
+            .leftStickCap: CGRect(x: 103.56, y: 69.02, width: 49.37, height: 49.40),
+            .rightStick: CGRect(x: 265.56, y: 135.41, width: 76.17, height: 79.66),
+            .rightStickCap: CGRect(x: 273.22, y: 144.75, width: 59.71, height: 52),
+            .dpad: CGRect(x: 148.87, y: 130.52, width: 71.83, height: 75.39),
+            .faceNorth: CGRect(x: 345.69, y: 52.79, width: 31.51, height: 31.86),
+            .faceEast: CGRect(x: 375.48, y: 84.24, width: 32.42, height: 31.17),
+            .faceSouth: CGRect(x: 344.01, y: 113.65, width: 33.14, height: 31.20),
+            .faceWest: CGRect(x: 314.08, y: 82.70, width: 30.99, height: 31.63),
+            .back: CGRect(x: 190.72, y: 73.16, width: 32.58, height: 24.90),
+            .start: CGRect(x: 265.21, y: 73.60, width: 31.71, height: 24.15),
+            .guide: CGRect(x: 230.46, y: 33.47, width: 29.08, height: 35.97),
         ])
 }
 
@@ -220,6 +220,49 @@ enum GamepadArtworkImageSource {
               let image = NSImage(contentsOf: url) else { return nil }
         cache.setObject(image, forKey: key)
         return image
+    }
+
+    static func imageWithoutStickCaps(named name: String, capRegions: [CGRect]) -> NSImage? {
+        let key = "\(name)#without-sticks-\(capRegions)" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let source = image(named: name)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let base = imageWithoutStickCaps(source, capRegions: capRegions) else { return nil }
+        let result = NSImage(cgImage: base, size: NSSize(width: base.width, height: base.height))
+        cache.setObject(result, forKey: key)
+        return result
+    }
+
+    static func imageWithoutStickCaps(_ image: CGImage, capRegions: [CGRect]) -> CGImage? {
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let capacity = width * height * 4
+        let original = Array(UnsafeBufferPointer(start: context.data!.bindMemory(to: UInt8.self, capacity: capacity), count: capacity))
+        let output = context.data!.bindMemory(to: UInt8.self, capacity: capacity)
+        for region in capRegions where region.width > 0 && region.height > 0 {
+            let clearing = region.insetBy(dx: -region.width * 0.08, dy: -region.height * 0.08)
+            let center = CGPoint(x: clearing.midX, y: clearing.midY)
+            let radiusX = clearing.width / 2, radiusY = clearing.height / 2
+            for y in max(0, Int(clearing.minY.rounded(.down)))...min(height - 1, Int(clearing.maxY.rounded(.up))) {
+                for x in max(0, Int(clearing.minX.rounded(.down)))...min(width - 1, Int(clearing.maxX.rounded(.up))) {
+                    let dx = (CGFloat(x) + 0.5 - center.x) / radiusX
+                    let dy = (CGFloat(y) + 0.5 - center.y) / radiusY
+                    guard dx * dx + dy * dy <= 1 else { continue }
+                    let sourceX = Int((center.x + dx * radiusX * 1.2).rounded())
+                    let sourceY = Int((center.y + dy * radiusY * 1.2).rounded())
+                    let destination = (y * width + x) * 4
+                    guard sourceX >= 0, sourceX < width, sourceY >= 0, sourceY < height else {
+                        output[destination + 3] = 0
+                        continue
+                    }
+                    let source = (sourceY * width + sourceX) * 4
+                    for channel in 0..<4 { output[destination + channel] = original[source + channel] }
+                }
+            }
+        }
+        return context.makeImage()
     }
 
     static func crop(_ image: CGImage, rect: CGRect) -> CGImage? {

@@ -18,10 +18,10 @@ func gamepadProfileDetectionTests() {
     check(GamepadProfile.detect(vendorID: 0x046D, productID: 0x9999, name: "Logitech Dual Action") == .f310, "Dual Action 名称识别")
 
     // 冰原狼 4：Xbox 360 克隆签名 + 名称救回（名称优先于 VID/PID）
-    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .xbox360, "045E:028E 签名 → Xbox 360")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .generic, "旧 Xbox 360 不再支持，回退通用 HID")
     check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x1234, name: "Flydigi Direwolf 4") == .direwolf4, "名称含 Flydigi 优先")
-    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02D1, name: "Xbox One Controller") == .xboxOne, "Xbox One 有线 PID")
-    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02E0, name: "Xbox One S Controller") == .xboxOne, "Xbox One S 蓝牙 PID")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02D1, name: "Xbox One Controller") == .generic, "旧 Xbox One 不再支持，回退通用 HID")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02E0, name: "Xbox One S Controller") == .generic, "旧 Xbox One S 不再支持，回退通用 HID")
     check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x0268, name: "PLAYSTATION(R)3 Controller") == .generic,
           "PS3 已移出外观目录，原始 HID 数据走通用映射")
 
@@ -68,8 +68,8 @@ func gamepadFamilySupportTests() {
           "PS 系列只保留 DualShock 4，DualSense 对应 PS5")
     check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Flydigi Direwolf 4") == .direwolf4,
           "冰原狼四代按明确名称识别")
-    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .xbox360,
-          "共享 Xbox 360 签名不会臆测冰原狼代数")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .generic,
+          "旧 Xbox 360 与冰原狼共享签名时回退通用 HID，不误选旧型号")
 
     let ps4 = GamepadSample(name: "Wireless Controller", vendorID: 0x054C, productID: 0x09CC,
                             axes: [], axisUsages: [])
