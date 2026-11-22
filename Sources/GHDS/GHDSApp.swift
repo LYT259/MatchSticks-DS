@@ -26,6 +26,7 @@ struct GHDSApp: App {
         }
         .defaultSize(width: 1180, height: 820)
         .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
@@ -96,6 +97,7 @@ struct RootView: View {
         HStack(spacing: 0) {
             sidebar
             Divider()
+                .ignoresSafeArea(.container, edges: .vertical)
             VStack(spacing: 0) {
                 HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 5) {
@@ -103,11 +105,6 @@ struct RootView: View {
                         Text(selection.subtitle).font(.system(size: 12)).foregroundStyle(DSTheme.textSecondary)
                     }
                     Spacer()
-                    Button { openWindow(id: "mini") } label: {
-                        Label(tr("迷你驾驶台"), systemImage: "pip")
-                    }
-                    .buttonStyle(DSActionStyle())
-                    UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
                 }
                 .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 16)
                 DSStatusBar(model: model)
@@ -124,6 +121,23 @@ struct RootView: View {
         .foregroundStyle(DSTheme.textPrimary)
         .font(.system(size: 13))
         .buttonStyle(DSActionStyle())
+        .background(alignment: .topLeading) {
+            MainWindowDoubleClickHandler()
+                .frame(width: 1, height: 1)
+                .allowsHitTesting(false)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: 10) {
+                    Button { openWindow(id: "mini") } label: {
+                        Label(tr("迷你驾驶台"), systemImage: "pip")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(DSActionStyle())
+                    UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
+                }
+            }
+        }
     }
 
     private var sidebar: some View {
