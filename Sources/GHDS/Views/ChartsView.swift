@@ -21,7 +21,7 @@ struct ChartsView: View {
 private struct CurrentReadingsPanel: View {
     let model: DSModel
     var body: some View {
-                DSPanel(title: tr("当前读数"), subtitle: model.commConnected ? tr("来自机器人回传") : tr("未连接机器人；下方保留已采集的历史")) {
+                DSPanel(title: tr("当前读数"), subtitle: model.commConnected ? nil : tr("未连接机器人；下方保留已采集的历史")) {
                     HStack(spacing: 24) {
                         DSMetric(title: tr("电池电压"), value: model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "—",
                                  symbol: "battery.100percent", color: model.robotStatus.brownout && model.commConnected ? .red : .primary)
@@ -36,7 +36,7 @@ private struct CurrentReadingsPanel: View {
 private struct BatteryHistoryPanel: View {
     let model: DSModel
     var body: some View {
-        DSPanel(title: tr("电池电压"), subtitle: tr("最近 300 个回传采样 · 单位 V")) {
+        DSPanel(title: tr("电池电压")) {
             if model.batteryHistory.count > 1 {
                 Chart(Array(model.batteryHistory.suffix(300).enumerated()), id: \.offset) { index, value in
                     LineMark(x: .value(tr("采样序号"), index + 1), y: .value(tr("电压"), value))
@@ -71,7 +71,7 @@ private struct LiveCPULabel: View {
 private struct CPUHistoryPanel: View {
     let model: DSModel
     var body: some View {
-        DSPanel(title: tr("机器人 CPU"), subtitle: tr("每个核心分别显示 · 最近保留的采样")) {
+        DSPanel(title: tr("机器人 CPU")) {
             LiveCPULabel(model: model)
             if model.cpuHistory.contains(where: { !$0.loads.isEmpty }) {
                 cpuHistoryChart
@@ -124,7 +124,7 @@ private struct CPUHistoryPanel: View {
 private struct LinkHistoryPanel: View {
     let model: DSModel
     var body: some View {
-        DSPanel(title: tr("通信质量"), subtitle: tr("丢包率 · 最近 180 个采样")) {
+        DSPanel(title: tr("通信质量")) {
             if model.lossHistory.count > 1 {
                 Chart(Array(model.lossHistory.suffix(180).enumerated()), id: \.offset) { _, point in
                     LineMark(x: .value(tr("时间"), point.t), y: .value(tr("丢包率"), point.loss))

@@ -114,6 +114,11 @@
 "Dashboard 应用" = "Dashboard App";
 "启动 Dashboard" = "Launch Dashboard";
 "打开已安装在 Mac 上的 Dashboard 应用。" = "Opens the Dashboard app installed on this Mac.";
+"至少选择一个 Dashboard 才能启动" = "Select at least one dashboard to launch";
+"同时启动所有选中的 Dashboard" = "Launches all selected dashboards at once";
+"已选择" = "Selected";
+"未选择" = "Not selected";
+"Dashboard 须为 AdvantageScope / Elastic / Shuffleboard 的逗号分隔列表" = "Dashboard must be a comma-separated list of AdvantageScope / Elastic / Shuffleboard";
 "比赛年份" = "Season";
 "官方时序" = "Official Timing";
 "应用官方时序" = "Apply Official Timing";
