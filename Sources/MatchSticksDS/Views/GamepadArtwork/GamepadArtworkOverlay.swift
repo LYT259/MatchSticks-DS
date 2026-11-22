@@ -25,7 +25,7 @@ struct GamepadArtworkOverlay: View {
             GeometryReader { geometry in
                 let container = geometry.size
                 ZStack(alignment: .topLeading) {
-                    artworkImage(spec.imageName)
+                    artworkImage(spec.imageName, removingStickCaps: true)
                     if spec.movingImageName != nil {
                         flightAssembly(in: container)
                         fixedFlightControls(in: container)
@@ -50,8 +50,11 @@ struct GamepadArtworkOverlay: View {
         }
     }
 
-    @ViewBuilder private func artworkImage(_ name: String) -> some View {
-        if let image = GamepadArtworkImageSource.image(named: name) {
+    @ViewBuilder private func artworkImage(_ name: String, removingStickCaps: Bool = false) -> some View {
+        if let image = removingStickCaps ?
+            GamepadArtworkImageSource.imageWithoutStickCaps(
+                named: name, capRegions: [.leftStickCap, .rightStickCap].compactMap { spec.regions[$0] }) :
+            GamepadArtworkImageSource.image(named: name) {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)

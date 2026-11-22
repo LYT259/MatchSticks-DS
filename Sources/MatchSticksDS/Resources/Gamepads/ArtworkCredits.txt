@@ -1,14 +1,13 @@
 Gamepad artwork sources and modifications
 
 DualShock 4 (dualshock4.png)
-Photograph: ITEagle Europe - Sebastiaan Broekhoven, Wikimedia Commons.
-https://commons.wikimedia.org/wiki/File:Sony_DualShock_4_wireless_controller_for_PlayStation_4_(black)_-_top_view.jpg
-License: Creative Commons Attribution-ShareAlike 4.0 International.
-https://creativecommons.org/licenses/by-sa/4.0/
-Changes: subject isolation, transparent background, and cropping. The modified image remains CC BY-SA 4.0.
+Official product image: Sony Interactive Entertainment, DUALSHOCK 4 wireless controller.
+https://www.playstation.com/en-us/accessories/dualshock-4-wireless-controller/
+https://gmedia.playstation.com/is/image/SIEPDC/dualshock-controller-product-thumbnail-01-en-14sep21
+Changes: subject isolation and transparent-background cropping. No claim of ownership of the source image or manufacturer's marks is made.
 
 Direwolf 4 (direwolf4.png)
-Product image: Flydigi Direwolf 4, distributed by Rapido Tech Nepal.
-https://rapidotechnepal.com/product/flydigi-direwolf-4-wireless-controller/
-https://rapidotechnepal.com/wp-content/uploads/2026/06/Flydigi-Direwolf-4.webp
-Changes: subject isolation and transparent-background cropping; the front-view perspective is unchanged. No claim of ownership of the source image or manufacturer's marks is made.
+Original resource: Flydigi Space Station 4.2.3.1, .vite/build/assets/images/product/Controller/fp4/132/main.png.
+Downloaded from the official software page: https://www.flydigi.com/index/down?nav_id=2
+Installer: https://tencent-android.cdn.flydigi.com/PC/SpaceStation4.0/Flydigi%20Space%20Station_setup_4.2.3.1.exe
+The original front-view transparent PNG is preserved at its native 492x341 pixels; no perspective warping, recoloring, or upscaling is applied. No claim of ownership of the source image or manufacturer's marks is made.
