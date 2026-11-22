@@ -272,11 +272,27 @@ final class DSModel {
     /// 50Hz 调用、保持主线程——IOKit 路径未在其他线程验证过，不擅自迁移。
     var hidPoller: @MainActor () -> [HIDDeviceSnapshot] = { GamepadInputManager.shared.pollAll() }
 
-    // MARK: 慢速设置
+    // MARK: 慢速设置（比赛信息；空串视为清除，不落盘）
 
-    var gameData: String = ""
-    var competition: String = ""
-    var matchType: UInt8 = 0
+    var gameData: String = "" {
+        didSet {
+            if persistenceEnabled {
+                settings.set("gameData", gameData.isEmpty ? nil : gameData)
+            }
+        }
+    }
+    var competition: String = "" {
+        didSet {
+            if persistenceEnabled {
+                settings.set("competition", competition.isEmpty ? nil : competition)
+            }
+        }
+    }
+    var matchType: UInt8 = 0 {
+        didSet {
+            if persistenceEnabled { settings.set("matchType", Int(matchType)) }
+        }
+    }
     // MARK: Dashboard 选择（多选 0–3 个；空选择只禁用 Launch）
 
     /// 真源：多选集合（无序）。展示与启动一律走 `selectedDashboards`（字母序），
@@ -363,14 +379,26 @@ final class DSModel {
         }
     }
 
+    // MARK: 界面外观（跟随系统 / 浅色 / 深色；与语言同属 UI 偏好，经 NSApp.appearance 全局生效）
+
+    var appearanceMode = AppearanceMode.system {
+        didSet {
+            settings.set("appearance", appearanceMode.rawValue)
+            NSApplication.shared.appearance = appearanceMode.nsAppearance
+        }
+    }
+
     // MARK: 事件日志
 
     var dsEvents: [LogLine] = []
 
-    // MARK: 抓包录制（Setup 页开关；报告 §6 决策 3）
+    // MARK: 抓包录制（设置页开关；报告 §6 决策 3。重启按上次偏好恢复：true 即按开关原义开始录制）
 
     var recording = false {
-        didSet { updateRecorder() }
+        didSet {
+            if persistenceEnabled { settings.set("recording", recording) }
+            updateRecorder()
+        }
     }
     private let recorderBox = RecorderBox()
 
@@ -419,9 +447,12 @@ final class DSModel {
     var persistenceEnabled: Bool { persistenceAllowed }
 
     func loadPersistedSettings() {
-        // 语言不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
+        // 语言 / 外观不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
         if let raw = settings.string("language"), let mode = LanguageMode(rawValue: raw) {
             languageMode = mode
+        }
+        if let raw = settings.string("appearance"), let mode = AppearanceMode(rawValue: raw) {
+            appearanceMode = mode
         }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
@@ -446,6 +477,11 @@ final class DSModel {
         if let b = settings.bool("soundsEnabled") { soundsEnabled = b }
         if let b = settings.bool("enableDisableSoundsEnabled") { enableDisableSoundsEnabled = b }
         if let b = settings.bool("dslogEnabled") { dslogEnabled = b }
+        // 比赛信息：空串不落盘（见 didSet），恢复时只在有值时赋值；场次类型只接受 0...3
+        if let v = settings.string("competition") { competition = v }
+        if let v = settings.string("gameData") { gameData = v }
+        if let v = settings.integer("matchType"), (0...3).contains(v) { matchType = UInt8(v) }
+        if let b = settings.bool("recording") { recording = b }
         if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
             protocolKind = kind
         }

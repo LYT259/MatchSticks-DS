@@ -5,6 +5,9 @@
 /* ===== 语言选择 ===== */
 "跟随系统" = "Follow System";
 "界面语言" = "Language";
+"外观" = "Appearance";
+"浅色" = "Light";
+"深色" = "Dark";
 "默认跟随系统语言；手动选择立即生效。" = "Follows the system language by default; a manual choice takes effect immediately.";
 
 /* ===== 全局状态与安全控制条（DSStyle / MiniView）===== */
@@ -271,7 +274,7 @@
 "手柄输入" = "Joystick Input";
 "未检测到手柄 · 点击检查" = "No joysticks detected · click to check";
 "%d 个手柄 · 点击检查" = "%d joysticks · click to check";
-"自动练习" = "Auto Practice";
+"练习赛" = "Practice Match";
 "按设定时序依次运行自动与遥控阶段。" = "Runs the autonomous and teleoperated phases in sequence.";
 "停止练习（A-Stop）" = "Stop Practice (A-Stop)";
 "开始自动练习" = "Start Auto Practice";

@@ -2,6 +2,38 @@ import SwiftUI
 import DSCore
 import Darwin
 
+// MARK: - 外观选择：默认跟随系统，设置页可手动覆盖（浅色 / 深色），经 NSApp.appearance 全局生效
+//
+// 持久化与语言同属 UI 偏好：由 DSModel 的 appearanceMode didSet 写 SettingsStore（键 appearance），
+// 启动时在持久化门控之前读回并应用（AUTO_SIM 会话同样按上次选择显示）。
+// system 映射 nil = 撤销覆盖，应用随 macOS 外观切换；主窗口、迷你窗口、AppKit 弹层与
+// DSTheme 的动态 NSColor 都从 NSApp.appearance 取色，故一处切换整体跟随。
+
+/// 外观选择（持久化的值）：跟随系统 / 浅色 / 深色。
+enum AppearanceMode: String, CaseIterable, Sendable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+
+    /// 写入 NSApp.appearance 的值；system 为 nil（撤销覆盖，恢复随系统）。
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+
+    /// SwiftUI 色彩方案映射（宿主或测试需要 .preferredColorScheme 语义时用；system 为 nil）。
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 // Opaque PathBlender-style surfaces with explicit light and dark palettes.
 enum DSTheme {
     static let canvas = adaptive(0xF4F4F6, 0x19191B)

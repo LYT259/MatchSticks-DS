@@ -26,7 +26,6 @@ struct SetupView: View {
                     .padding(.horizontal, 4)
             }
             .padding(24)
-            .frame(maxWidth: 1040)
             .frame(maxWidth: .infinity)
         }
         .background(DSTheme.canvas)

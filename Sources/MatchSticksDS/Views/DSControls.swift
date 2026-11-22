@@ -308,6 +308,43 @@ private struct DSSelectOptionStyle: ButtonStyle {
     }
 }
 
+/// 分段控件的文字段：单选 DSSegmentedControl 与多选 DSMultiSelectControl 共用，保证两者视觉一致。
+struct DSSegmentLabel: View {
+    let text: String
+    let isSelected: Bool
+    var selectedColor: Color? = nil
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .padding(.horizontal, 10).padding(.vertical, 3)
+            .frame(maxWidth: .infinity, minHeight: 26)
+            .foregroundStyle(isSelected && selectedColor != nil ? Color.white : DSTheme.textPrimary)
+            .background(isSelected ? (selectedColor ?? DSTheme.segmentSelected) : .clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+            .shadow(color: isSelected ? .black.opacity(0.12) : .clear,
+                    radius: 1, y: 1)
+            .contentShape(Rectangle())
+    }
+}
+
+/// 分段控件的轨道：内边距、轨道底色、描边与最小高度（单选 / 多选共用）。
+private struct DSSegmentTrack<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 2) {
+            content
+        }
+        .padding(2)
+        .background(DSTheme.segmentTrack, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
+        .frame(minHeight: 32)
+    }
+}
+
 struct DSSegmentedControl<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
@@ -315,34 +352,20 @@ struct DSSegmentedControl<Value: Hashable>: View {
     var selectedColor: ((Value) -> Color)? = nil
 
     var body: some View {
-        HStack(spacing: 2) {
+        DSSegmentTrack {
             ForEach(options) { option in
                 let isSelected = option.value == selection
                 Button {
                     selection = option.value
                 } label: {
-                    Text(option.label)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .padding(.horizontal, 10).padding(.vertical, 3)
-                        .frame(maxWidth: .infinity, minHeight: 26)
-                        .foregroundStyle(isSelected && selectedColor != nil ? Color.white : DSTheme.textPrimary)
-                        .background(isSelected ? (selectedColor?(option.value) ?? DSTheme.segmentSelected) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 5))
-                        .shadow(color: isSelected ? .black.opacity(0.12) : .clear,
-                                radius: 1, y: 1)
-                        .contentShape(Rectangle())
+                    DSSegmentLabel(text: option.label, isSelected: isSelected,
+                                   selectedColor: selectedColor?(option.value))
                 }
                 .buttonStyle(DSSegmentButtonStyle(isSelected: isSelected))
                 .accessibilityLabel("\(title)，\(option.label)")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
-        .padding(2)
-        .background(DSTheme.segmentTrack, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
-        .frame(minHeight: 32)
     }
 }
 
@@ -355,6 +378,39 @@ private struct DSSegmentButtonStyle: ButtonStyle {
             .background(!isSelected && (hovering || configuration.isPressed) ? DSTheme.hover.opacity(0.65) : .clear,
                         in: RoundedRectangle(cornerRadius: 5))
             .onHover { hovering = $0 }
+    }
+}
+
+/// 多选版分段控件：分段视觉与 DSSegmentedControl 完全一致（共用轨道与纯文字段），
+/// 但每个选项独立开关（可全部关闭）；选中态只靠底色区分，可访问性值报「已选择 / 未选择」。
+struct DSMultiSelectControl<Value: Hashable>: View {
+    let title: String
+    @Binding var selection: Set<Value>
+    let options: [DSSelectOption<Value>]
+
+    var body: some View {
+        DSSegmentTrack {
+            ForEach(options) { option in
+                let isSelected = selection.contains(option.value)
+                Button {
+                    toggle(option.value)
+                } label: {
+                    DSSegmentLabel(text: option.label, isSelected: isSelected)
+                }
+                .buttonStyle(DSSegmentButtonStyle(isSelected: isSelected))
+                .accessibilityLabel("\(title)，\(option.label)")
+                .accessibilityValue(isSelected ? tr("已选择") : tr("未选择"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+    }
+
+    private func toggle(_ value: Value) {
+        if selection.contains(value) {
+            selection.remove(value)
+        } else {
+            selection.insert(value)
+        }
     }
 }
 
