@@ -197,7 +197,8 @@ struct JoystickCard: View {
         ), options: [DSSelectOption(value: Optional<GamepadSkin>.none,
                                     label: tr("自动识别（当前：%@）", GamepadProfile.detect(
                                         vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName))]
-            + GamepadSkin.allCases.map { DSSelectOption(value: Optional($0), label: $0.displayName) })
+            + GamepadSkin.selectableSkins.map { DSSelectOption(value: Optional($0), label: $0.displayName) },
+            searchText: { $0?.searchableText ?? tr("自动识别 自动检测 自动 Auto Detect") })
             .frame(width: 240)
         .help(tr("选择手柄造型。自动按 VID/PID 与名称识别，识别不对可手动指定。"))
     }

@@ -48,15 +48,19 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/DSModel.swift Sources/MatchSticksDS/HIDInputManager.swift \
   Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
   Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
-  Sources/MatchSticksDS/UpdateFlow.swift .build/uitest/BundleModuleShim.swift \
-  Sources/MatchSticksDS/Shortcuts.swift \
+  Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
+  .build/uitest/BundleModuleShim.swift Sources/MatchSticksDS/Shortcuts.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputReport.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
   Sources/MatchSticksDS/GamepadInputManager.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
+  Sources/MatchSticksDS/Views/GamepadSkinView.swift \
   Tests/MatchSticksDSUITests/main.swift Tests/MatchSticksDSUITests/F310XInputReportTests.swift \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
-  Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
+  Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
+  Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
+  Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests

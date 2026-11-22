@@ -22,17 +22,49 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
 
     check(GamepadArtworkCatalog.spec(for: .dualsense).imageName == "dualsense",
           "PS5 使用 DualSense 实机资源")
-    check(GamepadArtworkCatalog.spec(for: .dualshock4).imageName == "dualsense" &&
-          GamepadArtworkCatalog.spec(for: .dualshock3).imageName == "dualsense",
-          "PS 全系列统一使用 PS5 实机资源")
+    let generationImages: [GamepadSkin: String] = [
+        .dualshock4: "dualshock4", .dualsense: "dualsense", .direwolf4: "direwolf4",
+    ]
+    for (skin, imageName) in generationImages {
+        check(GamepadArtworkCatalog.spec(for: skin).imageName == imageName,
+              "\(skin.rawValue) 使用本世代独立实机资源")
+    }
+    check(GamepadArtworkCatalog.spec(for: .generic).imageName == "f310" &&
+          GamepadArtworkCatalog.spec(for: .generic).regions == GamepadArtworkCatalog.spec(for: .f310).regions,
+          "通用手柄复用 F310 外观与坐标，不改变映射")
+    let ps4 = GamepadArtworkCatalog.spec(for: .dualshock4)
+    check(abs((ps4.regions[.leftStickCap]?.midY ?? -1) - (ps4.regions[.rightStickCap]?.midY ?? 0)) <= 1,
+          "PS4 对称布局的双摇杆中心应在同一水平线")
+    let d4 = GamepadArtworkCatalog.spec(for: .direwolf4)
+    check(d4.referenceSize == CGSize(width: 913, height: 657), "冰原狼 4 使用未拉伸的 913×657 正视商品图主体")
+    check((d4.regions[.rightStickCap]?.midY ?? 0) > (d4.regions[.leftStickCap]?.midY ?? 0) &&
+          (d4.regions[.rightStickCap]?.midX ?? 0) > (d4.regions[.leftStickCap]?.midX ?? 0),
+          "冰原狼 4 正视保留真实的非对称摇杆布局，不强行拉平")
     check(GamepadArtworkCatalog.spec(for: .xbox360).imageName == "xbox-series" &&
           GamepadArtworkCatalog.spec(for: .xboxOne).imageName == "xbox-series" &&
           GamepadArtworkCatalog.spec(for: .xboxSeries).imageName == "xbox-series",
           "Xbox 全系列统一使用 Series 实机资源")
     check(GamepadArtworkCatalog.spec(for: .f310).imageName == "f310" &&
-          GamepadArtworkCatalog.spec(for: .direwolf4).imageName == "direwolf4" &&
-          GamepadArtworkCatalog.spec(for: .extreme3DPro).imageName == "extreme3dpro",
-          "罗技与冰原狼使用各自实机资源，Extreme 3D Pro 使用飞行摇杆资源")
+          GamepadArtworkCatalog.spec(for: .extreme3DPro).imageName == "extreme3dpro-base",
+          "罗技使用各自实机资源，Extreme 3D Pro 使用俯视底座资源")
+    let flight = GamepadArtworkCatalog.spec(for: .extreme3DPro)
+    check(flight.movingImageName == "extreme3dpro-handle" && flight.flightPivot != nil,
+          "Extreme 杆身与固定底座分离，并围绕标定枢轴运动")
+    let flightNeutral = flight.flightPose(left: .init(x: 0, yUp: 0, pressed: false),
+                                          twist: .init(x: 0, yUp: 0, pressed: false), in: container)
+    check(flightNeutral == .zero, "Extreme 中立姿态不偏移、不倾斜")
+    check(flight.flightAnchor(in: .zero) == .center, "Extreme 零尺寸布局不产生非法枢轴")
+    let flightRight = flight.flightPose(left: .init(x: 1, yUp: 0, pressed: false),
+                                        twist: .init(x: 1, yUp: 0, pressed: false), in: container)
+    check(flightRight.offset.width > 0 && flightRight.roll > 0 && flightRight.twist > 0,
+          "Extreme 杆身实际右倾，并使用独立 Z 轴扭转")
+    let flightForward = flight.flightPose(left: .init(x: 0, yUp: 1, pressed: false),
+                                          twist: .init(x: 0, yUp: 0, pressed: false), in: container)
+    check(flightForward.offset.height < 0 && flightForward.pitch > 0,
+          "Extreme 前后倾斜方向与屏幕一致")
+    let flightInvalid = flight.flightPose(left: .init(x: .nan, yUp: .infinity, pressed: false),
+                                          twist: .init(x: .infinity, yUp: 0, pressed: false), in: container)
+    check(flightInvalid == .zero, "Extreme 异常轴值安全回中")
 
     let calibrated = GamepadArtworkCatalog.spec(for: .dualsense)
     check(calibrated.referenceSize == CGSize(width: 1192, height: 848),
@@ -49,10 +81,10 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
         .rightStick: CGRect(x: 696.8, y: 306.6, width: 177.6, height: 177.6),
         .rightStickCap: CGRect(x: 730.4, y: 345, width: 110.4, height: 110.4),
         .dpad: CGRect(x: 125.6, y: 129, width: 225.6, height: 225.6),
-        .faceNorth: CGRect(x: 912.8, y: 100.2, width: 110.4, height: 110.4),
-        .faceEast: CGRect(x: 999.2, y: 196.2, width: 110.4, height: 110.4),
-        .faceSouth: CGRect(x: 912.8, y: 287.4, width: 110.4, height: 110.4),
-        .faceWest: CGRect(x: 821.6, y: 196.2, width: 110.4, height: 110.4),
+        .faceNorth: CGRect(x: 918, y: 114, width: 76, height: 76),
+        .faceEast: CGRect(x: 1003, y: 199, width: 76, height: 76),
+        .faceSouth: CGRect(x: 918, y: 284, width: 76, height: 76),
+        .faceWest: CGRect(x: 833, y: 199, width: 76, height: 76),
         .shoulderL: CGRect(x: 158, y: 16.2, width: 156, height: 55.2),
         .shoulderR: CGRect(x: 878, y: 16.2, width: 156, height: 55.2),
         .triggerL: CGRect(x: 158, y: 16.2, width: 156, height: 55.2),
@@ -64,4 +96,86 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     ]
     check(calibrated.regions == expected,
           "原生 DualSense 裁切图的控件标定遵循已验证的仿射变换")
+
+    guard let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
+                                  bytesPerRow: 64 * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        check(false, "原生摇杆贴图测试图可创建")
+        return
+    }
+    context.setFillColor(NSColor.white.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+    context.setFillColor(NSColor.red.cgColor)
+    context.fill(CGRect(x: 10, y: 10, width: 16, height: 16))
+    guard let source = context.makeImage(),
+          let cropped = GamepadArtworkImageSource.crop(source, rect: CGRect(x: 10, y: 10, width: 16, height: 16)),
+          let sourceData = source.dataProvider?.data,
+          let cropData = cropped.dataProvider?.data else {
+        check(false, "原生摇杆贴图可按标定裁剪")
+        return
+    }
+    let sourceBytes = [UInt8](sourceData as Data), cropBytes = [UInt8](cropData as Data)
+    check(cropped.width == 16 && cropped.height == 16, "摇杆贴图尺寸与标定一致")
+    let sourceOffset = (10 * 64 + 10) * 4
+    check(Array(sourceBytes[sourceOffset..<(sourceOffset + 4)]) == Array(cropBytes.prefix(4)),
+          "摇杆帽裁剪保留原始像素，不使用纯色替代")
+
+    let xboxURL = imageURL.deletingLastPathComponent().appendingPathComponent("xbox-series.png")
+    guard let xbox = NSImage(contentsOf: xboxURL)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+          let xboxData = xbox.dataProvider?.data else {
+        check(false, "Xbox 原生资源可读取")
+        return
+    }
+    check(xbox.width == 1023 && xbox.height == 736, "Xbox 清理保持原生像素尺寸")
+    let xboxBytes = [UInt8](xboxData as Data)
+    for (x, y) in [(72, 680), (60, 690), (860, 700), (953, 695)] {
+        let alpha = xboxBytes[(y * xbox.width + x) * 4 + 3]
+        check(alpha == 0, "Xbox 握把外阴影 (原图 \(x), \(y)) 必须完全透明，当前 alpha \(alpha)")
+    }
+
+    for name in ["dualshock4", "direwolf4"] {
+        guard let image = NSImage(contentsOf: imageURL.deletingLastPathComponent().appendingPathComponent("\(name).png"))?
+            .cgImage(forProposedRect: nil, context: nil, hints: nil), let data = image.dataProvider?.data else {
+            check(false, "\(name) 原生透明度可读取")
+            continue
+        }
+        let bytes = [UInt8](data as Data)
+        for (x, y) in [(0, 0), (image.width - 1, 0), (0, image.height - 1), (image.width - 1, image.height - 1)] {
+            check(bytes[(y * image.width + x) * 4 + 3] == 0, "\(name) 四角必须透明，不得残留白块 (\(x), \(y))")
+        }
+    }
+    let faceNorth = d4.regions[.faceNorth] ?? .zero, faceSouth = d4.regions[.faceSouth] ?? .zero
+    let faceWest = d4.regions[.faceWest] ?? .zero, faceEast = d4.regions[.faceEast] ?? .zero
+    check(abs(faceNorth.midX - faceSouth.midX) <= 15 && abs(faceWest.midY - faceEast.midY) <= 15,
+          "冰原狼 4 原生正视商品图的面键保持菱形几何")
+
+    for skin in GamepadSkin.allCases {
+        let artwork = GamepadArtworkCatalog.spec(for: skin)
+        let names = [artwork.imageName] + (artwork.movingImageName.map { [$0] } ?? [])
+        for name in names {
+            let url = imageURL.deletingLastPathComponent().appendingPathComponent("\(name).png")
+            guard let native = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                check(false, "\(skin.rawValue) 的图片 \(name).png 必须存在")
+                continue
+            }
+            check(CGSize(width: native.width, height: native.height) == artwork.referenceSize,
+                  "\(skin.rawValue) 的 \(name).png 原生像素必须与标定尺寸一致")
+        }
+    }
+
+    let buildScript = try! String(contentsOf: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("scripts/build-app.sh"), encoding: .utf8)
+    let resourceNames = Set(GamepadSkin.allCases.flatMap {
+        let artwork = GamepadArtworkCatalog.spec(for: $0)
+        return [artwork.imageName] + (artwork.movingImageName.map { [$0] } ?? [])
+    })
+    for name in resourceNames {
+        check(buildScript.contains("\(name).png"), "打包脚本必须检查 \(name).png")
+    }
+    for name in ["playstation1", "dualshock2", "dualshock3", "direwolf1", "direwolf2", "direwolf3"] {
+        check(!buildScript.contains("\(name).png"), "打包脚本不再引用已移除的 \(name).png")
+        let removed = imageURL.deletingLastPathComponent().appendingPathComponent("\(name).png")
+        check(!FileManager.default.fileExists(atPath: removed.path), "已移除型号不再遗留图片 \(name).png")
+    }
 }
