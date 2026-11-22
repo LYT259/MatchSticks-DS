@@ -157,7 +157,11 @@ struct RootView: View {
         Button { selection = page } label: {
             HStack(spacing: 10) {
                 Image(systemName: page.symbol).font(.system(size: 14)).frame(width: 20)
-                Text(page.title).font(.system(size: 12, weight: selection == page ? .semibold : .medium))
+                Text(page.title)
+                    .font(.system(size: 12, weight: selection == page ? .semibold : .medium))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
