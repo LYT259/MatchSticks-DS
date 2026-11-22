@@ -43,7 +43,8 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
   Sources/GHDS/DSModel.swift Sources/GHDS/HIDInputManager.swift \
-  Sources/GHDS/MacStatusMonitor.swift Sources/GHDS/Views/DSStyle.swift \
+  Sources/GHDS/MacStatusMonitor.swift Sources/GHDS/PracticeRoomState.swift \
+  Sources/GHDS/Views/DSStyle.swift \
   Sources/GHDS/Views/DSControls.swift Sources/GHDS/PracticeAudioPlayer.swift \
   Sources/GHDS/UpdateFlow.swift .build/uitest/BundleModuleShim.swift \
   Sources/GHDS/Shortcuts.swift \

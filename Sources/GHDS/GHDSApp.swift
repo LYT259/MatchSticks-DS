@@ -45,6 +45,7 @@ struct GHDSApp: App {
 struct RootView: View {
     let model: DSModel
     let updates: UpdateCenter
+    @State private var room = PracticeRoomState()
     @State private var selection: Page = .operation
     @State private var simProcess: Process?
     @State private var connectionDraft = ConnectionDraft()
@@ -53,9 +54,10 @@ struct RootView: View {
     @ObservedObject private var language = LanguageManager.shared
 
     enum Page: String, CaseIterable, Hashable {
-        case operation, setup, usb, diagnostics, charts, messages, permissions, settings
+        case operation, room, setup, usb, diagnostics, charts, messages, permissions, settings
         var title: String {
             switch self {
+            case .room: return tr("联机练习赛")
             case .operation: return tr("驾驶")
             case .setup: return tr("连接")
             case .usb: return tr("手柄")
@@ -68,6 +70,7 @@ struct RootView: View {
         }
         var symbol: String {
             switch self {
+            case .room: return "person.3"
             case .operation: return "steeringwheel"
             case .setup: return "network"
             case .usb: return "gamecontroller"
@@ -121,7 +124,7 @@ struct RootView: View {
                 Text(tr("机器人驾驶台")).font(.caption).foregroundStyle(DSTheme.textSecondary)
             }
             .padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 32)
-            navGroup(tr("操作"), pages: [.operation, .setup, .usb])
+            navGroup(tr("操作"), pages: [.operation, .room, .setup, .usb])
             navGroup(tr("监测"), pages: [.diagnostics, .charts, .messages])
                 .padding(.top, 22)
             Spacer(minLength: 24)
@@ -169,6 +172,7 @@ struct RootView: View {
 
     @ViewBuilder private var pageContent: some View {
         switch selection {
+        case .room: PracticeRoomView(room: room)
         case .operation: OperationView(model: model, openSettings: { selection = .settings })
         case .setup: SetupView(model: model, simProcess: $simProcess, draft: connectionDraft)
         case .settings: SettingsView(model: model)
