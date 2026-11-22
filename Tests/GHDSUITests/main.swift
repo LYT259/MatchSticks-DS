@@ -40,6 +40,300 @@ struct UIStateTests {
               "rendered red selection uses semantic danger pixels")
         check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 122 / 255, blue: 1),
               "rendered blue selection uses semantic accent pixels")
+
+        // ===== 联机练习房间状态（2026-11-22）=====
+        // Contract only: local in-memory UI state; no network, Bluetooth, robot, or DSModel access.
+        let room = PracticeRoomState()
+        check(PracticeRoomPhase.allCases.map(\.rawValue) == ["auto", "transition", "teleop"],
+              "room phases keep Auto, Transition, Teleop order")
+        check(PracticeRoomPhase.allCases.allSatisfy { $0.id == $0 },
+              "room phases identify themselves")
+        check(room.stage == .entry, "room starts at entry")
+        check(room.codeInput.isEmpty && room.roomCode.isEmpty,
+              "entry starts with no code input or room code")
+        check(!room.isHost && room.localMemberID == nil && room.members.isEmpty,
+              "entry has no host, local member, or members")
+        check(!room.canJoin && !room.isInRoom && room.localMember == nil,
+              "entry cannot join and is not in a room")
+        check(room.duration(for: .auto) == 15 && room.duration(for: .transition) == 3 &&
+              room.duration(for: .teleop) == 135,
+              "default room durations are Auto 15, Transition 3, Teleop 135")
+        check(room.permissionMemberID == "ds-a", "permission editor starts on DS A")
+        check(room.currentPhase == .auto && room.participantIDs.isEmpty && room.remainingSeconds == 0,
+              "entry has no running phase or participants")
+
+        room.updateCodeInput("02a6-45 199")
+        check(room.codeInput == "026451", "code input keeps the leading zero, drops non-digits, and caps at six")
+        room.updateCodeInput("12345678")
+        check(room.codeInput == "123456", "code input keeps only the first six digits")
+        check(room.canJoin, "six digits can join")
+        room.updateCodeInput("02645")
+        check(!room.canJoin, "five digits cannot join")
+        room.updateCodeInput("abcdef")
+        check(room.codeInput.isEmpty && !room.canJoin, "letters never become a room code")
+        room.joinRoom()
+        check(room.stage == .entry && room.roomCode.isEmpty, "invalid join is ignored")
+
+        room.updateCodeInput("004207")
+        room.joinRoom()
+        check(room.stage == .lobby && room.roomCode == "004207" && room.isInRoom,
+              "valid join keeps the user's six-digit code and enters the lobby")
+        check(!room.isHost && room.localMemberID == "ds-b" && room.localMember?.name == "DS B",
+              "joined member is DS B, not the host")
+        check(room.members.map(\.id) == ["ds-h", "ds-a", "ds-b", "ds-c"],
+              "joined room keeps sample member order DS H, DS A, DS B, DS C")
+        check(room.members.map(\.station) == [.red1, .blue1, .red2, .blue2],
+              "sample members start at Red 1, Blue 1, Red 2, Blue 2")
+        check(room.members.map(\.isReady) == [false, true, false, true],
+              "sample readiness is H false, A true, B false, C true")
+        check(room.members.first?.isHost == true && room.localMember?.isHost == false,
+              "only DS H is flagged as host")
+        check(room.readyParticipants.map(\.id) == ["ds-a", "ds-c"],
+              "ready participants are computed in member order")
+        check(!room.canStart, "a joined member cannot start the match")
+        room.startMatch()
+        check(room.stage == .lobby && room.participantIDs.isEmpty,
+              "a joined member cannot start the match directly")
+        room.simulateHostStart()
+        check(room.stage == .lobby && room.participantIDs.isEmpty,
+              "a joined member must be ready before the demo host start")
+        check(room.members.first?.isReady == false,
+              "an unready joined member cannot mark the remote host ready")
+        check(room.stationOwner(for: .red1)?.id == "ds-h", "station owner is reported")
+        check(room.stationOwner(for: .red1, excluding: "ds-h") == nil,
+              "station owner supports excluding a member")
+        check(room.stationOwner(for: .red1, excluding: nil)?.id == "ds-h",
+              "station owner accepts an explicit nil exclusion")
+
+        check(room.editPermissions["ds-a"] == [.auto], "DS A may edit Auto only")
+        check(room.editPermissions["ds-b"] == [.transition], "DS B may edit Transition only")
+        check(room.editPermissions["ds-c"] == [], "DS C has no edit permission")
+        check(!room.canEdit(phase: .auto), "local DS B may not edit Auto")
+        check(room.canEdit(phase: .transition), "local DS B may edit Transition")
+        room.setDuration(20, for: .auto)
+        check(room.duration(for: .auto) == 15, "unauthorized duration edit is ignored")
+        room.setDuration(10, for: .transition)
+        check(room.duration(for: .transition) == 10, "authorized duration edit applies")
+        room.setDuration(0, for: .transition)
+        check(room.duration(for: .transition) == 10, "zero seconds is rejected")
+        room.setDuration(1000, for: .transition)
+        check(room.duration(for: .transition) == 10, "more than 999 seconds is rejected")
+        room.setDuration(999, for: .transition)
+        check(room.duration(for: .transition) == 999, "999 seconds is accepted")
+
+        room.assign(memberID: "ds-b", station: .red3)
+        check(room.members.first { $0.id == "ds-b" }?.station == .red2,
+              "a joined member cannot reassign stations")
+        room.setPermission(true, memberID: "ds-b", phase: .auto)
+        check(room.editPermissions["ds-b"] == [.transition],
+              "a joined member cannot grant permissions")
+        room.selectPermissionMember(memberID: "ds-c")
+        check(room.permissionMemberID == "ds-a",
+              "a joined member cannot change the permission editor subject")
+
+        room.toggleLocalReady()
+        check(room.localMember?.isReady == true, "lobby allows the local member to become ready")
+        check(!room.canStart, "a ready joined member still cannot start the match")
+        check(room.participantIDs.isEmpty && room.stage == .lobby,
+              "becoming ready alone does not start the match")
+        room.simulateHostStart()
+        check(room.stage == .running && room.currentPhase == .auto,
+              "demo host start enters Auto for a ready joined member")
+        check(room.members.first?.isReady == true,
+              "the demo host start marks the remote host ready")
+        check(room.participantIDs == ["ds-h", "ds-a", "ds-b", "ds-c"],
+              "demo host start snapshots the host and every ready member")
+        check(room.remainingSeconds == 15, "remaining seconds follows the current phase duration")
+        room.advanceDemo()
+        check(room.currentPhase == .transition && room.remainingSeconds == 999,
+              "advance moves Auto to Transition and keeps the phase duration")
+        room.advanceDemo()
+        check(room.currentPhase == .teleop && room.remainingSeconds == 135,
+              "advance moves Transition to Teleop")
+        room.toggleLocalReady()
+        check(room.localMember?.isReady == true, "ready is read-only outside the lobby")
+        room.setDuration(30, for: .transition)
+        check(room.duration(for: .transition) == 999,
+              "an authorized duration is still read-only outside the lobby")
+        room.advanceDemo()
+        check(room.stage == .finished && room.remainingSeconds == 0,
+              "advance moves Teleop to finished with no remaining time")
+        room.advanceDemo()
+        check(room.stage == .finished, "advance is inert once finished")
+        room.finishDemo()
+        check(room.stage == .finished, "finish is inert once finished")
+        room.returnToLobby()
+        check(room.stage == .lobby && room.participantIDs.isEmpty && room.currentPhase == .auto,
+              "return to lobby clears the participant snapshot and resets Auto")
+        check(room.members.allSatisfy { !$0.isReady },
+              "return to lobby clears every member's ready flag")
+        check(room.roomCode == "004207", "return to lobby keeps the room code")
+        check(room.members.map(\.station) == [.red1, .blue1, .red2, .blue2],
+              "return to lobby keeps station assignments")
+        check(room.duration(for: .transition) == 999 && room.duration(for: .teleop) == 135,
+              "return to lobby keeps durations")
+        check(room.editPermissions["ds-a"] == [.auto] && room.editPermissions["ds-b"] == [.transition],
+              "return to lobby keeps permissions")
+
+        room.leaveRoom()
+        check(room.stage == .entry && room.codeInput.isEmpty && room.roomCode.isEmpty,
+              "leave returns to entry and clears both codes")
+        check(!room.isHost && room.localMemberID == nil && room.members.isEmpty &&
+              room.participantIDs.isEmpty,
+              "leave clears host, local member, members, and participants")
+        check(room.duration(for: .auto) == 15 && room.duration(for: .transition) == 3 &&
+              room.duration(for: .teleop) == 135,
+              "leave restores default durations")
+        check(room.permissionMemberID == "ds-a" && room.editPermissions["ds-b"] == [.transition],
+              "leave restores the demo permission defaults")
+        check(!room.isInRoom && room.remainingSeconds == 0, "leave fully resets to entry")
+
+        let host = PracticeRoomState()
+        host.updateCodeInput("987654")
+        host.createRoom()
+        check(host.codeInput.isEmpty, "creating a room clears the typed code input")
+        check(host.roomCode == "026451", "creating a room generates the demo room code")
+        check(host.stage == .lobby && host.isHost && host.localMemberID == "ds-h",
+              "creating a room makes DS H the local host")
+        check(host.localMember?.isHost == true && host.localMember?.station == .red1 &&
+              host.localMember?.isReady == false,
+              "host occupies Red 1 and is not ready yet")
+        check(host.members.map(\.id) == ["ds-h", "ds-a", "ds-b", "ds-c"],
+              "created room uses the sample member order")
+        check(!host.canStart, "host must be ready before starting")
+        check(host.canEdit(phase: .auto) && host.canEdit(phase: .transition) &&
+              host.canEdit(phase: .teleop),
+              "host may edit every phase")
+        host.selectPermissionMember(memberID: "ds-c")
+        check(host.permissionMemberID == "ds-c", "host chooses the permission subject")
+        check(host.editPermissions["ds-c"] == [], "host sees the subject's empty permissions")
+        host.setPermission(true, memberID: "ds-c", phase: .teleop)
+        check(host.editPermissions["ds-c"] == [.teleop], "host grants one phase permission")
+        host.setPermission(false, memberID: "ds-c", phase: .teleop)
+        check(host.editPermissions["ds-c"] == [], "host revokes one phase permission")
+        host.selectPermissionMember(memberID: "nobody")
+        check(host.permissionMemberID == "ds-c", "unknown permission subjects are ignored")
+        host.selectPermissionMember(memberID: "ds-h")
+        check(host.permissionMemberID == "ds-c", "the host cannot select itself as permission subject")
+        host.setPermission(true, memberID: "ds-h", phase: .auto)
+        check(host.editPermissions["ds-h"] == [], "the host cannot grant itself phase permissions")
+
+        host.assign(memberID: "ds-c", station: .red2)
+        check(host.members.first { $0.id == "ds-c" }?.station == .blue2,
+              "a station occupied by another member cannot be assigned")
+        host.assign(memberID: "ds-c", station: .red3)
+        check(host.members.first { $0.id == "ds-c" }?.station == .red3,
+              "host assigns a free station")
+        host.assign(memberID: "ds-b", station: .blue2)
+        check(host.members.first { $0.id == "ds-b" }?.station == .blue2,
+              "host moves a member into the newly freed station")
+        let assignedStations = Set(host.members.map(\.station))
+        check(assignedStations.count == host.members.count, "station assignments stay unique")
+        host.assign(memberID: "nobody", station: .red2)
+        check(!host.members.contains { $0.station == .red2 },
+              "assigning an unknown member changes nothing")
+
+        host.assign(memberID: "ds-h", station: .blue1)
+        check(host.members.first { $0.id == "ds-h" }?.station == .red1,
+              "even the host cannot take a station occupied by another member")
+        host.assign(memberID: "ds-a", station: .red2)
+        check(host.members.first { $0.id == "ds-a" }?.station == .red2,
+              "host reassigns DS A into a free station")
+        host.assign(memberID: "ds-h", station: .blue1)
+        check(host.members.first { $0.id == "ds-h" }?.station == .blue1,
+              "station owner excludes the member being assigned")
+        host.assign(memberID: "ds-h", station: .blue1)
+        check(host.members.first { $0.id == "ds-h" }?.station == .blue1,
+              "a member may keep an occupied-by-self station")
+        host.assign(memberID: "ds-h", station: .red1)
+        check(host.members.first { $0.id == "ds-h" }?.station == .red1,
+              "host moves back to the freed Red 1")
+        host.assign(memberID: "ds-a", station: .blue1)
+        check(host.members.first { $0.id == "ds-a" }?.station == .blue1,
+              "host reassigns DS A after DS H vacates Blue 1")
+
+        host.setDuration(20, for: .auto)
+        check(host.duration(for: .auto) == 20, "host edits any phase duration")
+        host.setDuration(1, for: .auto)
+        check(host.duration(for: .auto) == 1, "one second is accepted")
+        host.setDuration(0, for: .auto)
+        check(host.duration(for: .auto) == 1, "zero seconds is rejected for the host")
+        host.setDuration(20, for: .auto)
+
+        host.simulateHostStart()
+        check(host.stage == .lobby, "the demo host start is unavailable to a real host")
+        host.startMatch()
+        check(host.stage == .lobby && host.participantIDs.isEmpty,
+              "starting requires a ready host")
+        host.toggleLocalReady()
+        check(host.canStart, "host is ready and may start")
+        host.startMatch()
+        check(host.stage == .running && host.currentPhase == .auto,
+              "start enters running Auto once")
+        check(host.participantIDs == ["ds-h", "ds-a", "ds-c"],
+              "start snapshots only ready members in member order")
+        check(host.remainingSeconds == 20, "running waits on the Auto duration")
+        host.startMatch()
+        check(host.stage == .running && host.participantIDs == ["ds-h", "ds-a", "ds-c"],
+              "a second start is ignored")
+        host.assign(memberID: "ds-c", station: .red2)
+        host.setDuration(30, for: .auto)
+        host.setPermission(true, memberID: "ds-b", phase: .auto)
+        host.selectPermissionMember(memberID: "ds-b")
+        let runningStationC = host.members.first { $0.id == "ds-c" }?.station
+        let runningAuto = host.duration(for: .auto)
+        let runningPermissionsB = host.editPermissions["ds-b"]
+        let runningPermissionSubject = host.permissionMemberID
+        check(runningStationC == .red3 && runningAuto == 20 &&
+              runningPermissionsB == [.transition] &&
+              runningPermissionSubject == "ds-c",
+              "host room edits are read-only while running")
+        host.finishDemo()
+        check(host.stage == .finished && host.remainingSeconds == 0,
+              "finish leaves the match finished")
+        host.assign(memberID: "ds-c", station: .red2)
+        host.setDuration(30, for: .auto)
+        host.setPermission(true, memberID: "ds-b", phase: .auto)
+        host.selectPermissionMember(memberID: "ds-b")
+        let finishedStationC = host.members.first { $0.id == "ds-c" }?.station
+        let finishedAuto = host.duration(for: .auto)
+        let finishedPermissionsB = host.editPermissions["ds-b"]
+        let finishedPermissionSubject = host.permissionMemberID
+        check(finishedStationC == .red3 && finishedAuto == 20 &&
+              finishedPermissionsB == [.transition] &&
+              finishedPermissionSubject == "ds-c",
+              "host room edits are read-only once finished")
+        host.returnToLobby()
+        check(host.stage == .lobby && host.members.allSatisfy { !$0.isReady },
+              "host return clears readiness")
+        let returnedA = host.members.first { $0.id == "ds-a" }?.station
+        let returnedB = host.members.first { $0.id == "ds-b" }?.station
+        let returnedC = host.members.first { $0.id == "ds-c" }?.station
+        check(returnedA == .blue1 && returnedB == .blue2 && returnedC == .red3,
+              "host return keeps the reassigned stations")
+
+        let leaver = PracticeRoomState()
+        leaver.createRoom()
+        leaver.toggleLocalReady()
+        leaver.startMatch()
+        leaver.advanceDemo()
+        leaver.advanceDemo()
+        check(leaver.currentPhase == .teleop, "the leaver reaches Teleop before leaving")
+        leaver.leaveRoom()
+        check(leaver.stage == .entry && leaver.members.isEmpty && leaver.participantIDs.isEmpty &&
+              leaver.roomCode.isEmpty && leaver.duration(for: .auto) == 15 &&
+              leaver.currentPhase == .auto,
+              "leaving a running room from Teleop fully resets to entry Auto")
+
+        leaver.updateCodeInput("112233")
+        leaver.joinRoom()
+        check(!leaver.isHost && leaver.localMemberID == "ds-b",
+              "leaving lets the local DS switch from host to participant")
+        leaver.leaveRoom()
+        leaver.createRoom()
+        check(leaver.isHost && leaver.localMemberID == "ds-h",
+              "leaving lets the local DS switch back to host")
+
         model.setEnabled(true)
         check(!model.enabled, "offline enable request is refused")
         model.triggerEstop()

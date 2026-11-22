@@ -4,11 +4,13 @@ import DSCore
 struct DSSelectOption<Value: Hashable>: Identifiable {
     let value: Value
     let label: String
+    var isEnabled: Bool = true
     var id: Value { value }
 
-    init(value: Value, label: String) {
+    init(value: Value, label: String, isEnabled: Bool = true) {
         self.value = value
         self.label = label
+        self.isEnabled = isEnabled
     }
 }
 
@@ -41,6 +43,8 @@ struct DSSelectControl<Value: Hashable>: View {
         }
         .buttonStyle(DSSelectTriggerStyle())
         .focused($triggerFocused)
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .strokeBorder(triggerFocused ? DSTheme.focusRing : .clear, lineWidth: 2))
         .accessibilityLabel(title)
         .accessibilityValue(selectedLabel)
         .onKeyPress(.downArrow) { open(); return .handled }
@@ -52,6 +56,10 @@ struct DSSelectControl<Value: Hashable>: View {
 
     private var selectedLabel: String {
         options.first(where: { $0.value == selection })?.label ?? String(describing: selection)
+    }
+
+    private var enabledOptions: [DSSelectOption<Value>] {
+        options.filter(\.isEnabled)
     }
 
     private var popoverSize: CGSize {
@@ -85,7 +93,11 @@ struct DSSelectControl<Value: Hashable>: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(DSSelectOptionStyle())
+                    .disabled(!option.isEnabled)
                     .focused($focusedOption, equals: option.value)
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(focusedOption == option.value ? DSTheme.focusRing : .clear,
+                                      lineWidth: 2))
                     .accessibilityAddTraits(option.value == selection ? .isSelected : [])
                 }
             }
@@ -97,28 +109,39 @@ struct DSSelectControl<Value: Hashable>: View {
         .onAppear { focusCurrent() }
         .onKeyPress(.downArrow) { move(1); return .handled }
         .onKeyPress(.upArrow) { move(-1); return .handled }
-        .onKeyPress(.home) { focus(options.first?.value); return .handled }
-        .onKeyPress(.end) { focus(options.last?.value); return .handled }
+        .onKeyPress(.home) { focus(enabledOptions.first?.value); return .handled }
+        .onKeyPress(.end) { focus(enabledOptions.last?.value); return .handled }
         .onKeyPress(.escape) { close(); return .handled }
     }
 
     private func open(last: Bool = false) {
-        guard !options.isEmpty else { return }
-        active = options.contains(where: { $0.value == selection }) ? selection : (last ? options.last?.value : options.first?.value)
+        guard !enabledOptions.isEmpty else { return }
+        let current = options.first(where: { $0.value == selection })
+        active = current?.isEnabled == true ? selection : (last ? enabledOptions.last?.value : enabledOptions.first?.value)
         isOpen = true
         DispatchQueue.main.async { focusedOption = active }
     }
 
     private func focusCurrent() {
-        active = selection
-        focusedOption = options.contains(where: { $0.value == selection }) ? selection : options.first?.value
+        let current = options.first(where: { $0.value == selection })
+        active = current?.isEnabled == true ? selection : enabledOptions.first?.value
+        focusedOption = active
     }
 
     private func move(_ offset: Int) {
         guard !options.isEmpty else { return }
-        let index = options.firstIndex(where: { $0.value == (active ?? selection) }) ?? 0
-        let next = min(max(index + offset, 0), options.count - 1)
-        focus(options[next].value)
+        guard var index = options.firstIndex(where: { $0.value == (active ?? selection) }) else {
+            focus(offset > 0 ? enabledOptions.first?.value : enabledOptions.last?.value)
+            return
+        }
+        index += offset
+        while options.indices.contains(index) {
+            if options[index].isEnabled {
+                focus(options[index].value)
+                return
+            }
+            index += offset
+        }
     }
 
     private func focus(_ value: Value?) {
@@ -127,6 +150,7 @@ struct DSSelectControl<Value: Hashable>: View {
     }
 
     private func choose(_ value: Value) {
+        guard options.first(where: { $0.value == value })?.isEnabled == true else { return }
         selection = value
         close()
     }
@@ -212,13 +236,15 @@ private struct DSSelectTriggerStyle: ButtonStyle {
 }
 
 private struct DSSelectOptionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(hovering || configuration.isPressed ? DSTheme.hover : .clear,
                         in: RoundedRectangle(cornerRadius: 6))
-            .onHover { hovering = $0 }
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { hovering = isEnabled && $0 }
     }
 }
 
@@ -249,6 +275,7 @@ struct DSSegmentedControl<Value: Hashable>: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(DSSegmentButtonStyle(isSelected: isSelected))
+                .disabled(!option.isEnabled)
                 .accessibilityLabel("\(title)，\(option.label)")
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
@@ -262,13 +289,15 @@ struct DSSegmentedControl<Value: Hashable>: View {
 
 private struct DSSegmentButtonStyle: ButtonStyle {
     let isSelected: Bool
+    @Environment(\.isEnabled) private var isEnabled
     @State private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(!isSelected && (hovering || configuration.isPressed) ? DSTheme.hover.opacity(0.65) : .clear,
                         in: RoundedRectangle(cornerRadius: 5))
-            .onHover { hovering = $0 }
+            .opacity(isEnabled ? 1 : 0.4)
+            .onHover { hovering = isEnabled && $0 }
     }
 }
 
