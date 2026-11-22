@@ -125,6 +125,7 @@
 "Auto → Teleop 过渡" = "Auto → Teleop Transition";
 "开始前等待" = "Start Delay";
 "播放阶段提示音" = "Play Phase Sounds";
+"播放使能/失能音效" = "Play Enable/Disable Sounds";
 "在「驾驶」页面开始练习；时长设置用于下一次练习。" = "Start practice on the Drive page; durations apply to the next practice run.";
 "练习时序" = "Practice Timing";
 "自动 %d 秒 · 遥控 %d 秒" = "Auto %d s · Teleop %d s";

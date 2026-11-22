@@ -416,7 +416,7 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<12).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<16).map { _ in "ghds.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
         // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
@@ -894,6 +894,112 @@ struct UIStateTests {
         check(frozenDash.selectedDashboards == [.elastic], "selection still updates in memory")
         check(frozenDashSuite.object(forKey: "ghds.dashboards") == nil,
               "disabled persistence leaves dashboard storage untouched")
+
+        // ⑭ Enable/Disable 音效：默认开启、独立开关、持久化/WebUI、四种映射与安全边界
+        let preferenceSuite = makeSuite(suiteNames[12])
+        let preferenceModel = DSModel(settingsDefaults: preferenceSuite, persistenceEnabled: true)
+        check(preferenceModel.enableDisableSoundsEnabled, "Enable/Disable sounds default to on")
+        check(preferenceSuite.object(forKey: "ghds.enableDisableSoundsEnabled") == nil,
+              "fresh install needs no explicit Enable/Disable sound override")
+        preferenceModel.enableDisableSoundsEnabled = false
+        check(preferenceSuite.bool(forKey: "ghds.enableDisableSoundsEnabled") == false,
+              "Enable/Disable sound preference persists immediately")
+        let restoredPreference = DSModel(settingsDefaults: preferenceSuite, persistenceEnabled: true)
+        restoredPreference.loadPersistedSettings()
+        check(!restoredPreference.enableDisableSoundsEnabled, "Enable/Disable sound preference survives restart")
+        check(restoredPreference.webSettingsSnapshot()["enableDisableSoundsEnabled"] == "false",
+              "WebUI snapshot exposes the new sound preference")
+        check(restoredPreference.applyWebSetting(key: "enableDisableSoundsEnabled", value: "true") == nil &&
+              restoredPreference.enableDisableSoundsEnabled, "WebUI can enable the new sound preference")
+        check(restoredPreference.applyWebSetting(key: "enableDisableSoundsEnabled", value: "maybe") != nil &&
+              restoredPreference.enableDisableSoundsEnabled, "invalid WebUI values leave the preference unchanged")
+
+        check(DSModel.enableDisableSoundFileName(mode: .teleoperated, enabled: true, year: 2026) == "3BELLS",
+              "Teleop Enable uses the Teleop-start bells")
+        check(DSModel.enableDisableSoundFileName(mode: .teleoperated, enabled: false, year: 2026) == "ENDMATCH",
+              "Teleop Disable uses the match-end buzzer")
+        check(DSModel.enableDisableSoundFileName(mode: .autonomous, enabled: true, year: 2026) == "CHARGE",
+              "Auto Enable uses the match-start charge")
+        check(DSModel.enableDisableSoundFileName(mode: .autonomous, enabled: false, year: 2026) == "ENDMATCH",
+              "Auto Disable uses the auto-end buzzer")
+        check(DSModel.enableDisableSoundFileName(mode: .test, enabled: true, year: 2026) == nil &&
+              DSModel.enableDisableSoundFileName(mode: .test, enabled: false, year: 2026) == nil,
+              "Test mode has no unspecified Enable/Disable cue")
+
+        let cueModel = DSModel(settingsDefaults: makeSuite(suiteNames[13]), persistenceEnabled: false)
+        cueModel.commState = .connected(host: "127.0.0.1")
+        cueModel.soundsEnabled = false
+        var cues: [String] = []
+        cueModel.practiceAudio.playHandler = {
+            cues.append($0)
+            cueModel.practiceAudio.finishCurrent()
+        }
+        cueModel.practiceAudio.finishHandler = {}
+        cueModel.setMode(.autonomous)
+        cueModel.setEnabled(true)
+        cueModel.setEnabled(true)
+        cueModel.setEnabled(false)
+        cueModel.setEnabled(false)
+        cueModel.setMode(.teleoperated)
+        cueModel.setEnabled(true)
+        cueModel.setEnabled(false)
+        check(cues == ["CHARGE", "ENDMATCH", "3BELLS", "ENDMATCH"],
+              "operator cues follow mode and only actual state flips; phase-sound preference is independent")
+        cueModel.enableDisableSoundsEnabled = false
+        cueModel.setEnabled(true)
+        cueModel.setEnabled(false)
+        check(cues == ["CHARGE", "ENDMATCH", "3BELLS", "ENDMATCH"],
+              "turning off Enable/Disable sounds suppresses only new operator cues")
+        cueModel.enableDisableSoundsEnabled = true
+        cueModel.setEnabled(true)
+        let cuesBeforeEstop = cues
+        var estopPlayed = false
+        cueModel.estopSoundPlayer = { estopPlayed = true }
+        cueModel.triggerEstop()
+        check(estopPlayed && cues == cuesBeforeEstop, "E-Stop keeps its own sound without an extra match-end cue")
+
+        let deniedModel = DSModel(settingsDefaults: makeSuite(suiteNames[14]), persistenceEnabled: false)
+        var deniedCues: [String] = []
+        deniedModel.practiceAudio.playHandler = { deniedCues.append($0) }
+        deniedModel.setEnabled(true)
+        check(!deniedModel.enabled && deniedCues.isEmpty, "safety-gate denial does not play an Enable cue")
+
+        let timeoutCueModel = DSModel(settingsDefaults: makeSuite(suiteNames[15]), persistenceEnabled: false)
+        timeoutCueModel.practiceSeasonYear = 2022
+        timeoutCueModel.commState = .connected(host: "127.0.0.1")
+        timeoutCueModel.setMode(.teleoperated)
+        var timeoutCues: [String] = []
+        timeoutCueModel.practiceAudio.playHandler = {
+            timeoutCues.append($0)
+            timeoutCueModel.practiceAudio.finishCurrent()
+        }
+        timeoutCueModel.practiceAudio.finishHandler = {}
+        timeoutCueModel.setEnabled(true)
+        timeoutCueModel.startTimeout()
+        check(timeoutCues == ["3BELLS"], "starting Timeout auto-disables without an extra match-end cue")
+        timeoutCueModel.cancelTimeout()
+
+        let connectedPractice = DSModel(settingsDefaults: makeSuite(suiteNames[15]), persistenceEnabled: false)
+        connectedPractice.commState = .connected(host: "127.0.0.1")
+        connectedPractice.practiceSeasonYear = 2026
+        connectedPractice.practiceAutoTime = 0.1
+        connectedPractice.practiceDelayTime = 0.1
+        connectedPractice.practiceStartDelay = 0
+        connectedPractice.practiceTransitionShiftTime = 0.1
+        connectedPractice.practiceAllianceShiftTime = 0.1
+        connectedPractice.practiceEndgameTime = 0.1
+        var connectedCues: [String] = []
+        connectedPractice.practiceAudio.playHandler = {
+            connectedCues.append($0)
+            connectedPractice.practiceAudio.finishCurrent()
+        }
+        connectedPractice.practiceAudio.finishHandler = {}
+        connectedPractice.startPractice()
+        let connectedDeadline = Date().addingTimeInterval(1.4)
+        while Date() < connectedDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(connectedCues == ["CHARGE", "ENDMATCH", "3BELLS", "PowerUp_LinearPop", "PowerUp_LinearPop",
+                                "PowerUp_LinearPop", "PowerUp_LinearPop", "WARNEOM_2026", "ENDMATCH"],
+              "connected practice adds no operator cues on automatic enable/disable")
 
         for name in suiteNames {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)

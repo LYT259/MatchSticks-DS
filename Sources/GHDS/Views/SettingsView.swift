@@ -76,6 +76,14 @@ struct SettingsView: View {
                     .controlSize(.small)
                     .tint(DSTheme.accent)
             }
+            settingsSeparator
+            settingsRow(tr("播放使能/失能音效")) {
+                Toggle(tr("播放使能/失能音效"), isOn: $model.enableDisableSoundsEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .tint(DSTheme.accent)
+            }
         }
     }
 
