@@ -124,7 +124,8 @@ struct UIStateTests {
         check(snap.enabled == false, "estop path keeps operator disabled")
 
         // E-Stop 全场雾号：首次触发立即播放，锁存期间不叠放，复位本身静音
-        let estopAudio = DSModel(settingsDefaults: makeSuite("ghds.uitests.estop-audio"), persistenceEnabled: false)
+        let estopAudioSuiteName = "org.ghfrc.driverstation.test.uitests.estop-audio.\(UUID().uuidString)"
+        let estopAudio = DSModel(settingsDefaults: makeSuite(estopAudioSuiteName), persistenceEnabled: false)
         var estopAudioPlayCount = 0
         estopAudio.estopSoundPlayer = { estopAudioPlayCount += 1 }
         estopAudio.triggerEstop()
@@ -230,7 +231,7 @@ struct UIStateTests {
         // ===== OM5P UI stall / 控制环性能回归（2026-11-14）=====
 
         // ① Diag 常驻输出句柄 + HeartbeatBox 停滞探针
-        let diagPath = NSTemporaryDirectory() + "ghds-diag-\(UUID().uuidString).log"
+        let diagPath = NSTemporaryDirectory() + "MatchSticks-DS-diag-\(UUID().uuidString).log"
         check(Diag.setFileOutput(path: diagPath), "diag file output opens")
         Diag.write("line-one")
         Diag.write("line-two")
@@ -241,7 +242,7 @@ struct UIStateTests {
         check(!FileManager.default.fileExists(atPath: diagPath), "diag handle persists instead of reopening per line")
 
         let hb = HeartbeatBox()
-        let stallPath = NSTemporaryDirectory() + "ghds-diag-stall-\(UUID().uuidString).log"
+        let stallPath = NSTemporaryDirectory() + "MatchSticks-DS-diag-stall-\(UUID().uuidString).log"
         Diag.setFileOutput(path: stallPath)
         hb.beat()
         Thread.sleep(forTimeInterval: 0.15)
@@ -445,37 +446,37 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<12).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<12).map { _ in "org.ghfrc.driverstation.test.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
-        // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
-        let envSuite = DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": suiteNames[0]])
-        envSuite.set("probe", forKey: "ghds.envProbe")
-        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "ghds.envProbe") == "probe",
-              "GHDS_SETTINGS_SUITE resolves to an isolated user defaults suite")
-        check(DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": "   "]) === UserDefaults.standard,
-              "blank GHDS_SETTINGS_SUITE falls back to standard defaults")
+        // ⑤ MATCHSTICKS_DS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
+        let envSuite = DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DS_SETTINGS_SUITE": suiteNames[0]])
+        envSuite.set("probe", forKey: "matchsticks.envProbe")
+        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "matchsticks.envProbe") == "probe",
+              "MATCHSTICKS_DS_SETTINGS_SUITE resolves to an isolated user defaults suite")
+        check(DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DS_SETTINGS_SUITE": "   "]) === UserDefaults.standard,
+              "blank MATCHSTICKS_DS_SETTINGS_SUITE falls back to standard defaults")
         check(DSModel.resolvedSettingsDefaults(environment: [:]) === UserDefaults.standard,
-              "missing GHDS_SETTINGS_SUITE falls back to standard defaults")
+              "missing MATCHSTICKS_DS_SETTINGS_SUITE falls back to standard defaults")
 
         // ⑥ manualIP didSet：启用持久化时保存/清除；禁用时不动已有值，但内存仍更新
         let persistSuite = makeSuite(suiteNames[1])
         let persistModel = DSModel(settingsDefaults: persistSuite, persistenceEnabled: true)
         persistModel.manualIP = "10.25.90.2"
         check(persistModel.manualIP == "10.25.90.2", "manualIP updates in memory")
-        check(persistSuite.string(forKey: "ghds.manualIP") == "10.25.90.2",
+        check(persistSuite.string(forKey: "matchsticks.manualIP") == "10.25.90.2",
               "manualIP didSet persists to the injected suite")
         persistModel.manualIP = ""
-        check(persistSuite.object(forKey: "ghds.manualIP") == nil,
+        check(persistSuite.object(forKey: "matchsticks.manualIP") == nil,
               "clearing manualIP removes the persisted value through didSet")
 
         let frozenSuite = makeSuite(suiteNames[2])
-        frozenSuite.set("10.0.0.9", forKey: "ghds.manualIP")
+        frozenSuite.set("10.0.0.9", forKey: "matchsticks.manualIP")
         let frozenModel = DSModel(settingsDefaults: frozenSuite, persistenceEnabled: false)
         check(!frozenModel.persistenceEnabled, "injected persistence switch is honored")
         frozenModel.manualIP = "127.0.0.1"
         check(frozenModel.manualIP == "127.0.0.1", "manualIP still updates in memory when persistence is disabled")
-        check(frozenSuite.string(forKey: "ghds.manualIP") == "10.0.0.9",
+        check(frozenSuite.string(forKey: "matchsticks.manualIP") == "10.0.0.9",
               "disabled persistence leaves the stored manualIP untouched")
 
         // ⑦ 已应用手动地址警告：基于 model（非草稿）；127/8 + teamNumber>0 明确本机
@@ -820,9 +821,9 @@ struct UIStateTests {
         dashboardModel.dashboardSelection = [.shuffleboard, .advantageScope]
         check(dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
               "selection is presented in alphabetical order")
-        check(dashboardSuite.string(forKey: "ghds.dashboards") == "AdvantageScope,Shuffleboard",
+        check(dashboardSuite.string(forKey: "matchsticks.dashboards") == "AdvantageScope,Shuffleboard",
               "selection persists immediately in canonical order")
-        check(dashboardSuite.string(forKey: "ghds.dashboardKind") == "AdvantageScope",
+        check(dashboardSuite.string(forKey: "matchsticks.dashboardKind") == "AdvantageScope",
               "legacy single-select key mirrors the first selection")
         let restoredDashboard = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
         restoredDashboard.loadPersistedSettings()
@@ -830,7 +831,7 @@ struct UIStateTests {
               "multi-selection restores after restart")
 
         dashboardModel.dashboardSelection = []
-        check(dashboardSuite.string(forKey: "ghds.dashboards") == "",
+        check(dashboardSuite.string(forKey: "matchsticks.dashboards") == "",
               "empty selection persists as an empty list")
         let restoredEmpty = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
         restoredEmpty.loadPersistedSettings()
@@ -841,12 +842,12 @@ struct UIStateTests {
 
         // 旧版单选键：新键缺失 → 直接恢复；新键损坏 → 回退旧键（外部数据容错）
         let legacySuite = makeSuite(suiteNames[9])
-        legacySuite.set("Shuffleboard", forKey: "ghds.dashboardKind")
+        legacySuite.set("Shuffleboard", forKey: "matchsticks.dashboardKind")
         let legacyDashboard = DSModel(settingsDefaults: legacySuite, persistenceEnabled: true)
         legacyDashboard.loadPersistedSettings()
         check(legacyDashboard.dashboardSelection == [.shuffleboard],
               "legacy dashboardKind setting restores as a single selection")
-        legacySuite.set("AdvantageScope,Bogus", forKey: "ghds.dashboards")
+        legacySuite.set("AdvantageScope,Bogus", forKey: "matchsticks.dashboards")
         let corruptDashboard = DSModel(settingsDefaults: legacySuite, persistenceEnabled: true)
         corruptDashboard.loadPersistedSettings()
         check(corruptDashboard.dashboardSelection == [.shuffleboard],
@@ -921,10 +922,10 @@ struct UIStateTests {
         let frozenDash = DSModel(settingsDefaults: frozenDashSuite, persistenceEnabled: false)
         frozenDash.dashboardSelection = [.elastic]
         check(frozenDash.selectedDashboards == [.elastic], "selection still updates in memory")
-        check(frozenDashSuite.object(forKey: "ghds.dashboards") == nil,
+        check(frozenDashSuite.object(forKey: "matchsticks.dashboards") == nil,
               "disabled persistence leaves dashboard storage untouched")
 
-        for name in suiteNames {
+        for name in suiteNames + [estopAudioSuiteName] {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
         }
 
@@ -1012,7 +1013,7 @@ struct UIStateTests {
         focusWindow.close()
         NSApplication.shared.setActivationPolicy(previousActivationPolicy)
 
-        print("GHDS UI state: \(checks) checks, \(failures.count) failures")
+        print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
     }

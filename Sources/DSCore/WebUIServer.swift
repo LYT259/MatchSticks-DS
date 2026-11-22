@@ -378,11 +378,11 @@ public final class WebUIServer {
         switch language {
         case .chinese:
             return """
-            <!doctype html><html><head><meta charset="utf-8"><title>GH Driver Station</title>
+            <!doctype html><html><head><meta charset="utf-8"><title>MatchSticks DS</title>
             <style>body{font-family:-apple-system;font-size:14px;margin:24px;color:#1d1d1f}
             h1{font-size:20px}code{background:#f2f2f4;padding:2px 5px;border-radius:4px}
             a{color:#0066cc}</style></head><body>
-            <h1>GH Driver Station · WebUI</h1>
+            <h1>MatchSticks DS · WebUI</h1>
             <p>本机调试与支持页（仅 127.0.0.1 可访问）。</p>
             <ul>
             <li><a href="/api/status">/api/status</a> — 连接/使能/急停/更新门状态</li>
@@ -394,11 +394,11 @@ public final class WebUIServer {
             """
         case .english:
             return """
-            <!doctype html><html><head><meta charset="utf-8"><title>GH Driver Station</title>
+            <!doctype html><html><head><meta charset="utf-8"><title>MatchSticks DS</title>
             <style>body{font-family:-apple-system;font-size:14px;margin:24px;color:#1d1d1f}
             h1{font-size:20px}code{background:#f2f2f4;padding:2px 5px;border-radius:4px}
             a{color:#0066cc}</style></head><body>
-            <h1>GH Driver Station · WebUI</h1>
+            <h1>MatchSticks DS · WebUI</h1>
             <p>Local debugging and support page (127.0.0.1 only).</p>
             <ul>
             <li><a href="/api/status">/api/status</a> — connection / enable / E-Stop / update-gate status</li>

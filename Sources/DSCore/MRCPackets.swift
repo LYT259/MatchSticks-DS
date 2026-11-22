@@ -69,7 +69,7 @@ public struct MRCSlotOutput: Sendable, Equatable {
         self.leftTriggerRumble = leftTriggerRumble; self.rightTriggerRumble = rightTriggerRumble
     }
 
-    /// 联调确定值：GHDSSim 与回归应答器回送 0x2E 时用同一 pattern，
+    /// 联调确定值：MatchSticksDSSim 与回归应答器回送 0x2E 时用同一 pattern，
     /// 端到端断言「线上字节 = 金样本编码、DS 侧解码 = 同值」。
     public static let loopbackPattern = MRCSlotOutput(
         ledR: 0x20, ledG: 0x40, ledB: 0x80,

@@ -4,6 +4,7 @@ import Foundation
 //
 // .dsrec 格式（自描述、追加写）：
 //   Header: "GHDSREC1" (8 字节)
+//   注意：魔数属格式契约，品牌改名后保持 "GHDSREC1"——旧录制文件仍可回放。
 //   记录:   [t 相对秒 f32 BE][direction u8][len u32 BE][payload]
 // 用途：
 //   - DS 侧录制真实 roboRIO 收发包 → 离线回归（无硬件时的协议回归基准）
