@@ -139,11 +139,11 @@ struct UIStateTests {
         let draftModel = DSModel()
         draftModel.teamNumber = 2590
         draft.load(from: draftModel)
-        check(draft.teamNumber == "2590" && !draft.userEdited, "draft loads from model without edit flag")
-        draft.manualIP = "10.25.90.2"
+        check(draft.targetText == "2590" && !draft.userEdited, "draft loads from model without edit flag")
+        draft.targetText = "10.25.90.2"
         check(draft.userEdited, "editing marks the draft dirty")
         draft.load(from: draftModel)
-        check(draft.manualIP.isEmpty && !draft.userEdited, "reload discards edits and clears the flag")
+        check(draft.targetText == "2590" && !draft.userEdited, "reload discards edits and clears the flag")
 
         // 更新安全门映射（Phase 4 / Sparkle 重启门）：点击时刻现场求值自 DSModel 三态
         let upd = DSModel()
@@ -414,7 +414,7 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<8).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<12).map { _ in "ghds.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
         // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
@@ -473,9 +473,80 @@ struct UIStateTests {
         warnModel.manualIP = "10.25.90.2"
         let warnDraft = ConnectionDraft()
         warnDraft.load(from: warnModel)
-        warnDraft.manualIP = "127.0.0.1"
+        warnDraft.targetText = "127.0.0.1"
         check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"),
               "warning follows the applied model value, not the editable draft")
+
+        // 单目标连接草稿（2026-11-22）：解析、旧双值恢复、team/IP 映射、脏检查
+        check(ConnectionDraft.parseTarget(" 2590 ") == .team(2590),
+              "team target trims whitespace")
+        check(ConnectionDraft.parseTarget("0") == .team(0),
+              "zero remains the USB-only team target")
+        check(ConnectionDraft.parseTarget(" 10.25.90.2\n") == .manualIP("10.25.90.2"),
+              "IPv4 target trims whitespace")
+        check(ConnectionDraft.parseTarget("") == nil, "empty target is invalid")
+        check(ConnectionDraft.parseTarget("-1") == nil, "negative team is invalid")
+        check(ConnectionDraft.parseTarget("abc") == nil, "non-numeric team is invalid")
+        check(ConnectionDraft.parseTarget("10.25.90") == nil, "incomplete IPv4 is invalid")
+        check(ConnectionDraft.parseTarget("999.1.1.1") == nil, "out-of-range IPv4 is invalid")
+
+        let parsedDraft = ConnectionDraft()
+        parsedDraft.targetText = " 10.25.90.2 "
+        check(parsedDraft.parsedTarget == .manualIP("10.25.90.2"),
+              "draft exposes the parsed, trimmed IP target")
+        parsedDraft.targetText = " 2590 "
+        check(parsedDraft.parsedTarget == .team(2590),
+              "draft exposes the parsed, trimmed team target")
+
+        let targetModel = DSModel(settingsDefaults: makeSuite(suiteNames[11]), persistenceEnabled: true)
+        targetModel.teamNumber = 2590
+        targetModel.manualIP = "127.0.0.1"
+        let targetDraft = ConnectionDraft()
+        targetDraft.load(from: targetModel)
+        check(targetDraft.targetText == "127.0.0.1" && !targetDraft.hasChanges(comparedTo: targetModel),
+              "legacy dual values load the address that actually takes precedence")
+
+        targetDraft.targetText = "2590"
+        check(targetDraft.hasChanges(comparedTo: targetModel), "switching from IP to team is a change")
+        check(targetDraft.apply(to: targetModel), "valid team target applies")
+        check(targetModel.teamNumber == 2590 && targetModel.manualIP.isEmpty,
+              "team target clears the old manual IP")
+        check(!targetDraft.hasChanges(comparedTo: targetModel), "applied team target is no longer dirty")
+
+        targetDraft.targetText = "10.25.90.2"
+        check(targetDraft.apply(to: targetModel), "valid IP applies without requiring a separate team field")
+        check(targetModel.teamNumber == 2590 && targetModel.manualIP == "10.25.90.2",
+              "IP target preserves team identity for radio and presentation")
+        check(!targetDraft.hasChanges(comparedTo: targetModel), "applied IP target is no longer dirty")
+
+        targetDraft.targetText = "10.25.90"
+        check(!targetDraft.apply(to: targetModel), "invalid target is rejected")
+        check(targetModel.teamNumber == 2590 && targetModel.manualIP == "10.25.90.2",
+              "invalid target does not mutate applied settings")
+
+        targetDraft.targetText = "0"
+        check(targetDraft.apply(to: targetModel), "zero target applies")
+        check(targetModel.teamNumber == 0 && targetModel.manualIP.isEmpty,
+              "zero clears manual IP and selects USB-only behavior")
+
+        let kindDraft = ConnectionDraft()
+        kindDraft.load(from: targetModel)
+        check(!kindDraft.hasChanges(comparedTo: targetModel), "clean draft matches the applied model")
+        kindDraft.protocolKind = .mrc
+        check(kindDraft.hasChanges(comparedTo: targetModel) && kindDraft.targetText == "0",
+              "protocolKind change marks the draft dirty without touching target text")
+
+        let invalidDraft = ConnectionDraft()
+        invalidDraft.load(from: targetModel)
+        invalidDraft.targetText = "10.25.90"
+        check(invalidDraft.parsedTarget == nil && invalidDraft.hasChanges(comparedTo: targetModel),
+              "invalid text keeps a restorable dirty state")
+        check(!invalidDraft.apply(to: targetModel), "invalid draft cannot be applied")
+        check(targetModel.teamNumber == 0 && targetModel.manualIP.isEmpty,
+              "rejected invalid draft leaves the applied model untouched")
+        invalidDraft.load(from: targetModel)
+        check(invalidDraft.targetText == "0" && !invalidDraft.userEdited,
+              "reload restores the applied target and clears the edit flag")
 
         // ⑧ Radio 状态日志：仅真实翻转回调记录，重复不刷
         let radioModel = DSModel(settingsDefaults: makeSuite(suiteNames[4]), persistenceEnabled: true)
