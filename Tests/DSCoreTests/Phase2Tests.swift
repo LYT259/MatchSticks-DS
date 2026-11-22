@@ -1093,12 +1093,12 @@ func practiceSequencerTests() {
     check(seq2.abort().isEmpty, "重复 A-Stop 幂等")
 
     check(PracticeTimingPreset.all.map(\.year) == [2022, 2023, 2024, 2025, 2026], "年份预设覆盖 2022–2026")
-    let expectedPresets: [(year: Int, auto: Double, teleop: Double, transition: Double)] = [
-        (2022, 15, 135, 0),
-        (2023, 15, 135, 3),
-        (2024, 15, 135, 3),
-        (2025, 15, 135, 3),
-        (2026, 20, 140, 3),
+    let expectedPresets: [(year: Int, auto: Double, teleop: Double, transition: Double, warning: Double?)] = [
+        (2022, 15, 135, 0, 30),
+        (2023, 15, 135, 3, 30),
+        (2024, 15, 135, 3, 20),
+        (2025, 15, 135, 3, 20),
+        (2026, 20, 140, 3, nil),
     ]
     for expected in expectedPresets {
         guard let preset = PracticeTimingPreset.forYear(expected.year) else {
@@ -1107,6 +1107,21 @@ func practiceSequencerTests() {
         }
         check(preset.autoTime == expected.auto && preset.teleopTime == expected.teleop && preset.teleopDelay == expected.transition,
               "\(expected.year) 官方 Auto/Teleop/过渡时长")
+        check(preset.endgameWarningTime == expected.warning, "\(expected.year) 官方提示音剩余时间")
+    }
+
+    for expected in [(remaining: 30.0, tick: 1050), (remaining: 20.0, tick: 1150)] {
+        var warningSequence = PracticeSequencer(config: .init(
+            autoTime: 15, teleopTime: 135, delayTime: 0, startDelay: 0,
+            teleopWarningTime: expected.remaining
+        ))
+        _ = warningSequence.start()
+        for _ in 0..<150 { _ = warningSequence.tick(0.1) }
+        var warningTicks: [Int] = []
+        for tick in 1...1350 {
+            if warningSequence.tick(0.1).contains(.endgameWarning) { warningTicks.append(tick) }
+        }
+        check(warningTicks == [expected.tick], "Teleop 剩余 \(Int(expected.remaining)) 秒时仅发一次提示事件")
     }
 
     // 开始前等待与 Auto→Teleop 是独立时长；0 秒不应再空耗一个 tick。

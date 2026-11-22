@@ -52,13 +52,14 @@ public struct PracticeTimingPreset: Sendable, Equatable {
     public let autoTime: TimeInterval
     public let teleopTime: TimeInterval
     public let teleopDelay: TimeInterval
+    public let endgameWarningTime: TimeInterval?
 
     public static let all = [
-        PracticeTimingPreset(year: 2022, autoTime: 15, teleopTime: 135, teleopDelay: 0),
-        PracticeTimingPreset(year: 2023, autoTime: 15, teleopTime: 135, teleopDelay: 3),
-        PracticeTimingPreset(year: 2024, autoTime: 15, teleopTime: 135, teleopDelay: 3),
-        PracticeTimingPreset(year: 2025, autoTime: 15, teleopTime: 135, teleopDelay: 3),
-        PracticeTimingPreset(year: 2026, autoTime: 20, teleopTime: 140, teleopDelay: 3),
+        PracticeTimingPreset(year: 2022, autoTime: 15, teleopTime: 135, teleopDelay: 0, endgameWarningTime: 30),
+        PracticeTimingPreset(year: 2023, autoTime: 15, teleopTime: 135, teleopDelay: 3, endgameWarningTime: 30),
+        PracticeTimingPreset(year: 2024, autoTime: 15, teleopTime: 135, teleopDelay: 3, endgameWarningTime: 20),
+        PracticeTimingPreset(year: 2025, autoTime: 15, teleopTime: 135, teleopDelay: 3, endgameWarningTime: 20),
+        PracticeTimingPreset(year: 2026, autoTime: 20, teleopTime: 140, teleopDelay: 3, endgameWarningTime: nil),
     ]
 
     public static func forYear(_ year: Int) -> PracticeTimingPreset? {
@@ -123,14 +124,17 @@ public struct PracticeSequencer: Sendable, Equatable {
         public var delayTime: TimeInterval
         public var startDelay: TimeInterval
         public var teleopBreakdown: TeleopBreakdown?
+        public var teleopWarningTime: TimeInterval?
 
         public init(autoTime: TimeInterval = 15, teleopTime: TimeInterval = 135, delayTime: TimeInterval = 2,
-                    startDelay: TimeInterval? = nil, teleopBreakdown: TeleopBreakdown? = nil) {
+                    startDelay: TimeInterval? = nil, teleopBreakdown: TeleopBreakdown? = nil,
+                    teleopWarningTime: TimeInterval? = nil) {
             self.autoTime = autoTime
             self.teleopTime = teleopTime
             self.delayTime = delayTime
             self.startDelay = startDelay ?? delayTime
             self.teleopBreakdown = teleopBreakdown
+            self.teleopWarningTime = teleopWarningTime
         }
     }
 
@@ -140,6 +144,7 @@ public struct PracticeSequencer: Sendable, Equatable {
         case disable          // 失能输出意图
         case finished         // 全程结束
         case aborted          // A-Stop
+        case endgameWarning   // 2022–2025 Teleop 内提示，不改变当前阶段
     }
 
     public private(set) var phase: Phase = .idle
@@ -177,7 +182,11 @@ public struct PracticeSequencer: Sendable, Equatable {
         }
         phase = .teleoperated
         remaining = config.teleopTime
-        return [.entered(.teleoperated), .enable]
+        var events: [Event] = [.entered(.teleoperated), .enable]
+        if let warning = config.teleopWarningTime, warning >= config.teleopTime {
+            events.append(.endgameWarning)
+        }
+        return events
     }
 
     /// 周期推进（建议 0.1s）；返回本 tick 累积的控制意图。
@@ -185,7 +194,12 @@ public struct PracticeSequencer: Sendable, Equatable {
     public mutating func tick(_ dt: TimeInterval) -> [Event] {
         guard phase.isActive else { return [] }
         remaining -= dt
-        if remaining > 0.005 { return [] }
+        var events: [Event] = []
+        if phase == .teleoperated, let warning = config.teleopWarningTime,
+           remaining + dt > warning + 0.005, remaining <= warning + 0.005 {
+            events.append(.endgameWarning)
+        }
+        if remaining > 0.005 { return events }
 
         switch phase {
         case .delayBeforeAuto:
@@ -204,7 +218,7 @@ public struct PracticeSequencer: Sendable, Equatable {
         case .teleoperated:
             phase = .finished
             remaining = 0
-            return [.disable, .finished]
+            return events + [.disable, .finished]
         case .transitionShift:
             phase = .allianceShift1
             remaining = config.teleopBreakdown?.allianceShift ?? 0

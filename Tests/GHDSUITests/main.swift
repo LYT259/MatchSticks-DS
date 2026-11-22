@@ -668,23 +668,31 @@ struct UIStateTests {
                                 "PowerUp_LinearPop", "PowerUp_LinearPop", "WARNEOM_2026", "ENDMATCH"],
               "2026 practice plays official cues in chronological order")
 
-        let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
-        legacyAudio.practiceSeasonYear = 2022
-        legacyAudio.practiceAutoTime = 0.1
-        legacyAudio.practiceTeleopTime = 0.1
-        legacyAudio.practiceDelayTime = 0
-        legacyAudio.practiceStartDelay = 0
-        var legacyPlayed: [String] = []
-        legacyAudio.practiceAudio.playHandler = {
-            legacyPlayed.append($0)
-            legacyAudio.practiceAudio.finishCurrent()
+        let legacySeasons = [
+            (year: 2022, warning: "WARNEOM_2022_2023"),
+            (year: 2023, warning: "WARNEOM_2022_2023"),
+            (year: 2024, warning: "Guitar"),
+            (year: 2025, warning: "Sonar"),
+        ]
+        for season in legacySeasons {
+            let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+            legacyAudio.practiceSeasonYear = season.year
+            legacyAudio.practiceAutoTime = 0.1
+            legacyAudio.practiceTeleopTime = 0.1
+            legacyAudio.practiceDelayTime = 0
+            legacyAudio.practiceStartDelay = 0
+            var legacyPlayed: [String] = []
+            legacyAudio.practiceAudio.playHandler = {
+                legacyPlayed.append($0)
+                legacyAudio.practiceAudio.finishCurrent()
+            }
+            legacyAudio.practiceAudio.finishHandler = {}
+            legacyAudio.startPractice()
+            let legacyDeadline = Date().addingTimeInterval(0.8)
+            while Date() < legacyDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            check(legacyPlayed == ["CHARGE", "ENDMATCH", "3BELLS", season.warning, "ENDMATCH"],
+                  "\(season.year) practice plays its warning before the match-end Buzzer")
         }
-        legacyAudio.practiceAudio.finishHandler = {}
-        legacyAudio.startPractice()
-        let legacyDeadline = Date().addingTimeInterval(0.8)
-        while Date() < legacyDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-        check(legacyPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "ENDMATCH"],
-              "2022 zero-transition practice keeps Buzzer and 3 Bells in order")
 
         let stopAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
         stopAudio.practiceStartDelay = 0

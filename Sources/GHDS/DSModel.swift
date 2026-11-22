@@ -881,7 +881,8 @@ final class DSModel {
             : nil
         sequencer = PracticeSequencer(config: .init(
             autoTime: practiceAutoTime, teleopTime: effectivePracticeTeleopTime, delayTime: practiceDelayTime,
-            startDelay: practiceStartDelay, teleopBreakdown: breakdown
+            startDelay: practiceStartDelay, teleopBreakdown: breakdown,
+            teleopWarningTime: PracticeTimingPreset.forYear(practiceSeasonYear)?.endgameWarningTime
         ))
         applyPracticeEvents(sequencer.start())
         practiceTimer?.invalidate()
@@ -941,6 +942,8 @@ final class DSModel {
                 if practicePhase != .finished { playPracticeSound(.matchEnd) }
                 practicePhase = .finished
                 log(tr("Practice 结束"))
+            case .endgameWarning:
+                playPracticeSound(.endgame)
             case .aborted:
                 practicePhase = .finished
                 playPracticeSound(.matchStopped)
