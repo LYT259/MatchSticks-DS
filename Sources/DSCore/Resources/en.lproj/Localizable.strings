@@ -530,3 +530,6 @@
 "创建" = "Create";
 "选项" = "Options";
 "分享" = "Share";
+"开始 Timeout" = "Start Timeout";
+"取消 Timeout" = "Cancel Timeout";
+"Timeout 进行中" = "Timeout in progress";

@@ -58,16 +58,20 @@ enum PracticeSoundEvent {
     case endgame
     case matchEnd
     case matchStopped
+    case timeoutWarning
+    case timeoutEnd
 }
 
 enum PracticeSoundCatalog {
-    static func fileName(for event: PracticeSoundEvent, year: Int) -> String {
+    static func fileName(for event: PracticeSoundEvent, year: Int) -> String? {
         switch event {
         case .matchStart: return "CHARGE"
         case .autoEnd, .matchEnd: return "ENDMATCH"
         case .teleopStart: return "3BELLS"
         case .allianceShift: return "PowerUp_LinearPop"
         case .matchStopped: return "FOGHORN"
+        case .timeoutWarning: return year == 2022 ? "Fanfare" : nil
+        case .timeoutEnd: return year == 2022 ? "ENDMATCH" : nil
         case .endgame:
             switch year {
             case 2022, 2023: return "WARNEOM_2022_2023"

@@ -62,6 +62,21 @@ struct OperationView: View {
                         }
                         Button(tr("调整练习时长"), action: openSettings).buttonStyle(.link)
                     }
+                    if model.practiceSeasonYear == 2022 {
+                        DSPanel(title: "2022 Timeout") {
+                            duration("Timeout", model.timeoutActive ? model.timeoutRemaining : model.timeoutDuration)
+                            if model.timeoutActive {
+                                ProgressView(value: timeoutProgress)
+                                    .tint(DSTheme.accent)
+                                    .controlSize(.small)
+                                Button(tr("取消 Timeout"), systemImage: "stop.fill") { model.cancelTimeout() }
+                                    .buttonStyle(DSActionStyle(color: DSTheme.danger))
+                            } else {
+                                Button(tr("开始 Timeout"), systemImage: "pause.circle") { model.startTimeout() }
+                                    .disabled(model.enabled || model.practiceActive || model.estopEngaged)
+                            }
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -151,6 +166,11 @@ struct OperationView: View {
     private var practiceProgress: Double {
         let total = model.currentPracticePhaseDuration
         return total > 0 ? min(1, max(0, 1 - model.practiceRemaining / total)) : 0
+    }
+
+    private var timeoutProgress: Double {
+        guard model.timeoutDuration > 0 else { return 0 }
+        return min(1, max(0, 1 - model.timeoutRemaining / model.timeoutDuration))
     }
 }
 

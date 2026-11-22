@@ -706,6 +706,46 @@ struct UIStateTests {
         stopAudio.aStop()
         check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
 
+        check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2022) == "Fanfare",
+              "2022 Timeout warning uses the official trumpet Fanfare")
+        check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2023) == nil,
+              "later seasons do not inherit the 2022 Timeout Fanfare")
+
+        let timeoutAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        timeoutAudio.practiceSeasonYear = 2022
+        timeoutAudio.timeoutDuration = 0.3
+        var timeoutPlayed: [String] = []
+        timeoutAudio.practiceAudio.playHandler = {
+            timeoutPlayed.append($0)
+            timeoutAudio.practiceAudio.finishCurrent()
+        }
+        timeoutAudio.practiceAudio.finishHandler = {}
+        timeoutAudio.startTimeout()
+        check(timeoutAudio.timeoutActive && timeoutAudio.timeoutRemaining > 0, "2022 Timeout starts its countdown")
+        timeoutAudio.setEnabled(true)
+        check(!timeoutAudio.enabled, "Timeout does not allow enabling the robot")
+        timeoutAudio.startPractice()
+        check(!timeoutAudio.practiceActive, "Timeout and normal practice are mutually exclusive")
+        let timeoutDeadline = Date().addingTimeInterval(1)
+        while Date() < timeoutDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(timeoutPlayed == ["Fanfare", "ENDMATCH"], "Timeout plays Fanfare at warning and Buzzer at zero")
+        check(!timeoutAudio.timeoutActive && timeoutAudio.timeoutRemaining == 0 && !timeoutAudio.enabled,
+              "Timeout finishes disabled without starting a match")
+
+        let cancelTimeout = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        cancelTimeout.practiceSeasonYear = 2022
+        cancelTimeout.soundsEnabled = false
+        cancelTimeout.startTimeout()
+        cancelTimeout.cancelTimeout()
+        check(!cancelTimeout.timeoutActive && cancelTimeout.timeoutRemaining == 0, "cancel stops and clears Timeout")
+        cancelTimeout.startTimeout()
+        cancelTimeout.triggerEstop()
+        check(!cancelTimeout.timeoutActive && cancelTimeout.estopEngaged, "E-Stop cancels Timeout")
+
+        let unsupportedTimeout = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        unsupportedTimeout.practiceSeasonYear = 2023
+        unsupportedTimeout.startTimeout()
+        check(!unsupportedTimeout.timeoutActive, "Timeout audio simulation is specific to the 2022 rules")
         // ⑫ 比赛年份：下拉新→旧；Preset.all 事实顺序不变
         let orderedYearModel = DSModel()
         check(orderedYearModel.practiceSeasonYearChoices == [2026, 2025, 2024, 2023, 2022],

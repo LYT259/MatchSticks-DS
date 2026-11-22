@@ -384,6 +384,7 @@ runTest("directInterfaceBindFailureRetry", directInterfaceBindFailureRetryTests)
 runTest("directInterfaceSilenceDisableLatch", directInterfaceSilenceDisableLatchTests)
 runTest("loopbackIntegration", loopbackIntegrationTest)
 runAllPhase2Tests()
+runTest("timeoutSequencerTests", timeoutSequencerTests)
 runAllPhase4Tests()
 runAllOM5PReadinessTests()
 // 手柄造型（GamepadProfile：识别/映射/容错；轴序样本锚定 2026-11-18 真机实测）
