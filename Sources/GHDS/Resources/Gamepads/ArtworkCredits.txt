@@ -1,0 +1,14 @@
+Gamepad artwork sources and modifications
+
+DualShock 4 (dualshock4.png)
+Photograph: ITEagle Europe - Sebastiaan Broekhoven, Wikimedia Commons.
+https://commons.wikimedia.org/wiki/File:Sony_DualShock_4_wireless_controller_for_PlayStation_4_(black)_-_top_view.jpg
+License: Creative Commons Attribution-ShareAlike 4.0 International.
+https://creativecommons.org/licenses/by-sa/4.0/
+Changes: subject isolation, transparent background, and cropping. The modified image remains CC BY-SA 4.0.
+
+Direwolf 4 (direwolf4.png)
+Product image: Flydigi Direwolf 4, distributed by Rapido Tech Nepal.
+https://rapidotechnepal.com/product/flydigi-direwolf-4-wireless-controller/
+https://rapidotechnepal.com/wp-content/uploads/2026/06/Flydigi-Direwolf-4.webp
+Changes: subject isolation and transparent-background cropping; the front-view perspective is unchanged. No claim of ownership of the source image or manufacturer's marks is made.

@@ -10,22 +10,21 @@ import Foundation
 // - 待实测（映射表按公开惯例落种子，皮肤悬停提示显示原始按键号，台架插入即可核对修正）：
 //   各款按键号顺序、DualSense 的轴 usage 分布与方向键形态、Xbox Series 的 Share/Guide 暴露情况。
 
-/// 造型（皮肤）种类：四款原型 + 未识别兜底。
+/// 可选手柄外观与对应的输入映射。
 public enum GamepadSkin: String, CaseIterable, Sendable {
     case f310          // 罗技 F310（D 档走 HID，X 档走应用内 XInput reader）
     case extreme3DPro  // 罗技 Extreme 3D Pro 飞行摇杆（T41126）
     case direwolf4     // 飞智冰原狼 4（USB 模式自报 Xbox 360 签名）
     case dualsense     // PS5 DualSense
     case dualshock4    // PS4 DualShock 4（CUH-ZCT1 / CUH-ZCT2）
-    case dualshock3    // PS3 DualShock 3
     case xbox360       // Xbox 360 手柄
     case xboxOne       // Xbox One / One S 手柄
     case xboxSeries    // Xbox Series X|S 手柄
-    case generic       // 未识别设备的通用示意造型
+    case generic       // 未识别设备，沿用通用 HID 映射
 
-    public static let selectableSkins: [GamepadSkin] = [
-        .f310, .extreme3DPro, .direwolf4, .dualsense, .xboxSeries, .generic,
-    ]
+    public static let selectableSkins: [GamepadSkin] = [.generic] + allCases.filter { $0 != .generic }.sorted {
+        $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+    }
 
     public var displayName: String {
         switch self {
@@ -34,12 +33,25 @@ public enum GamepadSkin: String, CaseIterable, Sendable {
         case .direwolf4: return tr("飞智冰原狼 4")
         case .dualsense: return tr("PS5 DualSense")
         case .dualshock4: return tr("PS4 DualShock 4")
-        case .dualshock3: return tr("PS3 DualShock 3")
         case .xbox360: return tr("Xbox 360 手柄")
         case .xboxOne: return tr("Xbox One 手柄")
         case .xboxSeries: return tr("Xbox Series 手柄")
         case .generic: return tr("通用手柄")
         }
+    }
+
+    public var searchableText: String {
+        let aliases: String
+        switch self {
+        case .f310: aliases = "Logitech F310 Gamepad Dual Action"
+        case .extreme3DPro: aliases = "Logitech Extreme 3D Pro T41126 Joystick"
+        case .direwolf4: aliases = "Flydigi Direwolf 4"
+        case .dualshock4: aliases = "Sony PlayStation 4 DualShock 4"
+        case .dualsense: aliases = "Sony PlayStation 5 DualSense"
+        case .xbox360, .xboxOne, .xboxSeries: aliases = "Microsoft Xbox Controller"
+        case .generic: aliases = "Generic HID Gamepad Logitech F310 罗技"
+        }
+        return "\(displayName) \(aliases) \(rawValue)"
     }
 }
 
@@ -177,9 +189,6 @@ public enum GamepadProfile {
         if lower.contains("flydigi") || lower.contains("direwolf") || name.contains("冰原狼") {
             return .direwolf4
         }
-        if vendorID == 0x054C && productID == 0x0268 {
-            return .dualshock3
-        }
         if lower.contains("dualshock") || vendorID == 0x054C && (productID == 0x05C4 || productID == 0x09CC) {
             return .dualshock4
         }
@@ -211,11 +220,7 @@ public enum GamepadProfile {
 
     /// 生效造型：手动覆盖优先，否则按识别。
     public static func preferredSkin(for detected: GamepadSkin) -> GamepadSkin {
-        switch detected {
-        case .dualshock3, .dualshock4: return .dualsense
-        case .xbox360, .xboxOne: return .xboxSeries
-        default: return detected
-        }
+        detected
     }
 
     public static func effectiveSkin(sample: GamepadSample, override: GamepadSkin?) -> GamepadSkin {
@@ -232,7 +237,7 @@ public enum GamepadProfile {
             return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
         }
         switch detect(vendorID: vendorID, productID: productID, name: name) {
-        case .dualsense, .dualshock4, .dualshock3:
+        case .dualsense, .dualshock4:
             return GamepadStickPolarity(xRightIsNegative: false, yUpIsNegative: true)
         case .f310:
             return GamepadStickPolarity(xRightIsNegative: true, yUpIsNegative: true)
@@ -334,17 +339,6 @@ public struct GamepadLayout: Sendable {
                 dpadPOV: 0, dpadButtons: nil,
                 stickUsage: (lx: 0x30, ly: 0x31, rx: 0x33, ry: 0x34),
                 triggerUsage: (lt: 0x32, rt: 0x35))
-        case .dualshock3:
-            return GamepadLayout(
-                face: [.west: 1, .south: 2, .east: 3, .north: 4],
-                shoulder: (l: 5, r: 6),
-                triggerButton: (l: 7, r: 8),
-                stickPress: (l: 11, r: 12),
-                back: 9, start: 10, guide: 13,
-                extras: [:],
-                dpadPOV: 0, dpadButtons: nil,
-                stickUsage: (lx: 0x30, ly: 0x31, rx: 0x32, ry: 0x35),
-                triggerUsage: (lt: 0x33, rt: 0x34))
         case .dualsense, .dualshock4:
             // PS HID 惯例序：□1 ✕2 ○3 △4、L1 5 R1 6、L2 7 R2 8、Create 9 Options 10、L3/R3 11/12、
             // PS 13、触控板 14。轴：左摇杆 X/Y，右摇杆 Z/Rz，扳机 Rx/Ry（macOS 暴露形态待实测，

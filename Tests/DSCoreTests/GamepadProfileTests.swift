@@ -22,7 +22,8 @@ func gamepadProfileDetectionTests() {
     check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x1234, name: "Flydigi Direwolf 4") == .direwolf4, "名称含 Flydigi 优先")
     check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02D1, name: "Xbox One Controller") == .xboxOne, "Xbox One 有线 PID")
     check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x02E0, name: "Xbox One S Controller") == .xboxOne, "Xbox One S 蓝牙 PID")
-    check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x0268, name: "PLAYSTATION(R)3 Controller") == .dualshock3, "DualShock 3 PID")
+    check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x0268, name: "PLAYSTATION(R)3 Controller") == .generic,
+          "PS3 已移出外观目录，原始 HID 数据走通用映射")
 
     // DualShock 4：不能被 Sony Wireless Controller 名称误判成 DualSense
     check(GamepadProfile.detect(vendorID: 0x054C, productID: 0x05C4, name: "Wireless Controller") == .dualshock4, "DualShock 4 V1 PID")
@@ -58,27 +59,36 @@ func gamepadProfileDetectionTests() {
 }
 
 func gamepadFamilySupportTests() {
-    check(GamepadProfile.preferredSkin(for: .dualshock3) == .dualsense, "PS3 默认展示最新 DualSense")
-    check(GamepadProfile.preferredSkin(for: .dualshock4) == .dualsense, "PS4 默认展示最新 DualSense")
-    check(GamepadProfile.preferredSkin(for: .xbox360) == .xboxSeries, "Xbox 360 默认展示最新 Series")
-    check(GamepadProfile.preferredSkin(for: .xboxOne) == .xboxSeries, "Xbox One 默认展示最新 Series")
-    check(GamepadProfile.preferredSkin(for: .dualsense) == .dualsense, "PS5 保持自身外观")
-    check(GamepadProfile.preferredSkin(for: .xboxSeries) == .xboxSeries, "Xbox Series 保持自身外观")
-    check(GamepadProfile.preferredSkin(for: .f310) == .f310, "罗技不被系列规则影响")
-    check(GamepadProfile.preferredSkin(for: .direwolf4) == .direwolf4, "冰原狼保留专属外观")
+    for skin in GamepadSkin.allCases {
+        check(GamepadProfile.preferredSkin(for: skin) == skin, "\(skin.rawValue) 自动识别保留对应世代外观")
+    }
+    check(GamepadSkin.selectableSkins.map(\.rawValue).filter { $0.hasPrefix("direwolf") } == ["direwolf4"],
+          "冰原狼只保留四代")
+    check(GamepadSkin.selectableSkins.map(\.rawValue).filter { $0.hasPrefix("dualshock") } == ["dualshock4"],
+          "PS 系列只保留 DualShock 4，DualSense 对应 PS5")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Flydigi Direwolf 4") == .direwolf4,
+          "冰原狼四代按明确名称识别")
+    check(GamepadProfile.detect(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller") == .xbox360,
+          "共享 Xbox 360 签名不会臆测冰原狼代数")
 
     let ps4 = GamepadSample(name: "Wireless Controller", vendorID: 0x054C, productID: 0x09CC,
                             axes: [], axisUsages: [])
-    check(GamepadProfile.effectiveSkin(sample: ps4, override: nil) == .dualsense,
-          "PS4 自动使用最新 PS 外观")
-    check(GamepadProfile.effectiveSkin(sample: ps4, override: .dualshock4) == .dualshock4,
-          "手动仍可指定 PS4 外观")
-    check(!GamepadSkin.selectableSkins.contains(.dualshock3) &&
-          !GamepadSkin.selectableSkins.contains(.dualshock4) &&
-          !GamepadSkin.selectableSkins.contains(.xbox360) &&
-          !GamepadSkin.selectableSkins.contains(.xboxOne),
-          "选择器只展示各家族最新外观，旧型号仍保留在映射层")
+    check(GamepadProfile.effectiveSkin(sample: ps4, override: nil) == .dualshock4,
+          "PS4 自动使用独立 DualShock 4 外观")
+    check(GamepadProfile.effectiveSkin(sample: ps4, override: .dualsense) == .dualsense,
+          "手动仍可指定 PS5 外观")
+    check(GamepadSkin.selectableSkins.first == .generic, "通用手柄固定在选择器第一位，位于视图自动识别之后")
+    check(Set(GamepadSkin.selectableSkins) == Set(GamepadSkin.allCases), "全部型号都可以手动选择")
+    let names = GamepadSkin.selectableSkins.dropFirst().map(\.displayName)
+    check(names == names.sorted { $0.localizedStandardCompare($1) == .orderedAscending },
+          "具体型号使用本地化名称排序")
     check(GamepadSkin.selectableSkins.contains(.extreme3DPro), "选择器包含 Extreme 3D Pro 飞行摇杆")
+    check(GamepadSkin.dualshock4.searchableText.contains("PlayStation") &&
+          GamepadSkin.dualshock4.searchableText.contains("DualShock"),
+          "PS4 提供常见英文搜索别名")
+    check(GamepadSkin.direwolf4.searchableText.contains("Flydigi") &&
+          GamepadSkin.f310.searchableText.contains("Logitech"),
+          "罗技与冰原狼提供英文搜索别名")
 }
 
 // MARK: 冰原狼 4（XInput 归一后语义；轴=已核查，按键=惯例种子待实测）
