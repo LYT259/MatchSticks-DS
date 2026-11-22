@@ -1,48 +1,133 @@
 import Foundation
+import CoreFoundation
 
 // MARK: - SettingsStore：偏好持久化（UserDefaults 封装，可注入 suite 供测试隔离）
+//
+// 品牌改名后新键前缀为 `matchsticks.`；旧 `ghds.` 键兼容规则：
+// - 新键存在即唯一真值；只有新键完全缺失时才读旧键并补写新键（迁移）
+// - 新键类型不符时不回退旧键：避免旧值经读取/回写链路覆盖新键
+// - 正常 set 同步写新旧键：降级回旧版本仍能读到最新值（回滚支持）
+// - set nil 是用户主动清除：同时删除新旧键，防止旧值复活（见 removeBoth）
+// - 自定义测试前缀默认不启用旧前缀，防止意外读写生产设置
 
 public final class SettingsStore {
+    public static let defaultPrefix = "matchsticks."
+    public static let legacyPrefix = "ghds."
+
     private let defaults: UserDefaults
     private let prefix: String
+    private let legacyPrefix: String?
 
-    public init(defaults: UserDefaults = .standard, prefix: String = "ghds.") {
+    public init(
+        defaults: UserDefaults = .standard,
+        prefix: String = SettingsStore.defaultPrefix,
+        legacyPrefix: String? = nil
+    ) {
         self.defaults = defaults
         self.prefix = prefix
+        if let legacyPrefix {
+            self.legacyPrefix = legacyPrefix
+        } else if prefix == Self.defaultPrefix {
+            self.legacyPrefix = Self.legacyPrefix
+        } else {
+            self.legacyPrefix = nil
+        }
     }
 
     private func full(_ key: String) -> String { prefix + key }
+    private func legacyFull(_ key: String) -> String? { legacyPrefix.map { $0 + key } }
+
+    /// 新键存在即权威：类型不符按损坏处理（返回 nil），绝不回退旧键——
+    /// 否则旧值会被调用方 didSet 回写，反过来覆盖新键。
+    /// 只有新键完全缺失时才读取旧键，并补写新键完成迁移。
+    private func migrated<T>(_ key: String, decode: (Any) -> T?) -> T? {
+        if let raw = defaults.object(forKey: full(key)) {
+            return decode(raw)
+        }
+        guard let legacyKey = legacyFull(key),
+              let raw = defaults.object(forKey: legacyKey),
+              let value = decode(raw) else { return nil }
+        defaults.set(value, forKey: full(key))
+        return value
+    }
+
+    /// 普通写入：新键是权威值；同时写旧键，旧版本降级后仍读到最新值（回滚支持）。
+    private func write(_ key: String, _ value: Any) {
+        defaults.set(value, forKey: full(key))
+        if let legacyKey = legacyFull(key) {
+            defaults.set(value, forKey: legacyKey)
+        }
+    }
+
+    /// 显式清除（用户主动 set nil）：新旧键一起删除。只删新键会让迁移回退
+    /// 把旧值重新读回来（“复活”）；因此这里是用户意图，不是普通覆盖。
+    private func removeBoth(_ key: String) {
+        defaults.removeObject(forKey: full(key))
+        if let legacyKey = legacyFull(key) {
+            defaults.removeObject(forKey: legacyKey)
+        }
+    }
+
+    // MARK: 类型解码
+
+    private static func decodeString(_ raw: Any) -> String? {
+        raw as? String
+    }
+
+    private static func decodeInt(_ raw: Any) -> Int? {
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number as CFTypeRef) == CFNumberGetTypeID() else { return nil }
+        switch CFNumberGetType(number) {
+        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
+             .charType, .shortType, .intType, .longType, .longLongType,
+             .nsIntegerType, .cfIndexType:
+            return number.intValue
+        default:
+            return nil
+        }
+    }
+
+    private static func decodeDouble(_ raw: Any) -> Double? {
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number as CFTypeRef) == CFNumberGetTypeID() else { return nil }
+        return number.doubleValue
+    }
+
+    private static func decodeBool(_ raw: Any) -> Bool? {
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
+    }
+
+    // MARK: 读写
 
     public func string(_ key: String) -> String? {
-        defaults.string(forKey: full(key))
+        migrated(key, decode: Self.decodeString)
     }
     public func set(_ key: String, _ value: String?) {
-        guard let value else { defaults.removeObject(forKey: full(key)); return }
-        defaults.set(value, forKey: full(key))
+        guard let value else { removeBoth(key); return }
+        write(key, value)
     }
 
     public func integer(_ key: String) -> Int? {
-        guard defaults.object(forKey: full(key)) != nil else { return nil }
-        return defaults.integer(forKey: full(key))
+        migrated(key, decode: Self.decodeInt)
     }
     public func set(_ key: String, _ value: Int) {
-        defaults.set(value, forKey: full(key))
+        write(key, value)
     }
 
     public func double(_ key: String) -> Double? {
-        guard defaults.object(forKey: full(key)) != nil else { return nil }
-        return defaults.double(forKey: full(key))
+        migrated(key, decode: Self.decodeDouble)
     }
     public func set(_ key: String, _ value: Double) {
-        defaults.set(value, forKey: full(key))
+        write(key, value)
     }
 
     public func bool(_ key: String) -> Bool? {
-        guard defaults.object(forKey: full(key)) != nil else { return nil }
-        return defaults.bool(forKey: full(key))
+        migrated(key, decode: Self.decodeBool)
     }
     public func set(_ key: String, _ value: Bool) {
-        defaults.set(value, forKey: full(key))
+        write(key, value)
     }
 }
 
@@ -87,7 +172,7 @@ public final class RadioProbe {
     public var onResult: ((Bool) -> Void)?
 
     public let configuration: Configuration
-    private let queue = DispatchQueue(label: "gh.driverstation.radio-probe", qos: .utility)
+    private let queue = DispatchQueue(label: "matchsticks.ds.radio-probe", qos: .utility)
     private var timer: DispatchSourceTimer?
     private let lock = NSLock()
     private var reachableValue = false

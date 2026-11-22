@@ -1,4 +1,4 @@
-/* GH Driver Station — English table（键即中文原文，中文模式零查找，仅此处维护英文）
+/* MatchSticks DS — English table（键即中文原文，中文模式零查找，仅此处维护英文）
    术语对齐 FRC/WPILib 官方：Teleoperated / Autonomous / E-Stop / Brownout / roboRIO / CAN …
    格式键与调用点 tr("中文…%d/%@…", args) 一一对应。骨架先行，随各视图替换逐步填充。 */
 
@@ -38,7 +38,7 @@
 "使能机器人（需已连接且无急停）" = "Enable the robot (requires connection and no E-Stop)";
 "迷你驾驶台" = "Mini Driver Station";
 
-/* ===== 侧栏与页面导航（GHDSApp）===== */
+/* ===== 侧栏与页面导航（MatchSticksDSApp）===== */
 "驾驶" = "Drive";
 "连接" = "Connection";
 "手柄" = "Joysticks";
@@ -89,9 +89,9 @@
 "模拟器已停止。" = "Simulator stopped.";
 "启动模拟器" = "Start Simulator";
 "无法定位模拟器，请检查应用是否完整。" = "Cannot locate the simulator; check the app bundle.";
-"无法定位 GHDSSim（无可执行目录）" = "Cannot locate GHDSSim (no executable directory)";
-"当前应用未包含模拟器。请使用包含 GHDSSim 的完整应用。" = "This app build does not include the simulator. Use the full app with GHDSSim bundled.";
-"未找到 GHDSSim：%@" = "GHDSSim not found: %@";
+"无法定位 MatchSticksDSSim（无可执行目录）" = "Cannot locate MatchSticksDSSim (no executable directory)";
+"当前应用未包含模拟器。请使用包含 MatchSticksDSSim 的完整应用。" = "This app build does not include the simulator. Use the full app with MatchSticksDSSim bundled.";
+"未找到 MatchSticksDSSim：%@" = "MatchSticksDSSim not found: %@";
 "模拟器启动失败，连接设置未更改。" = "Simulator failed to start; connection settings unchanged.";
 "模拟器启动失败：%@（未改动手动 IP）" = "Simulator failed to start: %@ (manual IP unchanged)";
 "模拟器已启动，连接目标已切换为本机。" = "Simulator started; connection target switched to local.";
@@ -146,7 +146,7 @@
 "保存电池、丢包、CPU、CAN 与运行状态，生成 .dslog 和 .wpilog，可在 AdvantageScope 中查看。" = "Saves battery, packet loss, CPU, CAN, and run state to .dslog and .wpilog, viewable in AdvantageScope.";
 "录制通信数据包" = "Record Communication Packets";
 "生成 .dsrec 文件，供连接排查与协议回归使用；也支持模拟器会话。" = "Writes .dsrec files for connection debugging and protocol regression; simulator sessions supported.";
-"文件保存于用户资源库的 Application Support / GHDriverStation：Logs 为会话日志，captures 为通信录制。" = "Files are saved under Application Support / GHDriverStation in your Library: Logs for session logs, captures for packet recordings.";
+"文件保存于用户资源库的 Application Support / MatchSticksDS：Logs 为会话日志，captures 为通信录制。" = "Files are saved under Application Support / MatchSticksDS in your Library: Logs for session logs, captures for packet recordings.";
 "正在录制通信数据包" = "Recording packets";
 "会话日志已开启" = "Session logs on";
 "会话日志已关闭" = "Session logs off";
@@ -299,7 +299,7 @@
 "目前没有机器人连接记录可用于确认网络访问。连接失败时，可先检查本地网络权限。" = "No robot connection on record to confirm network access. If connecting fails, check the local network permission first.";
 "应用无法直接读取本地网络授权状态；未连接也可能由网络、地址或机器人状态引起。" = "The app cannot read the local network permission state directly; a failure to connect may also come from the network, address, or robot state.";
 "打开「系统设置」，进入「隐私与安全性 → 本地网络」。" = "Open System Settings and go to Privacy & Security → Local Network.";
-"找到 GH Driver Station 并开启访问权限。" = "Find GH Driver Station and enable access.";
+"找到 MatchSticks DS 并开启访问权限。" = "Find MatchSticks DS and enable access.";
 "回到应用，确认 Mac 与机器人位于同一网络，并核对连接设置。" = "Return to the app, confirm the Mac and robot are on the same network, and check the connection settings.";
 "macOS 15 及更新系统提供本地网络权限设置。" = "macOS 15 and later provide the local network permission setting.";
 "打开本地网络设置" = "Open Local Network Settings";
@@ -313,7 +313,7 @@
 "重新检测" = "Re-check";
 "防火墙" = "Firewall";
 "仅在启用防火墙且通信异常时检查。" = "Check only if the firewall is on and comms misbehave.";
-"在「系统设置 → 网络 → 防火墙 → 选项」中，检查 GH Driver Station 是否允许接收传入连接。保留其他应用的防火墙设置即可。" = "In System Settings → Network → Firewall → Options, check that GH Driver Station may accept incoming connections. Leave other apps' firewall settings as they are.";
+"在「系统设置 → 网络 → 防火墙 → 选项」中，检查 MatchSticks DS 是否允许接收传入连接。保留其他应用的防火墙设置即可。" = "In System Settings → Network → Firewall → Options, check that MatchSticks DS may accept incoming connections. Leave other apps' firewall settings as they are.";
 "未检测系统防火墙配置" = "Firewall config not inspected";
 "打开防火墙设置" = "Open Firewall Settings";
 "无法直接打开对应页面，请从「系统设置」按上方路径进入。" = "Couldn't open the pane directly; follow the path above from System Settings.";
@@ -389,7 +389,7 @@
 "暂不能重启更新：%@。角标保留；满足条件后即可点击。" = "Can't restart for update: %@. The badge stays; click once conditions allow.";
 "点击重启并安装新版本。机器人使能中、通信活跃或急停锁存期间点击无效（安全门）。" = "Click to restart and install the new version. No effect while the robot is enabled, comms are active, or E-Stop is latched (safety gate).";
 "驾驶台状态未接入（安全门保守阻断）" = "Driver station state not wired (safety gate blocking conservatively)";
-"更新组件已禁用（GHDS_DISABLE_UPDATE=1）" = "Updater disabled (GHDS_DISABLE_UPDATE=1)";
+"更新组件已禁用（MATCHSTICKS_DS_DISABLE_UPDATE=1）" = "Updater disabled (MATCHSTICKS_DS_DISABLE_UPDATE=1)";
 "未配置" = "not configured";
 "更新组件就绪（当前版本 %@，feed %@）" = "Updater ready (version %@, feed %@)";
 "更新组件未启动：%@（不影响使用）" = "Updater not started: %@ (app still works)";
@@ -452,9 +452,9 @@
 "日志启动失败：%@" = "Log start failed: %@";
 "抓包录制开始：%@" = "Packet recording started: %@";
 "NT4 首个机器人写入：%@" = "First NT4 robot write: %@";
-"GH DS 控制环已启动（20ms）" = "GH DS control loop started (20 ms)";
-"GHDS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1" = "GHDS_AUTO_SIM=1: auto-connecting to local simulator 127.0.0.1";
-"GHDS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）" = "GHDS_AUTO_MRC=1: switching to MRC V2 protocol (SystemCore)";
+"MatchSticks DS 控制环已启动（20ms）" = "MatchSticks DS control loop started (20 ms)";
+"MATCHSTICKS_DS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1" = "MATCHSTICKS_DS_AUTO_SIM=1: auto-connecting to local simulator 127.0.0.1";
+"MATCHSTICKS_DS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）" = "MATCHSTICKS_DS_AUTO_MRC=1: switching to MRC V2 protocol (SystemCore)";
 "Radio 状态：已响应" = "Radio status: responding";
 "Radio 状态：无响应" = "Radio status: no response";
 "本机网络状态：%@" = "Local network status: %@";
@@ -502,7 +502,6 @@
 "飞智冰原狼 4" = "Flydigi Direwolf 4";
 "PS5 DualSense" = "PS5 DualSense";
 "PS4 DualShock 4" = "PS4 DualShock 4";
-"PS3 DualShock 3" = "PS3 DualShock 3";
 "Xbox 360 手柄" = "Xbox 360 Controller";
 "Xbox One 手柄" = "Xbox One Controller";
 "Xbox Series 手柄" = "Xbox Series Controller";
@@ -512,8 +511,14 @@
 "左摇杆" = "Left Stick";
 "右摇杆" = "Right Stick";
 "主摇杆" = "Main Joystick";
+"主摇杆与 Z 扭转" = "Main Joystick and Z Twist";
 "Z 扭转" = "Z Twist";
+"油门" = "Throttle";
 "X %+.2f，Y %+.2f" = "X %+.2f, Y %+.2f";
+"X %+.2f，Y %+.2f，Z %+.2f" = "X %+.2f, Y %+.2f, Z %+.2f";
+"搜索手柄" = "Search gamepads";
+"没有匹配的手柄" = "No matching gamepads";
+"自动识别 自动检测 自动 Auto Detect" = "Auto-detect Auto Detect Automatic";
 "手柄图片缺失：%@" = "Missing gamepad artwork: %@";
 "自动 · %@" = "Auto · %@";
 "手动 · %@" = "Manual · %@";

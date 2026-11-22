@@ -94,7 +94,7 @@ public final class DSClient {
 
     // MARK: 内部状态（全部归 loop queue 所有）
 
-    private let queue = DispatchQueue(label: "gh.driverstation.control-loop", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "matchsticks.ds.control-loop", qos: .userInitiated)
     private var timer: DispatchSourceTimer?
     private var running = false
 
@@ -152,7 +152,7 @@ public final class DSClient {
     private static let malformedLogWindow = 10.0
     private static let malformedLogMaxSources = 32
 
-    private let resolverQueue = DispatchQueue(label: "gh.driverstation.resolver", qos: .utility)
+    private let resolverQueue = DispatchQueue(label: "matchsticks.ds.resolver", qos: .utility)
     private var resolvedMDNS: [String] = []
     private var lastResolveAt: Double = 0
 
