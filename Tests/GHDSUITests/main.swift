@@ -201,6 +201,32 @@ struct UIStateTests {
         flow3.downloadCompleted(version: "x")
         if case .blocked(let r) = flow3.requestRestart() { check(r.contains("未接入"), "missing gate provider blocks conservatively") } else { check(false, "expected conservative block") }
 
+        // 主窗口标题栏双击：AppleActionOnDoubleClick 纯解析（无窗口、无 UserDefaults 依赖）
+        check(MainWindowDoubleClickAction.resolve(nil) == .zoom, "unset double-click preference falls back to zoom")
+        check(MainWindowDoubleClickAction.resolve("Maximize") == .zoom, "Maximize preference zooms")
+        check(MainWindowDoubleClickAction.resolve("Zoom") == .zoom, "Zoom preference zooms")
+        check(MainWindowDoubleClickAction.resolve("Fill") == .fillFallbackZoom,
+              "Fill preference uses public performZoom fallback (not native Fill)")
+        check(MainWindowDoubleClickAction.resolve("Minimize") == .minimize, "Minimize preference minimizes")
+        check(MainWindowDoubleClickAction.resolve("None") == .none, "None preference leaves the window alone")
+        check(MainWindowDoubleClickAction.resolve("FutureValue") == .none, "unknown preference leaves the window alone")
+
+        // 主窗口标题栏双击：纯门控（空白标题栏才放行）
+        func gate(clickCount: Int = 2, host: Bool = true, fullScreen: Bool = false,
+                  above: Bool = true, control: Bool = false, sheet: Bool = false) -> Bool {
+            MainWindowDoubleClickGate(clickCount: clickCount, isHostWindow: host,
+                                      isFullScreen: fullScreen, isAboveContentLayoutMaxY: above,
+                                      isInteractiveControl: control, hasAttachedSheet: sheet)
+                .allowsDoubleClick
+        }
+        check(gate(), "blank titlebar double click is allowed")
+        check(!gate(clickCount: 1), "single click is not a titlebar double click")
+        check(!gate(host: false), "clicks from other windows are ignored")
+        check(!gate(fullScreen: true), "full screen clicks are ignored")
+        check(!gate(above: false), "content-area clicks are ignored")
+        check(!gate(control: true), "clicks on interactive controls are ignored")
+        check(!gate(sheet: true), "clicks while a sheet is attached are ignored")
+
         // ===== OM5P UI stall / 控制环性能回归（2026-11-14）=====
 
         // ① Diag 常驻输出句柄 + HeartbeatBox 停滞探针
