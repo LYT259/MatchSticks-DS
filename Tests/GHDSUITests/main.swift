@@ -1089,6 +1089,28 @@ struct UIStateTests {
         focusWindow.close()
         NSApplication.shared.setActivationPolicy(previousActivationPolicy)
 
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let settingsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GHDS/Views/SettingsView.swift"), encoding: .utf8)) ?? ""
+        let operationSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GHDS/Views/OperationView.swift"), encoding: .utf8)) ?? ""
+        let appSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/GHDS/GHDSApp.swift"), encoding: .utf8)) ?? ""
+        check(!settingsSource.isEmpty && !operationSource.isEmpty && !appSource.isEmpty,
+              "UI placement test loads its source fixtures")
+        check(!settingsSource.contains("PracticeTimingEditor(model: model)"),
+              "Settings no longer contains the practice duration editor")
+        check(operationSource.components(separatedBy: "PracticeTimingEditor(model: model)").count - 1 == 1,
+              "Drive contains exactly one practice duration editor")
+        check(!settingsSource.contains("applyPracticeTimingPreset") &&
+              operationSource.contains("applyPracticeTimingPreset"),
+              "the official timing preset moves with the duration editor")
+        check(!operationSource.contains("openSettings") && !appSource.contains("OperationView(model: model, openSettings:"),
+              "the obsolete Adjust Practice Durations navigation is removed")
+
         print("GHDS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
