@@ -15,7 +15,6 @@ struct SettingsView: View {
                 loggingPanel
             }
             .padding(24)
-            .frame(maxWidth: 1040)
             .frame(maxWidth: .infinity)
             .font(.system(size: 13))
         }

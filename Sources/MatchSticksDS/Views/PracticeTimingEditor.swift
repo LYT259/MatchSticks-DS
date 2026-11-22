@@ -10,8 +10,8 @@ struct PracticeTimingEditor: View {
     var body: some View {
         VStack(spacing: 0) {
             timeline
-                .padding(16)
-            Divider().padding(.leading, 16)
+                .padding(.vertical, 16)
+            Divider()
             if model.practiceSeasonYear >= 2026 {
                 rebuiltControls
             } else {
@@ -94,39 +94,31 @@ struct PracticeTimingEditor: View {
     }
 
     private var legacyControls: some View {
-        VStack(spacing: 0) {
-            fullSlider(tr("开始前等待"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
-            Divider().padding(.leading, 16)
-            fullSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
-            Divider().padding(.leading, 16)
-            fullSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
-            Divider().padding(.leading, 16)
-            fullSlider(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600, color: .matchBlue)
-            Divider().padding(.leading, 16)
+        VStack(spacing: 14) {
+            VStack(spacing: 18) {
+                compactSlider(tr("开始前等待"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
+                compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
+                compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
+                compactSlider(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600, color: .matchBlue)
+            }
             durationSummary
-                .padding(16)
         }
+        .padding(.vertical, 16)
     }
 
     private var rebuiltControls: some View {
         VStack(spacing: 14) {
-            HStack(alignment: .top, spacing: 20) {
-                VStack(spacing: 18) {
-                    compactSlider(tr("开始前等待"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
-                    compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
-                    compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
-                }
-                .frame(maxWidth: .infinity)
-                VStack(spacing: 18) {
-                    compactSlider(tr("Transition Shift"), $model.practiceTransitionShiftTime, range: 0...60, color: .matchYellow)
-                    compactSlider(tr("每个 Alliance Shift"), $model.practiceAllianceShiftTime, range: 1...120, color: .matchBlue)
-                    compactSlider(tr("Endgame"), $model.practiceEndgameTime, range: 0...120, color: .matchYellow)
-                }
-                .frame(maxWidth: .infinity)
+            VStack(spacing: 18) {
+                compactSlider(tr("开始前等待"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
+                compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
+                compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
+                compactSlider(tr("Transition Shift"), $model.practiceTransitionShiftTime, range: 0...60, color: .matchYellow)
+                compactSlider(tr("每个 Alliance Shift"), $model.practiceAllianceShiftTime, range: 1...120, color: .matchBlue)
+                compactSlider(tr("Endgame"), $model.practiceEndgameTime, range: 0...120, color: .matchYellow)
             }
             durationSummary
         }
-        .padding(16)
+        .padding(.vertical, 16)
     }
 
     private var durationSummary: some View {
@@ -146,42 +138,30 @@ struct PracticeTimingEditor: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .fixedSize(horizontal: false, vertical: true)
             Text(clock(value))
                 .font(.system(size: 20, weight: .semibold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .foregroundStyle(foreground)
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 10)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 62, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .background(background, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
     }
 
-    private func fullSlider(_ title: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>, color: Color) -> some View {
-        HStack(spacing: 16) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Slider(value: value, in: range, step: 1)
-                .accessibilityLabel(title)
-                .tint(color)
-                .frame(width: 240)
-            Text(tr("%d 秒", Int(value.wrappedValue)))
-                .font(.system(size: 12).monospacedDigit())
-                .frame(width: 56, alignment: .trailing)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .frame(minHeight: 56)
-    }
-
     private func compactSlider(_ title: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
+            HStack(alignment: .firstTextBaseline) {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Text(tr("%d 秒", Int(value.wrappedValue)))
                     .font(.system(size: 12).monospacedDigit())

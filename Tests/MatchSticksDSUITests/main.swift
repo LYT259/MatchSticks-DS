@@ -1129,17 +1129,67 @@ struct UIStateTests {
             "Sources/MatchSticksDS/Views/OperationView.swift"), encoding: .utf8)) ?? ""
         let appSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
             "Sources/MatchSticksDS/MatchSticksDSApp.swift"), encoding: .utf8)) ?? ""
-        check(!settingsSource.isEmpty && !operationSource.isEmpty && !appSource.isEmpty,
+        let setupSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/SetupView.swift"), encoding: .utf8)) ?? ""
+        let timingSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/PracticeTimingEditor.swift"), encoding: .utf8)) ?? ""
+        let englishTable = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/DSCore/Resources/en.lproj/Localizable.strings"), encoding: .utf8)) ?? ""
+        check(!settingsSource.isEmpty && !operationSource.isEmpty && !appSource.isEmpty &&
+              !setupSource.isEmpty && !timingSource.isEmpty && !englishTable.isEmpty,
               "UI placement test loads its source fixtures")
         check(!settingsSource.contains("PracticeTimingEditor(model: model)"),
               "Settings no longer contains the practice duration editor")
         check(operationSource.components(separatedBy: "PracticeTimingEditor(model: model)").count - 1 == 1,
               "Drive contains exactly one practice duration editor")
         check(!settingsSource.contains("applyPracticeTimingPreset") &&
-              operationSource.contains("applyPracticeTimingPreset"),
-              "the official timing preset moves with the duration editor")
+              operationSource.components(separatedBy: "applyPracticeTimingPreset()").count - 1 == 1,
+              "the official timing preset moves with the duration editor, exactly once")
         check(!operationSource.contains("openSettings") && !appSource.contains("OperationView(model: model, openSettings:"),
               "the obsolete Adjust Practice Durations navigation is removed")
+
+        // Task 1 放置守卫：右侧栏承载时序面板、Practice Match 命名、全宽内容与紧凑滑杆。
+        check(!setupSource.contains("1040") && !settingsSource.contains("1040"),
+              "Connection and Settings content no longer caps at 1040 points")
+        check(setupSource.contains(".frame(maxWidth: .infinity)") &&
+              settingsSource.contains(".frame(maxWidth: .infinity)"),
+              "Connection and Settings keep filling the available width")
+        check(operationSource.contains("DSPanel(title: tr(\"练习赛\"))") &&
+              !operationSource.contains("tr(\"自动练习\")"),
+              "Drive practice panel is titled Practice Match")
+        check(englishTable.contains("\"练习赛\" = \"Practice Match\";"),
+              "Practice Match has an English translation")
+        check(operationSource.contains("tr(\"开始自动练习\")"),
+              "Start Auto Practice wording is unchanged")
+        if let timingUse = operationSource.range(of: "practiceTimingPanel")?.lowerBound,
+           let timeoutIndex = operationSource.range(of: "if model.practiceSeasonYear == 2022")?.lowerBound {
+            check(timingUse < timeoutIndex,
+                  "practice timing sits in the drive right column after Practice Match and before 2022 Timeout")
+        } else {
+            check(false, "practice timing panel placement can be located")
+        }
+
+        check(timingSource.components(separatedBy: "compactSlider(tr(").count - 1 == 10,
+              "all six modern and four legacy practice controls use compact sliders")
+        check(!timingSource.contains("fullSlider") && !timingSource.contains("frame(width: 240)"),
+              "the fixed 240-point practice slider is removed")
+        check(!timingSource.contains("HStack(alignment: .top, spacing: 20)"),
+              "modern practice controls are laid out in one column")
+        let timingBindings = ["practiceStartDelay": 2, "practiceAutoTime": 2, "practiceDelayTime": 2,
+                              "practiceTeleopTime": 1, "practiceTransitionShiftTime": 1,
+                              "practiceAllianceShiftTime": 1, "practiceEndgameTime": 1]
+        let lostBindings = timingBindings.filter {
+            timingSource.components(separatedBy: "$model.\($0.key)").count - 1 != $0.value
+        }.map(\.key)
+        check(lostBindings.isEmpty, "every practice timing binding survives in each season layout; lost: \(lostBindings)")
+        check(timingSource.contains("private static let labelMinimumWidth: Double = 56") &&
+              timingSource.contains("private static let clockMinimumWidth: Double = 84"),
+              "timeline label thresholds stay unchanged")
+        check(["range: 0...30", "range: 1...60", "range: 0...60",
+               "range: 15...600", "range: 1...120", "range: 0...120"].allSatisfy(timingSource.contains),
+              "every practice slider range stays unchanged")
+        check(timingSource.components(separatedBy: "Slider(value: value, in: range, step: 1)").count - 1 == 1,
+              "practice sliders share one implementation with a one-second step")
 
         print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }

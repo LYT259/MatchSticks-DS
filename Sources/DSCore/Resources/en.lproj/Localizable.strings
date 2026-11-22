@@ -271,7 +271,7 @@
 "手柄输入" = "Joystick Input";
 "未检测到手柄 · 点击检查" = "No joysticks detected · click to check";
 "%d 个手柄 · 点击检查" = "%d joysticks · click to check";
-"自动练习" = "Auto Practice";
+"练习赛" = "Practice Match";
 "按设定时序依次运行自动与遥控阶段。" = "Runs the autonomous and teleoperated phases in sequence.";
 "停止练习（A-Stop）" = "Stop Practice (A-Stop)";
 "开始自动练习" = "Start Auto Practice";
