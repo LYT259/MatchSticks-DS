@@ -13,11 +13,18 @@ final class PracticeAudioPlayer: NSObject, NSSoundDelegate {
         startNextIfNeeded()
     }
 
-    func stop() {
+    /// 抢占播放：停下当前音效、丢弃待播队列，再立即开播（nil 仅停下清空）。
+    func playImmediately(_ filename: String?) {
         queue.removeAll()
+        currentSound?.delegate = nil
         currentSound?.stop()
         currentSound = nil
         currentName = nil
+        if let filename { enqueue(filename) }
+    }
+
+    func stop() {
+        playImmediately(nil)
     }
 
     func finishCurrent() {
@@ -46,6 +53,8 @@ final class PracticeAudioPlayer: NSObject, NSSoundDelegate {
     }
 
     func sound(_ sound: NSSound, didFinishPlaying successfully: Bool) {
+        // 被抢占的旧音效可能仍回调，只能由当前音效推进队列
+        guard sound === currentSound else { return }
         finishCurrent()
     }
 }
