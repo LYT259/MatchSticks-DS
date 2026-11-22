@@ -75,7 +75,6 @@ struct PracticeRoomView: View {
                     .monospacedDigit()
                     .onSubmit(submitJoin)
                     .accessibilityLabel(tr("六位数字房间码"))
-                    .accessibilityValue(tr("已输入 %d/6 位", room.codeInput.count))
                     .accessibilityHint(tr("输入房主提供的六位数字房间码"))
                 HStack(spacing: 8) {
                     Text(tr("已输入 %d/6 位", room.codeInput.count))
@@ -149,10 +148,11 @@ struct PracticeRoomView: View {
                 .font(.system(size: 34, weight: .bold, design: .monospaced))
                 .monospacedDigit()
                 .textSelection(.enabled)
-                .accessibilityLabel(tr("房间码"))
-                .accessibilityValue(room.roomCode)
-                .accessibilityHint(tr("房主提供的六位数字房间码"))
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tr("房间码"))
+        .accessibilityValue(room.roomCode)
+        .accessibilityHint(tr("房主提供的六位数字房间码"))
     }
 
     private var localSummary: some View {
