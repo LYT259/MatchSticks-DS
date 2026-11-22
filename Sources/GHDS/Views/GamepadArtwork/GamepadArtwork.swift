@@ -8,10 +8,40 @@ enum GamepadArtworkRegion: String {
     case back, start, guide, share, touchpad, backL, backR, mode, modeLED
 }
 
+struct FlightStickPose: Equatable {
+    let pitch: Double
+    let roll: Double
+    let twist: Double
+    let offset: CGSize
+    static let zero = FlightStickPose(pitch: 0, roll: 0, twist: 0, offset: .zero)
+}
+
 struct GamepadArtworkSpec {
     let imageName: String
     let referenceSize: CGSize
     let regions: [GamepadArtworkRegion: CGRect]
+    var movingImageName: String? = nil
+    var flightPivot: CGPoint? = nil
+
+    func flightPose(left: GamepadStickState, twist: GamepadStickState, in size: CGSize) -> FlightStickPose {
+        func clamp(_ value: Float) -> CGFloat {
+            value.isFinite ? min(1, max(-1, CGFloat(value))) : 0
+        }
+        let x = clamp(left.x), y = clamp(left.yUp)
+        let scale = min(size.width / referenceSize.width, size.height / referenceSize.height)
+        return FlightStickPose(
+            pitch: Double(y * 7), roll: Double(x * 7), twist: Double(clamp(twist.x) * 16),
+            offset: CGSize(width: x * 30 * scale, height: -y * 30 * scale))
+    }
+
+    func flightAnchor(in size: CGSize) -> UnitPoint {
+        guard let flightPivot, size.width > 0, size.height > 0,
+              referenceSize.width > 0, referenceSize.height > 0 else { return .center }
+        let scale = min(size.width / referenceSize.width, size.height / referenceSize.height)
+        return UnitPoint(
+            x: ((size.width - referenceSize.width * scale) / 2 + flightPivot.x * scale) / size.width,
+            y: ((size.height - referenceSize.height * scale) / 2 + flightPivot.y * scale) / size.height)
+    }
 
     func region(_ region: GamepadArtworkRegion, in size: CGSize) -> CGRect {
         guard let source = regions[region], referenceSize.width > 0, referenceSize.height > 0 else {
@@ -44,14 +74,32 @@ struct GamepadArtworkSpec {
 enum GamepadArtworkCatalog {
     static func spec(for skin: GamepadSkin) -> GamepadArtworkSpec {
         switch skin {
-        case .dualsense, .dualshock4, .dualshock3: return dualsense
+        case .dualshock4: return dualshock4
+        case .dualsense: return dualsense
         case .xboxSeries, .xboxOne, .xbox360: return xboxSeries
-        case .f310: return f310
+        case .f310, .generic: return f310
         case .extreme3DPro: return extreme3DPro
         case .direwolf4: return direwolf4
-        case .generic: return GamepadArtworkSpec(imageName: "generic", referenceSize: .zero, regions: [:])
         }
     }
+
+    private static let dualshock4 = GamepadArtworkSpec(
+        imageName: "dualshock4", referenceSize: CGSize(width: 2344, height: 1524),
+        regions: [
+            .leftStick: CGRect(x: 542.56, y: 403.51, width: 442.58, height: 491.98),
+            .leftStickCap: CGRect(x: 615.08, y: 511.28, width: 279.09, height: 261.32),
+            .rightStick: CGRect(x: 1325.67, y: 438.50, width: 429.05, height: 422),
+            .rightStickCap: CGRect(x: 1386.34, y: 502.24, width: 294.61, height: 279.41),
+            .dpad: CGRect(x: 213.36, y: 95.12, width: 436.49, height: 457.25),
+            .faceNorth: CGRect(x: 1782.10, y: 95.63, width: 188.95, height: 166.06),
+            .faceEast: CGRect(x: 1978.07, y: 253.25, width: 210.20, height: 190.41),
+            .faceSouth: CGRect(x: 1799.20, y: 438.42, width: 191.05, height: 159.13),
+            .faceWest: CGRect(x: 1647.48, y: 251.94, width: 193.71, height: 180.45),
+            .back: CGRect(x: 652.74, y: 69.75, width: 79.10, height: 130.16),
+            .start: CGRect(x: 1600.33, y: 85.53, width: 81.47, height: 115.10),
+            .guide: CGRect(x: 1104.01, y: 627.12, width: 132, height: 126.97),
+            .touchpad: CGRect(x: 788, y: 58, width: 770, height: 367),
+        ])
 
     private static let dualsense = GamepadArtworkSpec(
         imageName: "dualsense", referenceSize: CGSize(width: 1192, height: 848),
@@ -61,10 +109,10 @@ enum GamepadArtworkCatalog {
             .rightStick: CGRect(x: 696.8, y: 306.6, width: 177.6, height: 177.6),
             .rightStickCap: CGRect(x: 730.4, y: 345, width: 110.4, height: 110.4),
             .dpad: CGRect(x: 125.6, y: 129, width: 225.6, height: 225.6),
-            .faceNorth: CGRect(x: 912.8, y: 100.2, width: 110.4, height: 110.4),
-            .faceEast: CGRect(x: 999.2, y: 196.2, width: 110.4, height: 110.4),
-            .faceSouth: CGRect(x: 912.8, y: 287.4, width: 110.4, height: 110.4),
-            .faceWest: CGRect(x: 821.6, y: 196.2, width: 110.4, height: 110.4),
+            .faceNorth: CGRect(x: 918, y: 114, width: 76, height: 76),
+            .faceEast: CGRect(x: 1003, y: 199, width: 76, height: 76),
+            .faceSouth: CGRect(x: 918, y: 284, width: 76, height: 76),
+            .faceWest: CGRect(x: 833, y: 199, width: 76, height: 76),
             .shoulderL: CGRect(x: 158, y: 16.2, width: 156, height: 55.2),
             .shoulderR: CGRect(x: 878, y: 16.2, width: 156, height: 55.2),
             .triggerL: CGRect(x: 158, y: 16.2, width: 156, height: 55.2),
@@ -121,48 +169,62 @@ enum GamepadArtworkCatalog {
         ])
 
     private static let extreme3DPro = GamepadArtworkSpec(
-        imageName: "extreme3dpro", referenceSize: CGSize(width: 1510, height: 1112),
+        imageName: "extreme3dpro-base", referenceSize: CGSize(width: 1510, height: 1112),
         regions: [
-            .leftStick: CGRect(x: 300, y: 0, width: 400, height: 600),
-            .leftStickCap: CGRect(x: 300, y: 0, width: 400, height: 600),
-            .rightStick: CGRect(x: 300, y: 0, width: 400, height: 600),
-            .rightStickCap: CGRect(x: 300, y: 0, width: 400, height: 600),
-            .dpad: CGRect(x: 400, y: 120, width: 120, height: 140),
-            .faceNorth: CGRect(x: 550, y: 160, width: 100, height: 90),
-            .faceEast: CGRect(x: 490, y: 60, width: 90, height: 100),
-            .faceSouth: CGRect(x: 360, y: 130, width: 80, height: 100),
-            .faceWest: CGRect(x: 350, y: 40, width: 100, height: 100),
-            .shoulderL: CGRect(x: 470, y: 790, width: 120, height: 60),
-            .shoulderR: CGRect(x: 620, y: 790, width: 120, height: 60),
-            .triggerL: CGRect(x: 350, y: 0, width: 140, height: 160),
-            .triggerR: CGRect(x: 1120, y: 760, width: 120, height: 200),
-            .back: CGRect(x: 750, y: 790, width: 120, height: 60),
-            .start: CGRect(x: 450, y: 850, width: 120, height: 60),
-            .guide: CGRect(x: 590, y: 850, width: 120, height: 60),
-            .share: CGRect(x: 730, y: 850, width: 120, height: 60),
-            .backR: CGRect(x: 1060, y: 800, width: 100, height: 100),
-        ])
+            .dpad: CGRect(x: 724, y: 244, width: 80, height: 80),
+            .faceNorth: CGRect(x: 816, y: 262, width: 43, height: 62),
+            .faceEast: CGRect(x: 669, y: 264, width: 42, height: 61),
+            .faceSouth: CGRect(x: 687, y: 322, width: 67, height: 86),
+            .faceWest: CGRect(x: 774, y: 324, width: 67, height: 85),
+            .shoulderL: CGRect(x: 552, y: 369, width: 64, height: 102),
+            .shoulderR: CGRect(x: 477, y: 329, width: 73, height: 113),
+            .triggerL: CGRect(x: 725, y: 39, width: 75, height: 38),
+            .triggerR: CGRect(x: 589, y: 885, width: 169, height: 121),
+            .back: CGRect(x: 539, y: 484, width: 60, height: 109),
+            .start: CGRect(x: 475, y: 458, width: 56, height: 135),
+            .guide: CGRect(x: 536, y: 616, width: 63, height: 105),
+            .share: CGRect(x: 476, y: 615, width: 53, height: 127),
+            .backR: CGRect(x: 930, y: 364, width: 67, height: 72),
+        ],
+        movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 797, y: 662))
 
     private static let direwolf4 = GamepadArtworkSpec(
-        imageName: "direwolf4", referenceSize: CGSize(width: 1600, height: 1000),
+        imageName: "direwolf4", referenceSize: CGSize(width: 913, height: 657),
         regions: [
-            .leftStick: CGRect(x: 360, y: 150, width: 170, height: 190),
-            .leftStickCap: CGRect(x: 385, y: 170, width: 120, height: 130),
-            .rightStick: CGRect(x: 745, y: 310, width: 185, height: 220),
-            .rightStickCap: CGRect(x: 770, y: 335, width: 130, height: 145),
-            .dpad: CGRect(x: 450, y: 340, width: 180, height: 185),
-            .faceNorth: CGRect(x: 1000, y: 115, width: 100, height: 100),
-            .faceEast: CGRect(x: 1070, y: 190, width: 100, height: 100),
-            .faceSouth: CGRect(x: 965, y: 270, width: 100, height: 100),
-            .faceWest: CGRect(x: 900, y: 190, width: 100, height: 100),
-            .shoulderL: CGRect(x: 350, y: 50, width: 180, height: 70),
-            .shoulderR: CGRect(x: 1030, y: 45, width: 180, height: 70),
-            .triggerL: CGRect(x: 365, y: 35, width: 155, height: 60),
-            .triggerR: CGRect(x: 1040, y: 30, width: 155, height: 60),
-            .back: CGRect(x: 610, y: 180, width: 70, height: 65),
-            .start: CGRect(x: 805, y: 180, width: 70, height: 65),
-            .guide: CGRect(x: 720, y: 95, width: 100, height: 100),
-            .backL: CGRect(x: 260, y: 760, width: 120, height: 110),
-            .backR: CGRect(x: 1200, y: 760, width: 120, height: 110),
+            .leftStick: CGRect(x: 136, y: 77.31, width: 150.97, height: 150.75),
+            .leftStickCap: CGRect(x: 143.13, y: 86.66, width: 96.69, height: 96.48),
+            .rightStick: CGRect(x: 482.65, y: 207.85, width: 154.54, height: 162.51),
+            .rightStickCap: CGRect(x: 487.79, y: 217.99, width: 105.86, height: 100.14),
+            .dpad: CGRect(x: 221.26, y: 185.99, width: 159.75, height: 171.38),
+            .faceNorth: CGRect(x: 641.32, y: 66.95, width: 69.06, height: 60.15),
+            .faceEast: CGRect(x: 702.85, y: 120.22, width: 69.27, height: 67.10),
+            .faceSouth: CGRect(x: 637.60, y: 171.37, width: 70.52, height: 71.80),
+            .faceWest: CGRect(x: 576.03, y: 114.50, width: 70.12, height: 68),
+            .back: CGRect(x: 338.34, y: 103.25, width: 53.46, height: 45.83),
+            .start: CGRect(x: 479.10, y: 102.67, width: 57.98, height: 48.76),
+            .guide: CGRect(x: 412.07, y: 36.97, width: 59.05, height: 68),
         ])
+}
+
+enum GamepadArtworkImageSource {
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = GamepadSkin.allCases.count
+        return cache
+    }()
+
+    static func image(named name: String) -> NSImage? {
+        let key = name as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let url = Bundle.module.url(forResource: name, withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+
+    static func crop(_ image: CGImage, rect: CGRect) -> CGImage? {
+        guard rect.width > 0, rect.height > 0, rect.origin.x.isFinite, rect.origin.y.isFinite,
+              rect.width.isFinite, rect.height.isFinite else { return nil }
+        return image.cropping(to: rect.integral)
+    }
 }

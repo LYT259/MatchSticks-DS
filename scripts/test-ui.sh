@@ -48,8 +48,12 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/GHDS/XInputUSB/F310XInputManager.swift \
   Sources/GHDS/GamepadInputManager.swift \
   Sources/GHDS/Views/GamepadArtwork/GamepadArtwork.swift \
+  Sources/GHDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
+  Sources/GHDS/Views/GamepadSkinView.swift \
   Tests/GHDSUITests/main.swift Tests/GHDSUITests/F310XInputReportTests.swift \
   Tests/GHDSUITests/F310XInputLifecycleTests.swift \
-  Tests/GHDSUITests/GamepadArtworkTests.swift Tests/GHDSUITests/GamepadTriggerRangeTests.swift \
+  Tests/GHDSUITests/GamepadArtworkTests.swift Tests/GHDSUITests/GamepadSkinPickerTests.swift \
+  Tests/GHDSUITests/GamepadSkinPickerInteractionTests.swift \
+  Tests/GHDSUITests/GamepadRenderingTests.swift Tests/GHDSUITests/GamepadTriggerRangeTests.swift \
   -o .build/GHDSUIStateTests
 .build/GHDSUIStateTests

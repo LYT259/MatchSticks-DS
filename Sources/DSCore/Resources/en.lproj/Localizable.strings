@@ -503,7 +503,6 @@
 "飞智冰原狼 4" = "Flydigi Direwolf 4";
 "PS5 DualSense" = "PS5 DualSense";
 "PS4 DualShock 4" = "PS4 DualShock 4";
-"PS3 DualShock 3" = "PS3 DualShock 3";
 "Xbox 360 手柄" = "Xbox 360 Controller";
 "Xbox One 手柄" = "Xbox One Controller";
 "Xbox Series 手柄" = "Xbox Series Controller";
@@ -513,8 +512,14 @@
 "左摇杆" = "Left Stick";
 "右摇杆" = "Right Stick";
 "主摇杆" = "Main Joystick";
+"主摇杆与 Z 扭转" = "Main Joystick and Z Twist";
 "Z 扭转" = "Z Twist";
+"油门" = "Throttle";
 "X %+.2f，Y %+.2f" = "X %+.2f, Y %+.2f";
+"X %+.2f，Y %+.2f，Z %+.2f" = "X %+.2f, Y %+.2f, Z %+.2f";
+"搜索手柄" = "Search gamepads";
+"没有匹配的手柄" = "No matching gamepads";
+"自动识别 自动检测 自动 Auto Detect" = "Auto-detect Auto Detect Automatic";
 "手柄图片缺失：%@" = "Missing gamepad artwork: %@";
 "自动 · %@" = "Auto · %@";
 "手动 · %@" = "Manual · %@";

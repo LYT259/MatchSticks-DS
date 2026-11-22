@@ -26,7 +26,7 @@ struct HIDDeviceSnapshot: Sendable {
         let skin = GamepadProfile.detect(vendorID: vendorID, productID: productID, name: name)
         let triggerUsages: [UInt32]
         switch (skin, mode) {
-        case (.dualsense, _), (.dualshock4, _), (.dualshock3, _):
+        case (.dualsense, _), (.dualshock4, _):
             triggerUsages = [0x33, 0x34]
         case (_, .xinput):
             triggerUsages = [0x32, 0x35]

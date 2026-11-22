@@ -16,10 +16,17 @@ struct DSSelectControl<Value: Hashable>: View {
     let title: String
     @Binding var selection: Value
     let options: [DSSelectOption<Value>]
+    var searchText: ((Value) -> String)? = nil
     @State private var isOpen = false
     @State private var active: Value?
+    @State private var query = ""
     @FocusState private var triggerFocused: Bool
     @FocusState private var focusedOption: Value?
+    @FocusState private var searchFocused: Bool
+
+    private var filteredOptions: [DSSelectOption<Value>] {
+        Self.filter(options: options, query: query, searchText: searchText)
+    }
 
     var body: some View {
         Button {
@@ -54,76 +61,126 @@ struct DSSelectControl<Value: Hashable>: View {
         options.first(where: { $0.value == selection })?.label ?? String(describing: selection)
     }
 
+    private var listHeight: CGFloat {
+        CGFloat(min(192, max(44, filteredOptions.count * 44 + 10)))
+    }
+
     private var popoverSize: CGSize {
-        let height = min(192, max(44, options.count * 44 + 10))
-        return CGSize(width: 240, height: CGFloat(height))
+        let width: CGFloat = searchText == nil ? 240 : 320
+        let contentHeight = searchText != nil && filteredOptions.isEmpty ? 64 : listHeight
+        return CGSize(width: width, height: contentHeight + (searchText == nil ? 0 : 53))
     }
 
     private var optionList: some View {
-        ScrollView {
-            VStack(spacing: 2) {
-                ForEach(options) { option in
-                    Button {
-                        choose(option.value)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text(option.label)
-                                .font(.system(size: 12))
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                            Spacer(minLength: 0)
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(DSTheme.accentText)
-                                .opacity(option.value == selection ? 1 : 0)
-                                .frame(width: 16)
+        VStack(spacing: 0) {
+            if searchText != nil {
+                DSSearchField(title: tr("搜索手柄"), text: $query, onCommand: handleSearchCommand)
+                    .focused($searchFocused)
+                    .padding(10)
+                Divider()
+            }
+            if filteredOptions.isEmpty {
+                Text(tr("没有匹配的手柄"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(DSTheme.textSecondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 2) {
+                            ForEach(filteredOptions) { option in
+                                Button {
+                                    choose(option.value)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Text(option.label)
+                                            .font(.system(size: 12))
+                                            .lineLimit(2)
+                                            .multilineTextAlignment(.leading)
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(DSTheme.accentText)
+                                            .opacity(option.value == selection ? 1 : 0)
+                                            .frame(width: 16)
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                                    .background(active == option.value ? DSTheme.hover :
+                                                    (option.value == selection ? DSTheme.segmentTrack : .clear),
+                                                in: RoundedRectangle(cornerRadius: 6))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(DSSelectOptionStyle())
+                                .focused($focusedOption, equals: option.value)
+                                .accessibilityAddTraits(option.value == selection ? .isSelected : [])
+                            }
                         }
-                        .padding(.horizontal, 10).padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
-                        .background(option.value == selection ? DSTheme.segmentTrack : .clear,
-                                    in: RoundedRectangle(cornerRadius: 6))
-                        .contentShape(Rectangle())
+                        .padding(5)
                     }
-                    .buttonStyle(DSSelectOptionStyle())
-                    .focused($focusedOption, equals: option.value)
-                    .accessibilityAddTraits(option.value == selection ? .isSelected : [])
+                    .onChange(of: active) {
+                        if let active { proxy.scrollTo(active, anchor: .center) }
+                    }
                 }
             }
-            .padding(5)
         }
         .frame(width: popoverSize.width, height: popoverSize.height)
         .background(DSTheme.surface)
         .foregroundStyle(DSTheme.textPrimary)
-        .onAppear { focusCurrent() }
-        .onKeyPress(.downArrow) { move(1); return .handled }
-        .onKeyPress(.upArrow) { move(-1); return .handled }
-        .onKeyPress(.home) { focus(options.first?.value); return .handled }
-        .onKeyPress(.end) { focus(options.last?.value); return .handled }
-        .onKeyPress(.escape) { close(); return .handled }
+        .onAppear {
+            if searchText != nil { searchFocused = true } else { focusCurrent() }
+        }
+        .onDisappear {
+            query = ""
+            active = nil
+            focusedOption = nil
+            searchFocused = false
+        }
+        .onChange(of: query) {
+            active = filteredOptions.contains(where: { $0.value == selection }) ? selection : filteredOptions.first?.value
+        }
+        .onKeyPress { handleKey($0) }
+    }
+
+    static func filter(options: [DSSelectOption<Value>], query: String,
+                       searchText: ((Value) -> String)? = nil) -> [DSSelectOption<Value>] {
+        guard let searchText else { return options }
+        let needle = normalized(query)
+        guard !needle.isEmpty else { return options }
+        return options.filter { normalized(searchText($0.value)).contains(needle) }
+    }
+
+    private static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .filter { !$0.isWhitespace }
     }
 
     private func open(last: Bool = false) {
         guard !options.isEmpty else { return }
-        active = options.contains(where: { $0.value == selection }) ? selection : (last ? options.last?.value : options.first?.value)
+        query = ""
+        active = filteredOptions.contains(where: { $0.value == selection }) ? selection :
+            (last ? filteredOptions.last?.value : filteredOptions.first?.value)
         isOpen = true
-        DispatchQueue.main.async { focusedOption = active }
+        DispatchQueue.main.async {
+            if self.searchText != nil { self.searchFocused = true } else { self.focusedOption = self.active }
+        }
     }
 
     private func focusCurrent() {
-        active = selection
-        focusedOption = options.contains(where: { $0.value == selection }) ? selection : options.first?.value
+        active = filteredOptions.contains(where: { $0.value == selection }) ? selection : filteredOptions.first?.value
+        focusedOption = active
     }
 
     private func move(_ offset: Int) {
-        guard !options.isEmpty else { return }
-        let index = options.firstIndex(where: { $0.value == (active ?? selection) }) ?? 0
-        let next = min(max(index + offset, 0), options.count - 1)
-        focus(options[next].value)
+        guard !filteredOptions.isEmpty else { return }
+        let index = filteredOptions.firstIndex(where: { $0.value == (active ?? selection) }) ?? 0
+        let next = min(max(index + offset, 0), filteredOptions.count - 1)
+        focus(filteredOptions[next].value)
     }
 
     private func focus(_ value: Value?) {
         active = value
-        focusedOption = value
+        if searchText == nil { focusedOption = value }
     }
 
     private func choose(_ value: Value) {
@@ -133,8 +190,37 @@ struct DSSelectControl<Value: Hashable>: View {
 
     private func close() {
         isOpen = false
+        query = ""
+        active = nil
         focusedOption = nil
+        searchFocused = false
         triggerFocused = true
+    }
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        switch press.key {
+        case .downArrow: return handleSearchCommand(.down) ? .handled : .ignored
+        case .upArrow: return handleSearchCommand(.up) ? .handled : .ignored
+        case .home: return handleSearchCommand(.home) ? .handled : .ignored
+        case .end: return handleSearchCommand(.end) ? .handled : .ignored
+        case .return: return handleSearchCommand(.confirm) ? .handled : .ignored
+        case .escape: return handleSearchCommand(.escape) ? .handled : .ignored
+        default: return .ignored
+        }
+    }
+
+    private func handleSearchCommand(_ command: DSSearchCommand) -> Bool {
+        switch command {
+        case .down: move(1)
+        case .up: move(-1)
+        case .home: focus(filteredOptions.first?.value)
+        case .end: focus(filteredOptions.last?.value)
+        case .confirm:
+            guard let active, filteredOptions.contains(where: { $0.value == active }) else { return false }
+            choose(active)
+        case .escape: close()
+        }
+        return true
     }
 }
 
@@ -291,18 +377,23 @@ struct DSTextFieldStyle: TextFieldStyle {
 struct DSSearchField: View {
     let title: String
     @Binding var text: String
+    var onCommand: ((DSSearchCommand) -> Bool)? = nil
     @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(DSTheme.textSecondary)
-            TextField(title, text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .accessibilityLabel(title)
-                .focused($focused)
+            if let onCommand {
+                DSNativeSearchField(title: title, text: $text, focused: $focused, onCommand: onCommand)
+            } else {
+                TextField(title, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .accessibilityLabel(title)
+                    .focused($focused)
+            }
             if !text.isEmpty {
-                Button { text = "" } label: {
+                Button { text = ""; focused = true } label: {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .buttonStyle(.plain)
@@ -315,5 +406,97 @@ struct DSSearchField: View {
         .frame(minHeight: 32)
         .background(DSTheme.button, in: RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(focused ? DSTheme.focusRing : DSTheme.line))
+    }
+}
+
+enum DSSearchCommand {
+    case up, down, home, end, confirm, escape
+}
+
+struct DSNativeSearchField: NSViewRepresentable {
+    let title: String
+    @Binding var text: String
+    var focused: FocusState<Bool>.Binding
+    let onCommand: (DSSearchCommand) -> Bool
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var onTextChange: (String) -> Void
+        var onFocusChange: (Bool) -> Void
+        var onCommand: (DSSearchCommand) -> Bool
+
+        init(onTextChange: @escaping (String) -> Void,
+             onFocusChange: @escaping (Bool) -> Void,
+             onCommand: @escaping (DSSearchCommand) -> Bool) {
+            self.onTextChange = onTextChange
+            self.onFocusChange = onFocusChange
+            self.onCommand = onCommand
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            onTextChange(field.stringValue)
+        }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { onFocusChange(true) }
+        func controlTextDidEndEditing(_ notification: Notification) { onFocusChange(false) }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+            if selector == Selector(("noop:")), let event = NSApp.currentEvent,
+               event.type == .keyDown,
+               event.keyCode == 119 || event.keyCode == 124 && event.modifierFlags.contains(.function) {
+                return onCommand(.end)
+            }
+            let commands = [
+                "moveUp:": DSSearchCommand.up,
+                "moveDown:": .down,
+                "moveToBeginningOfDocument:": .home,
+                "moveToBeginningOfLine:": .home,
+                "moveToBeginningOfParagraph:": .home,
+                "scrollToBeginningOfDocument:": .home,
+                "moveToEndOfDocument:": .end,
+                "moveToEndOfLine:": .end,
+                "moveToEndOfParagraph:": .end,
+                "scrollToEndOfDocument:": .end,
+                "insertNewline:": .confirm,
+                "cancelOperation:": .escape,
+            ]
+            guard let command = commands[selector.description] else { return false }
+            return onCommand(command)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onTextChange: { text = $0 }, onFocusChange: { focused.wrappedValue = $0 }, onCommand: onCommand)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.placeholderString = title
+        field.font = .systemFont(ofSize: 12)
+        field.textColor = NSColor(DSTheme.textPrimary)
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.cell?.usesSingleLineMode = true
+        field.cell?.lineBreakMode = .byTruncatingTail
+        field.setAccessibilityLabel(title)
+        field.delegate = context.coordinator
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.onCommand = onCommand
+        if field.stringValue != text { field.stringValue = text }
+        guard focused.wrappedValue, field.currentEditor() == nil else { return }
+        DispatchQueue.main.async {
+            guard self.focused.wrappedValue, field.window != nil, field.currentEditor() == nil else { return }
+            field.window?.makeFirstResponder(field)
+        }
+    }
+
+    static func dismantleNSView(_ field: NSTextField, coordinator: Coordinator) {
+        field.delegate = nil
     }
 }

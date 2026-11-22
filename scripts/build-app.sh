@@ -54,7 +54,8 @@ if [ ! -d "$BUILD_DIR/GHDriverStation_GHDS.bundle" ]; then
 fi
 cp -R "$BUILD_DIR/GHDriverStation_GHDS.bundle" "$APP/Contents/Resources/"
 RESOURCE_DIR="$APP/Contents/Resources/GHDriverStation_GHDS.bundle/Contents/Resources"
-for REQUIRED in FOGHORN.wav dualsense.png xbox-series.png f310.png direwolf4.png extreme3dpro.png; do
+for REQUIRED in FOGHORN.wav ArtworkCredits.txt dualsense.png dualshock4.png xbox-series.png f310.png direwolf4.png \
+    extreme3dpro.png extreme3dpro-base.png extreme3dpro-handle.png; do
     if [ ! -f "$RESOURCE_DIR/$REQUIRED" ]; then
         echo "  ✗ 应用资源缺失：$REQUIRED" >&2
         exit 1
