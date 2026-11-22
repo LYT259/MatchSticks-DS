@@ -276,9 +276,26 @@ final class DSModel {
     var gameData: String = ""
     var competition: String = ""
     var matchType: UInt8 = 0
-    var dashboardKind: DashboardKind = .advantageScope {
-        didSet { settings.set("dashboardKind", dashboardKind.rawValue) }
+    // MARK: Dashboard 选择（多选 0–3 个；空选择只禁用 Launch）
+
+    /// 真源：多选集合（无序）。展示与启动一律走 `selectedDashboards`（字母序），
+    /// didSet 即时落盘；重启时优先读 `dashboards`，缺失则回退旧版单选键。
+    var dashboardSelection: Set<DashboardKind> = [.advantageScope] {
+        didSet { persistDashboardSelection() }
     }
+    /// 规范顺序（AdvantageScope、Elastic、Shuffleboard）：UI 左中右与启动顺序同源。
+    var selectedDashboards: [DashboardKind] {
+        DashboardKind.allCases.filter { dashboardSelection.contains($0) }
+    }
+    /// 旧版单选设置 / WebUI 旧键的兼容视图：读首个选中项（无选中为 nil），写等于只选该项。
+    var dashboardKind: DashboardKind? {
+        get { selectedDashboards.first }
+        set {
+            if let newValue { dashboardSelection = [newValue] } else { dashboardSelection = [] }
+        }
+    }
+    /// 启动器：默认真实 `open -a`；测试注入记录闭包，绝不打开外部 App。
+    var dashboardLauncher = DashboardLauncher()
 
     // MARK: Practice 时序
 
@@ -303,6 +320,11 @@ final class DSModel {
     }
     var practiceSeasonYear = 2026 {
         didSet { settings.set("practiceSeasonYear", practiceSeasonYear) }
+    }
+    /// 年份下拉的展示顺序：新 → 旧（2026、2025、…）。
+    /// 只改 UI 顺序；`PracticeTimingPreset.all` 的事实顺序保持原样。
+    var practiceSeasonYearChoices: [Int] {
+        PracticeTimingPreset.all.map(\.year).sorted(by: >)
     }
     var practiceTransitionShiftTime: TimeInterval = 10 {
         didSet { settings.set("practiceTransitionShiftTime", practiceTransitionShiftTime) }
@@ -392,7 +414,12 @@ final class DSModel {
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }
         if let raw = settings.string("alliance"), let a = AllianceStation(rawValue: UInt8(raw) ?? 255) { alliance = a }
-        if let kind = settings.string("dashboardKind").flatMap(DashboardKind.init(rawValue:)) { dashboardKind = kind }
+        // 新多选键优先；缺失或损坏时回退旧版单选键（空串 = 全部取消，属合法值）
+        if let stored = settings.string("dashboards").flatMap(DashboardKind.selection(from:)) {
+            dashboardSelection = stored
+        } else if let kind = settings.string("dashboardKind").flatMap(DashboardKind.init(rawValue:)) {
+            dashboardSelection = [kind]
+        }
         if let v = settings.double("practiceAutoTime"), v >= 1 { practiceAutoTime = v }
         if let v = settings.double("practiceTeleopTime"), v >= 15 { practiceTeleopTime = v }
         if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
@@ -408,6 +435,13 @@ final class DSModel {
         if let raw = settings.string("protocolKind"), let kind = DSClient.ProtocolKind(rawValue: raw) {
             protocolKind = kind
         }
+    }
+
+    /// 多选即时落盘：新键存规范顺序的逗号列表（空串 = 全不选），旧单选键同步为首选项。
+    private func persistDashboardSelection() {
+        guard persistenceEnabled else { return }
+        settings.set("dashboards", selectedDashboards.map(\.rawValue).joined(separator: ","))
+        settings.set("dashboardKind", dashboardKind?.rawValue)
     }
 
     func start() {
@@ -685,7 +719,9 @@ final class DSModel {
             "manualIP": manualIP,
             "protocolKind": protocolKind.rawValue,
             "alliance": String(alliance.rawValue),
-            "dashboardKind": dashboardKind.rawValue,
+            // 旧单选键保留（首个选中项；无选中为空串），新客户端读 dashboards 拿完整多选
+            "dashboardKind": dashboardKind?.rawValue ?? "",
+            "dashboards": selectedDashboards.map(\.rawValue).joined(separator: ","),
             "practiceAutoTime": String(practiceAutoTime),
             "practiceTeleopTime": String(practiceTeleopTime),
             "practiceDelayTime": String(practiceDelayTime),
@@ -711,8 +747,20 @@ final class DSModel {
             guard let raw = UInt8(value), let a = AllianceStation(rawValue: raw) else { return tr("非法站位值") }
             alliance = a
         case "dashboardKind":
-            guard let d = DashboardKind(rawValue: value) else { return tr("未知 Dashboard：%@", value) }
-            dashboardKind = d
+            // 旧键 = 单选语义（WebUI 旧客户端兼容）；空串 = 全部取消（与快照可往返）
+            if value.isEmpty {
+                dashboardSelection = []
+            } else if let d = DashboardKind(rawValue: value) {
+                dashboardKind = d
+            } else {
+                return tr("未知 Dashboard：%@", value)
+            }
+        case "dashboards":
+            // 新键 = 逗号分隔多选；空串 = 全部取消
+            guard let selection = DashboardKind.selection(from: value) else {
+                return tr("Dashboard 须为 AdvantageScope / Elastic / Shuffleboard 的逗号分隔列表")
+            }
+            dashboardSelection = selection
         case "practiceAutoTime":
             guard let v = Double(value), v >= 1 else { return tr("自动阶段时长须 ≥1 秒") }
             practiceAutoTime = v
@@ -857,6 +905,23 @@ final class DSModel {
         selectedOpModeHash = op.hash
         opModeHashBox.set(op.hash)
         log(tr("OpMode 选择：%@（hash 0x%@）", op.name, String(op.hash, radix: 16)))
+    }
+
+    // MARK: Dashboard 启动
+
+    /// 一次启动全部选中项（空选择 = 无动作）；返回实际提交给系统的项，便于测试。
+    /// 启动失败逐项记录，不因一项失败中断其余项。
+    @discardableResult
+    func launchSelectedDashboards() -> [DashboardKind] {
+        let outcome = dashboardLauncher.launch(selectedDashboards)
+        for kind in outcome.launched {
+            log(tr("尝试启动 Dashboard：%@", kind.rawValue))
+        }
+        for kind in DashboardKind.allCases {
+            guard let reason = outcome.failures[kind] else { continue }
+            log(tr("启动 Dashboard 失败：%@（%@）——请确认已安装该应用", kind.rawValue, reason))
+        }
+        return outcome.launched
     }
 
     // MARK: Practice 时序
@@ -1431,9 +1496,65 @@ struct LossPoint: Sendable {
 
 // MARK: - Dashboard
 
+/// 声明顺序即展示与启动顺序（字母序：AdvantageScope、Elastic、Shuffleboard）。
+/// rawValue 是持久化值与 WebUI 旧键取值，改名属契约变更，不顺手改。
 enum DashboardKind: String, CaseIterable, Identifiable {
     case advantageScope = "AdvantageScope"
-    case shuffleboard = "Shuffleboard"
     case elastic = "Elastic"
+    case shuffleboard = "Shuffleboard"
+
     var id: String { rawValue }
+
+    /// `open -a` 的应用名：与既有启动逻辑逐项一致（Shuffleboard 安装名是小写）。
+    var applicationName: String {
+        switch self {
+        case .advantageScope: return "AdvantageScope"
+        case .elastic: return "Elastic"
+        case .shuffleboard: return "shuffleboard"
+        }
+    }
+
+    /// 逗号分隔列表解析（持久化新键与 WebUI 新键共用）。
+    /// 空串 = 全部取消（合法）；含未知项 = 非法（nil），由调用方决定回退或报错。
+    static func selection(from raw: String) -> Set<DashboardKind>? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return [] }
+        var result: Set<DashboardKind> = []
+        for token in trimmed.split(separator: ",") {
+            let name = token.trimmingCharacters(in: .whitespaces)
+            guard let kind = DashboardKind(rawValue: name) else { return nil }
+            result.insert(kind)
+        }
+        return result
+    }
+}
+
+/// Dashboard 启动（一次启动所有选中项）。
+/// `open` 可注入：单元测试只记录调用，绝不真正打开外部 App。
+struct DashboardLauncher {
+    /// 默认实现：`/usr/bin/open -a <应用名>`（沿用原有启动路径）。
+    static func openWithSystem(_ kind: DashboardKind) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", kind.applicationName]
+        try process.run()
+    }
+
+    var open: (DashboardKind) throws -> Void = DashboardLauncher.openWithSystem
+
+    /// 按字母序启动；单项失败不阻断其余项。返回成功提交给系统的项与失败原因。
+    func launch(_ kinds: [DashboardKind]) -> (launched: [DashboardKind], failures: [DashboardKind: String]) {
+        let ordered = DashboardKind.allCases.filter { kinds.contains($0) }
+        var launched: [DashboardKind] = []
+        var failures: [DashboardKind: String] = [:]
+        for kind in ordered {
+            do {
+                try open(kind)
+                launched.append(kind)
+            } catch {
+                failures[kind] = error.localizedDescription
+            }
+        }
+        return (launched, failures)
+    }
 }

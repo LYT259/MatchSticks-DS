@@ -74,23 +74,12 @@ struct SetupView: View {
                     .textFieldStyle(DSTextFieldStyle())
                     .font(.system(.body, design: .monospaced))
                     .accessibilityLabel(tr("队伍号或 IP 地址"))
-                Text(tr("填 0 时仅自动尝试 USB。"))
-                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.circle")
                     .font(.callout).foregroundStyle(DSTheme.warning)
-            }
-
-            // 已应用的手动地址（model 真值，不是草稿）：自动发现关闭 / 本机回环提醒
-            if let warning = model.appliedManualIPWarning {
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(DSTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(warning)
             }
 
             Divider()
@@ -119,7 +108,7 @@ struct SetupView: View {
     }
 
     private var simulatorPanel: some View {
-        DSPanel(title: tr("没有机器人？先试用模拟器"), subtitle: tr("在这台 Mac 上模拟 roboRIO，无真实执行机构。")) {
+        DSPanel(title: tr("没有机器人？先试用模拟器")) {
             HStack(alignment: .center, spacing: 16) {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 26, weight: .light))
@@ -128,8 +117,6 @@ struct SetupView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(simProcess?.isRunning == true ? tr("本机模拟器正在运行") : tr("试用连接、控制和状态反馈"))
                         .font(.callout.weight(.medium))
-                    Text(tr("启动成功后，连接目标会切换为本机 127.0.0.1。"))
-                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
                 if simProcess?.isRunning == true {

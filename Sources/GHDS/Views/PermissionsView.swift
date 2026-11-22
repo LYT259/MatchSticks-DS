@@ -29,7 +29,7 @@ struct PermissionsView: View {
     }
 
     private var networkPanel: some View {
-        DSPanel(title: tr("本地网络"), subtitle: tr("用于发现并连接同一网络中的机器人。")) {
+        DSPanel(title: tr("本地网络")) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "network")
                     .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
@@ -63,7 +63,7 @@ struct PermissionsView: View {
     }
 
     private var inputPanel: some View {
-        DSPanel(title: tr("键盘快捷键"), subtitle: tr("当前版本的快捷键仅在应用处于前台时生效。")) {
+        DSPanel(title: tr("键盘快捷键")) {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "keyboard")
                     .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
@@ -90,7 +90,7 @@ struct PermissionsView: View {
     }
 
     private var firewallPanel: some View {
-        DSPanel(title: tr("防火墙"), subtitle: tr("仅在启用防火墙且通信异常时检查。")) {
+        DSPanel(title: tr("防火墙")) {
             Text(tr("在「系统设置 → 网络 → 防火墙 → 选项」中，检查 GH Driver Station 是否允许接收传入连接。保留其他应用的防火墙设置即可。"))
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             HStack {

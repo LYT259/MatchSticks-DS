@@ -3,6 +3,8 @@ import DSCore
 
 struct DSStatusBar: View {
     let model: DSModel
+    var openConnection: () -> Void = {}
+    var openJoysticks: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 18) {
@@ -14,9 +16,13 @@ struct DSStatusBar: View {
             }
             .frame(minWidth: 170, alignment: .leading)
             Spacer(minLength: 0)
-            statusItem(tr("通信"), active: model.commConnected)
-            statusItem(tr("程序"), active: model.commConnected && model.robotTrace.hasRobotCode)
-            statusItem(tr("手柄"), active: !model.joystickSlots.isEmpty)
+            HStack(spacing: 2) {
+                StatusItem(label: tr("通信"), active: model.commConnected,
+                           destination: tr("连接"), action: openConnection)
+                StatusItem(label: tr("程序"), active: model.commConnected && model.robotTrace.hasRobotCode)
+                StatusItem(label: tr("手柄"), active: !model.joystickSlots.isEmpty,
+                           destination: tr("手柄"), action: openJoysticks)
+            }
             Divider().frame(height: 30)
             VStack(alignment: .trailing, spacing: 5) {
                 Text(tr("机器人电池")).font(.system(size: 11)).foregroundStyle(DSTheme.textSecondary)
@@ -37,21 +43,51 @@ struct DSStatusBar: View {
         return model.commConnected ? "circle.inset.filled" : "antenna.radiowaves.left.and.right.slash"
     }
 
-    private func statusItem(_ label: String, active: Bool) -> some View {
-        VStack(spacing: 6) {
-            Image(systemName: active ? "checkmark.circle.fill" : "minus.circle")
-                .font(.system(size: 14)).foregroundStyle(active ? DSTheme.success : DSTheme.textSecondary)
-            Text(label).font(.system(size: 11)).foregroundStyle(DSTheme.textSecondary)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(tr("%@：%@", label, active ? tr("已检测到") : tr("未检测到")))
-    }
-
     private var batteryColor: Color {
         guard model.commConnected else { return .secondary }
         if model.robotStatus.brownout || model.batteryVolts < 7 { return .red }
         if model.batteryVolts < 11 { return .orange }
         return .primary
+    }
+}
+
+/// 顶部状态项：只有传入 action 的项才可点击（hover 仅改变背景，不参与状态数据）。
+private struct StatusItem: View {
+    let label: String
+    let active: Bool
+    var destination: String? = nil
+    var action: (() -> Void)? = nil
+    @State private var hovering = false
+
+    var body: some View {
+        if let action {
+            Button(action: action) { content }
+                .buttonStyle(.plain)
+                .onHover { hovering = $0 }
+                .help(destination ?? label)
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityHint(destination ?? label)
+        } else {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityLabel)
+        }
+    }
+
+    private var accessibilityLabel: String {
+        tr("%@：%@", label, active ? tr("已检测到") : tr("未检测到"))
+    }
+
+    private var content: some View {
+        VStack(spacing: 6) {
+            Image(systemName: active ? "checkmark.circle.fill" : "minus.circle")
+                .font(.system(size: 14)).foregroundStyle(active ? DSTheme.success : DSTheme.textSecondary)
+            Text(label).font(.system(size: 11)).foregroundStyle(DSTheme.textSecondary)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(action != nil && hovering ? DSTheme.hover : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
