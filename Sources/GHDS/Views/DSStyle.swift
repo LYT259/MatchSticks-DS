@@ -1,5 +1,6 @@
 import SwiftUI
 import DSCore
+import Darwin
 
 // Opaque PathBlender-style surfaces with explicit light and dark palettes.
 enum DSTheme {
@@ -22,8 +23,8 @@ enum DSTheme {
     static let success = adaptive(0x34C759, 0x30D158)
     static let warning = adaptive(0xFF9500, 0xFF9F0A)
     static let danger = adaptive(0xFF3B30, 0xFF453A)
-    static let allianceBlue = adaptive(0x0066B3, 0x0066B3)
-    static let allianceRed = adaptive(0xED1C24, 0xED1C24)
+    static let allianceBlue = accent
+    static let allianceRed = danger
 
     static func allianceColor(for station: AllianceStation) -> Color {
         switch station {
@@ -149,19 +150,57 @@ struct DSEmptyState: View {
 @MainActor
 @Observable
 final class ConnectionDraft {
+    enum Target: Equatable {
+        case team(Int)
+        case manualIP(String)
+    }
+
     private var loading = false
-    var teamNumber = "" { didSet { if !loading { userEdited = true } } }
-    var manualIP = "" { didSet { if !loading { userEdited = true } } }
+    var targetText = "" { didSet { if !loading { userEdited = true } } }
     var protocolKind: DSClient.ProtocolKind = .ni { didSet { if !loading { userEdited = true } } }
     var userEdited = false
 
+    var parsedTarget: Target? { Self.parseTarget(targetText) }
+
+    static func parseTarget(_ text: String) -> Target? {
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.contains(".") {
+            var address = in_addr()
+            guard inet_pton(AF_INET, value, &address) == 1 else { return nil }
+            return .manualIP(value)
+        }
+        guard let team = Int(value), team >= 0 else { return nil }
+        return .team(team)
+    }
+
     func load(from model: DSModel) {
         loading = true
-        teamNumber = String(model.teamNumber)
-        manualIP = model.manualIP
+        targetText = model.manualIP.isEmpty ? String(model.teamNumber) : model.manualIP
         protocolKind = model.protocolKind
         userEdited = false
         loading = false
+    }
+
+    func hasChanges(comparedTo model: DSModel) -> Bool {
+        guard protocolKind == model.protocolKind, let target = parsedTarget else { return true }
+        switch target {
+        case .team(let team):
+            return team != model.teamNumber || !model.manualIP.isEmpty
+        case .manualIP(let ip):
+            return ip != model.manualIP
+        }
+    }
+
+    func apply(to model: DSModel) -> Bool {
+        guard let target = parsedTarget else { return false }
+        switch target {
+        case .team(let team):
+            if model.teamNumber != team { model.teamNumber = team }
+            if !model.manualIP.isEmpty { model.manualIP = "" }
+        case .manualIP(let ip):
+            if model.manualIP != ip { model.manualIP = ip }
+        }
+        return true
     }
 }
 

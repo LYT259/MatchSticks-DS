@@ -25,6 +25,10 @@ trap cleanup_settings_suite EXIT
 if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app ]; then
   export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
+
+# 2022–2026 官方 FMS Audience Module 的内嵌 Foghorn 均为此原始文件。
+echo "767354f7dead260f2bf5d1b65cac710ceec0c035fff6e5c7dfab86a7e02cc761  Sources/GHDS/Resources/FOGHORN.wav" | shasum -a 256 -c -
+
 swift build   # 先确认主工程可构建（常规门禁）
 mkdir -p .build/uitest
 # 手工编译无 SPM 资源代码生成：补一个 Bundle.module 替身（测试走中文路径，

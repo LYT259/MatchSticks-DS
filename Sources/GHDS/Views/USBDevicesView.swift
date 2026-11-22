@@ -13,8 +13,6 @@ struct USBDevicesView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(tr("%d 个手柄", model.joystickSlots.count))
                                 .font(.headline)
-                            Text(tr("槽位从 0 开始，与机器人程序中的编号对应。手动调整的顺序在重新扫描和插拔后保持不变，新接入的手柄排到最后。"))
-                                .font(.callout).foregroundStyle(DSTheme.textSecondary)
                         }
                         Spacer()
                         Button {
@@ -123,8 +121,6 @@ struct JoystickCard: View {
                         Text(tr("按键 · %d", slot.buttonCount))
                             .font(.subheadline.weight(.semibold))
                         Spacer()
-                        Text(tr("按下时高亮"))
-                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
                     }
                     FlowButtons(count: min(slot.buttonCount, 64), pressed: slot.buttons)
                 }
@@ -157,14 +153,10 @@ struct JoystickCard: View {
 
     // MARK: 手柄造型（按下即点亮；映射真值在 DSCore/GamepadProfile）
 
-    private var detectedSkin: GamepadSkin {
-        GamepadProfile.detect(vendorID: slot.vendorID, productID: slot.productID, name: slot.name)
-    }
-    private var mappingSkin: GamepadSkin { model.gamepadSkinOverride(for: slot) ?? detectedSkin }
     private var effectiveSkin: GamepadSkin { model.gamepadSkin(for: slot) }
 
     private var skinState: GamepadElementState {
-        GamepadLayout.layout(for: mappingSkin, mode: slot.mode).state(for: GamepadSample(slot: slot))
+        GamepadLayout.layout(for: effectiveSkin).state(for: GamepadSample(slot: slot))
     }
 
     @ViewBuilder private var skinSection: some View {
@@ -178,7 +170,7 @@ struct JoystickCard: View {
                 Spacer()
                 skinPicker
             }
-            GamepadSkinScaled(skin: effectiveSkin, layoutSkin: mappingSkin, mode: slot.mode, state: skinState)
+            GamepadSkinScaled(skin: effectiveSkin, state: skinState)
                 .frame(maxWidth: .infinity)
             if !skinState.unmapped.isEmpty {
                 HStack(spacing: 6) {
@@ -203,7 +195,8 @@ struct JoystickCard: View {
             get: { model.gamepadSkinOverride(for: slot) },
             set: { model.setGamepadSkinOverride($0, for: slot) }
         ), options: [DSSelectOption(value: Optional<GamepadSkin>.none,
-                                    label: tr("自动识别（当前：%@）", effectiveSkin.displayName))]
+                                    label: tr("自动识别（当前：%@）", GamepadProfile.detect(
+                                        vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName))]
             + GamepadSkin.selectableSkins.map { DSSelectOption(value: Optional($0), label: $0.displayName) },
             searchText: { $0?.searchableText ?? tr("自动识别 自动检测 自动 Auto Detect") })
             .frame(width: 240)

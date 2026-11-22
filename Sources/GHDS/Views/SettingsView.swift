@@ -35,7 +35,7 @@ struct SettingsView: View {
             settingsSeparator
             settingsRow(tr("比赛年份")) {
                 DSSelectControl(title: tr("比赛年份"), selection: $model.practiceSeasonYear,
-                                options: PracticeTimingPreset.all.map { DSSelectOption(value: $0.year, label: String($0.year)) })
+                                options: model.practiceSeasonYearChoices.map { DSSelectOption(value: $0, label: String($0)) })
                     .frame(width: 120)
             }
         }
@@ -43,13 +43,18 @@ struct SettingsView: View {
 
     private var dashboardPanel: some View {
         settingsGroup("Dashboard") {
-            settingsRow(tr("应用")) {
-                HStack(spacing: 8) {
-                    DSSelectControl(title: tr("应用"), selection: $model.dashboardKind,
-                                    options: DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) })
-                        .frame(width: 180)
-                    Button(tr("启动 Dashboard")) { launchDashboard() }
+            settingsRow(tr("Dashboard 应用")) {
+                VStack(alignment: .trailing, spacing: 10) {
+                    DSMultiSelectControl(title: tr("Dashboard 应用"),
+                                         selection: $model.dashboardSelection,
+                                         options: DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) })
+                        .frame(width: 460)
+                    Button(tr("启动 Dashboard")) { model.launchSelectedDashboards() }
                         .buttonStyle(DSActionStyle())
+                        .disabled(model.dashboardSelection.isEmpty)
+                        .help(model.dashboardSelection.isEmpty
+                              ? tr("至少选择一个 Dashboard 才能启动")
+                              : tr("同时启动所有选中的 Dashboard"))
                 }
             }
         }
@@ -155,22 +160,66 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity)
             .padding(.leading, 16)
     }
+}
 
-    private func launchDashboard() {
-        let appName: String
-        switch model.dashboardKind {
-        case .advantageScope: appName = "AdvantageScope"
-        case .shuffleboard: appName = "shuffleboard"
-        case .elastic: appName = "Elastic"
+/// 多选版分段控件：视觉与 DSSegmentedControl 一致，但每个选项独立开关（可全部关闭）。
+private struct DSMultiSelectControl<Value: Hashable>: View {
+    let title: String
+    @Binding var selection: Set<Value>
+    let options: [DSSelectOption<Value>]
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { option in
+                let isSelected = selection.contains(option.value)
+                Button {
+                    toggle(option.value)
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(option.label)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .frame(maxWidth: .infinity, minHeight: 26)
+                    .foregroundStyle(isSelected ? DSTheme.textPrimary : DSTheme.textSecondary)
+                    .background(isSelected ? DSTheme.segmentSelected : .clear,
+                                in: RoundedRectangle(cornerRadius: 5))
+                    .shadow(color: isSelected ? .black.opacity(0.12) : .clear, radius: 1, y: 1)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(DSMultiSelectButtonStyle(isSelected: isSelected))
+                .accessibilityLabel("\(title)，\(option.label)")
+                .accessibilityValue(isSelected ? tr("已选择") : tr("未选择"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
         }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = ["-a", appName]
-        do {
-            try p.run()
-            model.log(tr("尝试启动 Dashboard：%@", appName))
-        } catch {
-            model.log(tr("启动 Dashboard 失败：%@（%@）——请确认已安装该应用", appName, error.localizedDescription))
+        .padding(2)
+        .background(DSTheme.segmentTrack, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
+        .frame(minHeight: 32)
+    }
+
+    private func toggle(_ value: Value) {
+        if selection.contains(value) {
+            selection.remove(value)
+        } else {
+            selection.insert(value)
         }
+    }
+}
+
+private struct DSMultiSelectButtonStyle: ButtonStyle {
+    let isSelected: Bool
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(!isSelected && (hovering || configuration.isPressed) ? DSTheme.hover.opacity(0.65) : .clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+            .onHover { hovering = $0 }
     }
 }

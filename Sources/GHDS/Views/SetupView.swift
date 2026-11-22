@@ -1,6 +1,5 @@
 import SwiftUI
 import DSCore
-import Darwin
 
 // Connection edits stay local until Apply; all transport and control decisions remain in DSModel.
 // The draft object is owned by RootView and survives navigation; untouched drafts follow the model.
@@ -46,7 +45,7 @@ struct SetupView: View {
     }
 
     private var connectionPanel: some View {
-        DSPanel(title: tr("连接机器人"), subtitle: tr("选择机器人类型，填入队伍号，然后应用设置。")) {
+        DSPanel(title: tr("连接机器人")) {
             HStack(spacing: 10) {
                 DSBadge(text: connectionStatus, color: model.commConnected ? .green : .secondary,
                         symbol: model.commConnected ? "checkmark.circle.fill" : "network")
@@ -69,51 +68,18 @@ struct SetupView: View {
                 ])
             }
 
-            HStack(alignment: .top, spacing: 20) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(tr("队伍号")).font(.callout.weight(.medium))
-                    TextField(tr("例如 1234"), text: $draft.teamNumber)
-                        .textFieldStyle(DSTextFieldStyle())
-                        .font(.system(.body, design: .monospaced))
-                        .accessibilityLabel(tr("队伍号"))
-                    Text(tr("填 0 时仅自动尝试 USB。"))
-                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
-                }
-                .frame(width: 170)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(tr("手动 IP 地址")).font(.callout.weight(.medium))
-                    TextField(tr("留空，自动寻找机器人"), text: $draft.manualIP)
-                        .textFieldStyle(DSTextFieldStyle())
-                        .font(.system(.body, design: .monospaced))
-                        .accessibilityLabel(tr("手动 IP 地址，留空使用自动连接"))
-                    Text(tr("通常无需填写；仅在指定地址连接时使用。"))
-                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(tr("队伍号或 IP 地址")).font(.callout.weight(.medium))
+                TextField(tr("例如 1234 或 10.12.34.2"), text: $draft.targetText)
+                    .textFieldStyle(DSTextFieldStyle())
+                    .font(.system(.body, design: .monospaced))
+                    .accessibilityLabel(tr("队伍号或 IP 地址"))
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.circle")
                     .font(.callout).foregroundStyle(DSTheme.warning)
-            } else {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(hasConnectionChanges ? tr("应用后将尝试") : tr("当前连接目标"))
-                        .font(.caption.weight(.medium)).foregroundStyle(DSTheme.textSecondary)
-                    Text(targetSummary)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(DSTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                }
-            }
-
-            // 已应用的手动地址（model 真值，不是草稿）：自动发现关闭 / 本机回环提醒
-            if let warning = model.appliedManualIPWarning {
-                Label(warning, systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(DSTheme.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(warning)
             }
 
             Divider()
@@ -121,8 +87,8 @@ struct SetupView: View {
                 if connectionEditingLocked {
                     Label(tr("先失能并结束练习，再更改连接目标。"), systemImage: "lock.fill")
                         .font(.callout).foregroundStyle(DSTheme.textSecondary)
-                } else {
-                    Text(hasConnectionChanges ? tr("尚未应用；修改会保留到应用或还原") : tr("连接设置已应用"))
+                } else if hasConnectionChanges {
+                    Text(tr("尚未应用；修改会保留到应用或还原"))
                         .font(.callout).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
@@ -142,7 +108,7 @@ struct SetupView: View {
     }
 
     private var simulatorPanel: some View {
-        DSPanel(title: tr("没有机器人？先试用模拟器"), subtitle: tr("在这台 Mac 上模拟 roboRIO，无真实执行机构。")) {
+        DSPanel(title: tr("没有机器人？先试用模拟器")) {
             HStack(alignment: .center, spacing: 16) {
                 Image(systemName: "desktopcomputer")
                     .font(.system(size: 26, weight: .light))
@@ -151,15 +117,13 @@ struct SetupView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(simProcess?.isRunning == true ? tr("本机模拟器正在运行") : tr("试用连接、控制和状态反馈"))
                         .font(.callout.weight(.medium))
-                    Text(tr("启动成功后，连接目标会切换为本机 127.0.0.1。"))
-                        .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
                 if simProcess?.isRunning == true {
                     Button(tr("停止模拟器")) {
                         simProcess?.terminate()
                         simProcess = nil
-                        actionMessage = tr("模拟器已停止；连接目标仍为本机，可在上方改回自动连接。")
+                        actionMessage = tr("模拟器已停止。")
                     }
                     .buttonStyle(DSActionStyle())
                     .disabled(connectionEditingLocked)
@@ -180,27 +144,12 @@ struct SetupView: View {
         }
     }
 
-    private var normalizedManualIP: String { draft.manualIP.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var parsedTeamNumber: Int? { Int(draft.teamNumber.trimmingCharacters(in: .whitespacesAndNewlines)) }
     private var connectionEditingLocked: Bool { model.uiConnectionEditingLocked }
-    private var hasConnectionChanges: Bool {
-        parsedTeamNumber != model.teamNumber || normalizedManualIP != model.manualIP || draft.protocolKind != model.protocolKind
-    }
+    private var hasConnectionChanges: Bool { draft.hasChanges(comparedTo: model) }
 
     private var validationMessage: String? {
-        guard let team = parsedTeamNumber, team >= 0 else { return tr("队伍号应为非负整数；仅用 USB 时填写 0。") }
-        guard !normalizedManualIP.isEmpty else { return nil }
-        var address = in_addr()
-        guard inet_pton(AF_INET, normalizedManualIP, &address) == 1 else {
-            return tr("请输入有效的 IPv4 地址，例如 10.12.34.2；自动连接时留空。")
-        }
-        return nil
-    }
-
-    private var targetSummary: String {
-        if !normalizedManualIP.isEmpty { return normalizedManualIP }
-        guard let team = parsedTeamNumber, team > 0 else { return "USB 172.22.11.2" }
-        return "roboRIO-\(team)-FRC.local → 10.\(team / 100).\(team % 100).2 → USB 172.22.11.2"
+        guard draft.parsedTarget == nil else { return nil }
+        return tr("请输入非负队伍号或有效的 IPv4 地址；队伍号 0 表示仅 USB。")
     }
 
     private func resetConnectionDraft() {
@@ -209,10 +158,9 @@ struct SetupView: View {
     }
 
     private func applyConnectionSettings() {
-        guard !connectionEditingLocked, validationMessage == nil, let team = parsedTeamNumber else { return }
-        if model.teamNumber != team { model.teamNumber = team }
+        guard !connectionEditingLocked else { return }
+        guard draft.apply(to: model) else { return }
         if model.protocolKind != draft.protocolKind { model.protocolKind = draft.protocolKind }
-        if model.manualIP != normalizedManualIP { model.manualIP = normalizedManualIP }
         resetConnectionDraft()
         actionMessage = tr("已应用连接设置，正在寻找机器人。")
     }

@@ -30,14 +30,16 @@ struct UIStateTests {
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
-        check([AllianceStation.red1, .red2, .red3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceRed },
-              "red alliance selections use official FRC red")
-        check([AllianceStation.blue1, .blue2, .blue3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.allianceBlue },
-              "blue alliance selections use official FRC blue")
-        check(renderedAllianceSelectionMatches(.red1, red: 237 / 255, green: 28 / 255, blue: 36 / 255),
-              "rendered red selection uses official FRC red pixels")
-        check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 102 / 255, blue: 179 / 255),
-              "rendered blue selection uses official FRC blue pixels")
+        check(DSTheme.allianceRed == DSTheme.danger &&
+              [AllianceStation.red1, .red2, .red3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.danger },
+              "red alliance selections use semantic danger color")
+        check(DSTheme.allianceBlue == DSTheme.accent &&
+              [AllianceStation.blue1, .blue2, .blue3].allSatisfy { DSTheme.allianceColor(for: $0) == DSTheme.accent },
+              "blue alliance selections use semantic accent color")
+        check(renderedAllianceSelectionMatches(.red1, red: 1, green: 59 / 255, blue: 48 / 255),
+              "rendered red selection uses semantic danger pixels")
+        check(renderedAllianceSelectionMatches(.blue1, red: 0, green: 122 / 255, blue: 1),
+              "rendered blue selection uses semantic accent pixels")
         model.setEnabled(true)
         check(!model.enabled, "offline enable request is refused")
         model.triggerEstop()
@@ -139,11 +141,11 @@ struct UIStateTests {
         let draftModel = DSModel()
         draftModel.teamNumber = 2590
         draft.load(from: draftModel)
-        check(draft.teamNumber == "2590" && !draft.userEdited, "draft loads from model without edit flag")
-        draft.manualIP = "10.25.90.2"
+        check(draft.targetText == "2590" && !draft.userEdited, "draft loads from model without edit flag")
+        draft.targetText = "10.25.90.2"
         check(draft.userEdited, "editing marks the draft dirty")
         draft.load(from: draftModel)
-        check(draft.manualIP.isEmpty && !draft.userEdited, "reload discards edits and clears the flag")
+        check(draft.targetText == "2590" && !draft.userEdited, "reload discards edits and clears the flag")
 
         // 更新安全门映射（Phase 4 / Sparkle 重启门）：点击时刻现场求值自 DSModel 三态
         let upd = DSModel()
@@ -417,7 +419,7 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<8).map { _ in "ghds.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<12).map { _ in "ghds.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
         // ⑤ GHDS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
@@ -476,9 +478,80 @@ struct UIStateTests {
         warnModel.manualIP = "10.25.90.2"
         let warnDraft = ConnectionDraft()
         warnDraft.load(from: warnModel)
-        warnDraft.manualIP = "127.0.0.1"
+        warnDraft.targetText = "127.0.0.1"
         check(!(warnModel.appliedManualIPWarning ?? "").contains("本机"),
               "warning follows the applied model value, not the editable draft")
+
+        // 单目标连接草稿（2026-11-22）：解析、旧双值恢复、team/IP 映射、脏检查
+        check(ConnectionDraft.parseTarget(" 2590 ") == .team(2590),
+              "team target trims whitespace")
+        check(ConnectionDraft.parseTarget("0") == .team(0),
+              "zero remains the USB-only team target")
+        check(ConnectionDraft.parseTarget(" 10.25.90.2\n") == .manualIP("10.25.90.2"),
+              "IPv4 target trims whitespace")
+        check(ConnectionDraft.parseTarget("") == nil, "empty target is invalid")
+        check(ConnectionDraft.parseTarget("-1") == nil, "negative team is invalid")
+        check(ConnectionDraft.parseTarget("abc") == nil, "non-numeric team is invalid")
+        check(ConnectionDraft.parseTarget("10.25.90") == nil, "incomplete IPv4 is invalid")
+        check(ConnectionDraft.parseTarget("999.1.1.1") == nil, "out-of-range IPv4 is invalid")
+
+        let parsedDraft = ConnectionDraft()
+        parsedDraft.targetText = " 10.25.90.2 "
+        check(parsedDraft.parsedTarget == .manualIP("10.25.90.2"),
+              "draft exposes the parsed, trimmed IP target")
+        parsedDraft.targetText = " 2590 "
+        check(parsedDraft.parsedTarget == .team(2590),
+              "draft exposes the parsed, trimmed team target")
+
+        let targetModel = DSModel(settingsDefaults: makeSuite(suiteNames[11]), persistenceEnabled: true)
+        targetModel.teamNumber = 2590
+        targetModel.manualIP = "127.0.0.1"
+        let targetDraft = ConnectionDraft()
+        targetDraft.load(from: targetModel)
+        check(targetDraft.targetText == "127.0.0.1" && !targetDraft.hasChanges(comparedTo: targetModel),
+              "legacy dual values load the address that actually takes precedence")
+
+        targetDraft.targetText = "2590"
+        check(targetDraft.hasChanges(comparedTo: targetModel), "switching from IP to team is a change")
+        check(targetDraft.apply(to: targetModel), "valid team target applies")
+        check(targetModel.teamNumber == 2590 && targetModel.manualIP.isEmpty,
+              "team target clears the old manual IP")
+        check(!targetDraft.hasChanges(comparedTo: targetModel), "applied team target is no longer dirty")
+
+        targetDraft.targetText = "10.25.90.2"
+        check(targetDraft.apply(to: targetModel), "valid IP applies without requiring a separate team field")
+        check(targetModel.teamNumber == 2590 && targetModel.manualIP == "10.25.90.2",
+              "IP target preserves team identity for radio and presentation")
+        check(!targetDraft.hasChanges(comparedTo: targetModel), "applied IP target is no longer dirty")
+
+        targetDraft.targetText = "10.25.90"
+        check(!targetDraft.apply(to: targetModel), "invalid target is rejected")
+        check(targetModel.teamNumber == 2590 && targetModel.manualIP == "10.25.90.2",
+              "invalid target does not mutate applied settings")
+
+        targetDraft.targetText = "0"
+        check(targetDraft.apply(to: targetModel), "zero target applies")
+        check(targetModel.teamNumber == 0 && targetModel.manualIP.isEmpty,
+              "zero clears manual IP and selects USB-only behavior")
+
+        let kindDraft = ConnectionDraft()
+        kindDraft.load(from: targetModel)
+        check(!kindDraft.hasChanges(comparedTo: targetModel), "clean draft matches the applied model")
+        kindDraft.protocolKind = .mrc
+        check(kindDraft.hasChanges(comparedTo: targetModel) && kindDraft.targetText == "0",
+              "protocolKind change marks the draft dirty without touching target text")
+
+        let invalidDraft = ConnectionDraft()
+        invalidDraft.load(from: targetModel)
+        invalidDraft.targetText = "10.25.90"
+        check(invalidDraft.parsedTarget == nil && invalidDraft.hasChanges(comparedTo: targetModel),
+              "invalid text keeps a restorable dirty state")
+        check(!invalidDraft.apply(to: targetModel), "invalid draft cannot be applied")
+        check(targetModel.teamNumber == 0 && targetModel.manualIP.isEmpty,
+              "rejected invalid draft leaves the applied model untouched")
+        invalidDraft.load(from: targetModel)
+        check(invalidDraft.targetText == "0" && !invalidDraft.userEdited,
+              "reload restores the applied target and clears the edit flag")
 
         // ⑧ Radio 状态日志：仅真实翻转回调记录，重复不刷
         let radioModel = DSModel(settingsDefaults: makeSuite(suiteNames[4]), persistenceEnabled: true)
@@ -600,23 +673,31 @@ struct UIStateTests {
                                 "PowerUp_LinearPop", "PowerUp_LinearPop", "WARNEOM_2026", "ENDMATCH"],
               "2026 practice plays official cues in chronological order")
 
-        let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
-        legacyAudio.practiceSeasonYear = 2022
-        legacyAudio.practiceAutoTime = 0.1
-        legacyAudio.practiceTeleopTime = 0.1
-        legacyAudio.practiceDelayTime = 0
-        legacyAudio.practiceStartDelay = 0
-        var legacyPlayed: [String] = []
-        legacyAudio.practiceAudio.playHandler = {
-            legacyPlayed.append($0)
-            legacyAudio.practiceAudio.finishCurrent()
+        let legacySeasons = [
+            (year: 2022, warning: "WARNEOM_2022_2023"),
+            (year: 2023, warning: "WARNEOM_2022_2023"),
+            (year: 2024, warning: "Guitar"),
+            (year: 2025, warning: "Sonar"),
+        ]
+        for season in legacySeasons {
+            let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+            legacyAudio.practiceSeasonYear = season.year
+            legacyAudio.practiceAutoTime = 0.1
+            legacyAudio.practiceTeleopTime = 0.1
+            legacyAudio.practiceDelayTime = 0
+            legacyAudio.practiceStartDelay = 0
+            var legacyPlayed: [String] = []
+            legacyAudio.practiceAudio.playHandler = {
+                legacyPlayed.append($0)
+                legacyAudio.practiceAudio.finishCurrent()
+            }
+            legacyAudio.practiceAudio.finishHandler = {}
+            legacyAudio.startPractice()
+            let legacyDeadline = Date().addingTimeInterval(0.8)
+            while Date() < legacyDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            check(legacyPlayed == ["CHARGE", "ENDMATCH", "3BELLS", season.warning, "ENDMATCH"],
+                  "\(season.year) practice plays its warning before the match-end Buzzer")
         }
-        legacyAudio.practiceAudio.finishHandler = {}
-        legacyAudio.startPractice()
-        let legacyDeadline = Date().addingTimeInterval(0.8)
-        while Date() < legacyDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-        check(legacyPlayed == ["CHARGE", "ENDMATCH", "3BELLS", "ENDMATCH"],
-              "2022 zero-transition practice keeps Buzzer and 3 Bells in order")
 
         let stopAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
         stopAudio.practiceStartDelay = 0
@@ -629,6 +710,167 @@ struct UIStateTests {
         stopAudio.startPractice()
         stopAudio.aStop()
         check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
+
+        check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2022) == "Fanfare",
+              "2022 Timeout warning uses the official trumpet Fanfare")
+        check(PracticeSoundCatalog.fileName(for: .timeoutWarning, year: 2023) == nil,
+              "later seasons do not inherit the 2022 Timeout Fanfare")
+
+        let timeoutAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        timeoutAudio.practiceSeasonYear = 2022
+        timeoutAudio.timeoutDuration = 0.3
+        var timeoutPlayed: [String] = []
+        timeoutAudio.practiceAudio.playHandler = {
+            timeoutPlayed.append($0)
+            timeoutAudio.practiceAudio.finishCurrent()
+        }
+        timeoutAudio.practiceAudio.finishHandler = {}
+        timeoutAudio.startTimeout()
+        check(timeoutAudio.timeoutActive && timeoutAudio.timeoutRemaining > 0, "2022 Timeout starts its countdown")
+        timeoutAudio.setEnabled(true)
+        check(!timeoutAudio.enabled, "Timeout does not allow enabling the robot")
+        timeoutAudio.startPractice()
+        check(!timeoutAudio.practiceActive, "Timeout and normal practice are mutually exclusive")
+        let timeoutDeadline = Date().addingTimeInterval(1)
+        while Date() < timeoutDeadline { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+        check(timeoutPlayed == ["Fanfare", "ENDMATCH"], "Timeout plays Fanfare at warning and Buzzer at zero")
+        check(!timeoutAudio.timeoutActive && timeoutAudio.timeoutRemaining == 0 && !timeoutAudio.enabled,
+              "Timeout finishes disabled without starting a match")
+
+        let cancelTimeout = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        cancelTimeout.practiceSeasonYear = 2022
+        cancelTimeout.soundsEnabled = false
+        cancelTimeout.startTimeout()
+        cancelTimeout.cancelTimeout()
+        check(!cancelTimeout.timeoutActive && cancelTimeout.timeoutRemaining == 0, "cancel stops and clears Timeout")
+        cancelTimeout.startTimeout()
+        cancelTimeout.triggerEstop()
+        check(!cancelTimeout.timeoutActive && cancelTimeout.estopEngaged, "E-Stop cancels Timeout")
+
+        let unsupportedTimeout = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        unsupportedTimeout.practiceSeasonYear = 2023
+        unsupportedTimeout.startTimeout()
+        check(!unsupportedTimeout.timeoutActive, "Timeout audio simulation is specific to the 2022 rules")
+        // ⑫ 比赛年份：下拉新→旧；Preset.all 事实顺序不变
+        let orderedYearModel = DSModel()
+        check(orderedYearModel.practiceSeasonYearChoices == [2026, 2025, 2024, 2023, 2022],
+              "season picker lists years newest first")
+        check(PracticeTimingPreset.all.map(\.year) == [2022, 2023, 2024, 2025, 2026],
+              "preset fact order is untouched by UI ordering")
+
+        // ⑬ Dashboard 多选：字母序、即时持久化、重启恢复、旧键兼容、空选择
+        check(DashboardKind.allCases.map(\.rawValue) == ["AdvantageScope", "Elastic", "Shuffleboard"],
+              "dashboard controls are ordered AdvantageScope, Elastic, Shuffleboard")
+        let dashboardSuite = makeSuite(suiteNames[8])
+        let dashboardModel = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
+        check(dashboardModel.selectedDashboards == [.advantageScope],
+              "fresh install keeps the legacy AdvantageScope default")
+        dashboardModel.dashboardSelection = [.shuffleboard, .advantageScope]
+        check(dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
+              "selection is presented in alphabetical order")
+        check(dashboardSuite.string(forKey: "ghds.dashboards") == "AdvantageScope,Shuffleboard",
+              "selection persists immediately in canonical order")
+        check(dashboardSuite.string(forKey: "ghds.dashboardKind") == "AdvantageScope",
+              "legacy single-select key mirrors the first selection")
+        let restoredDashboard = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
+        restoredDashboard.loadPersistedSettings()
+        check(restoredDashboard.dashboardSelection == [.advantageScope, .shuffleboard],
+              "multi-selection restores after restart")
+
+        dashboardModel.dashboardSelection = []
+        check(dashboardSuite.string(forKey: "ghds.dashboards") == "",
+              "empty selection persists as an empty list")
+        let restoredEmpty = DSModel(settingsDefaults: dashboardSuite, persistenceEnabled: true)
+        restoredEmpty.loadPersistedSettings()
+        check(restoredEmpty.dashboardSelection.isEmpty,
+              "empty selection survives restart instead of falling back to a default")
+        check(restoredEmpty.dashboardKind == nil,
+              "legacy view reports no selection when all dashboards are unchecked")
+
+        // 旧版单选键：新键缺失 → 直接恢复；新键损坏 → 回退旧键（外部数据容错）
+        let legacySuite = makeSuite(suiteNames[9])
+        legacySuite.set("Shuffleboard", forKey: "ghds.dashboardKind")
+        let legacyDashboard = DSModel(settingsDefaults: legacySuite, persistenceEnabled: true)
+        legacyDashboard.loadPersistedSettings()
+        check(legacyDashboard.dashboardSelection == [.shuffleboard],
+              "legacy dashboardKind setting restores as a single selection")
+        legacySuite.set("AdvantageScope,Bogus", forKey: "ghds.dashboards")
+        let corruptDashboard = DSModel(settingsDefaults: legacySuite, persistenceEnabled: true)
+        corruptDashboard.loadPersistedSettings()
+        check(corruptDashboard.dashboardSelection == [.shuffleboard],
+              "corrupt multi-select value falls back to the legacy key")
+
+        // WebUI：旧键仍按单选生效，新键支持逗号多选；非法项拒绝且不改现状
+        check(dashboardModel.applyWebSetting(key: "dashboardKind", value: "Elastic") == nil &&
+              dashboardModel.dashboardSelection == [.elastic],
+              "WebUI legacy key maps to a single selection")
+        check(dashboardModel.applyWebSetting(key: "dashboards", value: "AdvantageScope, Shuffleboard") == nil &&
+              dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
+              "WebUI multi-select key accepts a comma-separated list")
+        check(dashboardModel.applyWebSetting(key: "dashboards", value: "AdvantageScope,Unknown") != nil &&
+              dashboardModel.selectedDashboards == [.advantageScope, .shuffleboard],
+              "unknown dashboard entries are rejected without changing state")
+        check(dashboardModel.applyWebSetting(key: "dashboards", value: "") == nil &&
+              dashboardModel.dashboardSelection.isEmpty,
+              "clearing all dashboards through the WebUI key is allowed")
+        dashboardModel.dashboardSelection = [.elastic, .shuffleboard]
+        let webSnapshot = dashboardModel.webSettingsSnapshot()
+        check(webSnapshot["dashboardKind"] == "Elastic" && webSnapshot["dashboards"] == "Elastic,Shuffleboard",
+              "WebUI snapshot exposes both the legacy key and the full selection")
+        check(dashboardModel.applyWebSetting(key: "dashboardKind", value: "") == nil &&
+              dashboardModel.dashboardSelection.isEmpty,
+              "empty legacy key clears the selection for snapshot round-trips")
+
+        // 启动器注入：测试只记录调用，绝不打开真实 App；单项失败不阻断其余项
+        let launchModel = DSModel(settingsDefaults: makeSuite(suiteNames[10]), persistenceEnabled: false)
+        var opened: [String] = []
+        launchModel.dashboardLauncher.open = { opened.append($0.applicationName) }
+        launchModel.dashboardSelection = [.shuffleboard, .elastic]
+        let launched = launchModel.launchSelectedDashboards()
+        check(opened == ["Elastic", "shuffleboard"],
+              "launch opens every selected dashboard in alphabetical order")
+        check(launched == [.elastic, .shuffleboard],
+              "launch reports the dashboards handed to the system")
+        opened.removeAll()
+        launchModel.dashboardSelection = []
+        check(launchModel.launchSelectedDashboards().isEmpty && opened.isEmpty,
+              "empty selection launches nothing")
+
+        enum FakeLaunchError: Error { case missing }
+        launchModel.dashboardSelection = [.advantageScope, .elastic, .shuffleboard]
+        launchModel.dashboardLauncher.open = { kind in
+            if kind == .elastic { throw FakeLaunchError.missing }
+            opened.append(kind.applicationName)
+        }
+        let partial = launchModel.launchSelectedDashboards()
+        check(opened == ["AdvantageScope", "shuffleboard"] && partial == [.advantageScope, .shuffleboard],
+              "one failed dashboard does not stop the remaining launches")
+        check(launchModel.dsEvents.contains { $0.text.contains("启动 Dashboard 失败") && $0.text.contains("Elastic") },
+              "a failed dashboard launch is logged")
+
+        // 任意 1–3 个组合：一次启动恰好全部选中项，顺序恒为字母序
+        let subsetModel = DSModel(settingsDefaults: makeSuite(suiteNames[10]), persistenceEnabled: false)
+        var plan: [String] = []
+        subsetModel.dashboardLauncher.open = { plan.append($0.applicationName) }
+        let allDashboards = DashboardKind.allCases
+        var matchingSubsets = 0
+        for mask in 1..<(1 << allDashboards.count) {
+            let subset = Set(allDashboards.indices.filter { mask & (1 << $0) != 0 }.map { allDashboards[$0] })
+            subsetModel.dashboardSelection = subset
+            plan.removeAll()
+            let result = subsetModel.launchSelectedDashboards()
+            let expected = allDashboards.filter { subset.contains($0) }
+            if result == expected && plan == expected.map(\.applicationName) { matchingSubsets += 1 }
+        }
+        check(matchingSubsets == 7, "every 1–3 dashboard combination launches exactly the selected apps")
+
+        // 禁用持久化（AUTO_SIM / 测试注入）只改内存，不写正式设置
+        let frozenDashSuite = makeSuite(suiteNames[10])
+        let frozenDash = DSModel(settingsDefaults: frozenDashSuite, persistenceEnabled: false)
+        frozenDash.dashboardSelection = [.elastic]
+        check(frozenDash.selectedDashboards == [.elastic], "selection still updates in memory")
+        check(frozenDashSuite.object(forKey: "ghds.dashboards") == nil,
+              "disabled persistence leaves dashboard storage untouched")
 
         for name in suiteNames {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)

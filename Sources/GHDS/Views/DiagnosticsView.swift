@@ -66,7 +66,7 @@ struct DiagnosticsView: View {
     }
 
     private var resourcesPanel: some View {
-        DSPanel(title: tr("机器人资源"), subtitle: model.commConnected ? tr("控制器回传") : tr("连接后显示实时数据")) {
+        DSPanel(title: tr("机器人资源")) {
             if model.commConnected && !model.cpuCores.isEmpty {
                 ForEach(model.cpuCores.indices, id: \.self) { core in
                     let load = coreLoad(model.cpuCores[core])
