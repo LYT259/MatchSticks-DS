@@ -1031,7 +1031,223 @@ struct UIStateTests {
                                 "PowerUp_LinearPop", "PowerUp_LinearPop", "WARNEOM_2026", "ENDMATCH"],
               "connected practice adds no operator cues on automatic enable/disable")
 
-        for name in suiteNames + [estopAudioSuiteName] {
+        // ===== Task 2：比赛信息 / 录制持久化（2026-11-22）=====
+
+        let task2SuiteNames = (0..<8).map { _ in "org.ghfrc.driverstation.test.uitests.task2.\(UUID().uuidString)" }
+
+        // ⑮ 比赛信息：赛事 / Game Data / 场次类型 即时落盘、重启恢复、清空不残留、非法场次类型忽略
+        let matchSuite = makeSuite(task2SuiteNames[1])
+        let matchModel = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+        check(matchModel.competition.isEmpty && matchModel.gameData.isEmpty && matchModel.matchType == 0,
+              "match info defaults are empty")
+        matchModel.competition = "Midwest Regional"
+        matchModel.gameData = "LRL"
+        matchModel.matchType = 2
+        check(matchSuite.string(forKey: "matchsticks.competition") == "Midwest Regional",
+              "competition persists immediately")
+        check(matchSuite.string(forKey: "matchsticks.gameData") == "LRL",
+              "game data persists immediately")
+        check(matchSuite.integer(forKey: "matchsticks.matchType") == 2,
+              "match type persists immediately")
+        let restoredMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+        restoredMatch.loadPersistedSettings()
+        check(restoredMatch.competition == "Midwest Regional" && restoredMatch.gameData == "LRL" &&
+              restoredMatch.matchType == 2,
+              "match info round-trips across restart")
+        matchModel.competition = ""
+        matchModel.gameData = ""
+        check(matchSuite.object(forKey: "matchsticks.competition") == nil &&
+              matchSuite.object(forKey: "matchsticks.gameData") == nil,
+              "clearing text fields removes the stored values instead of persisting empty strings")
+        let restoredClearedMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+        restoredClearedMatch.loadPersistedSettings()
+        check(restoredClearedMatch.competition.isEmpty && restoredClearedMatch.gameData.isEmpty,
+              "cleared match info restores as defaults")
+        for bad in [-1, 4, 255] {
+            matchSuite.set(bad, forKey: "matchsticks.matchType")
+            let invalidMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+            invalidMatch.loadPersistedSettings()
+            check(invalidMatch.matchType == 0, "out-of-range stored match type \(bad) is ignored on restore")
+        }
+        matchSuite.set(true, forKey: "matchsticks.matchType")
+        let booleanMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+        booleanMatch.loadPersistedSettings()
+        check(booleanMatch.matchType == 0, "non-integer stored match type is ignored on restore")
+        for edge in [0, 3] {
+            matchSuite.set(edge, forKey: "matchsticks.matchType")
+            let edgeMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+            edgeMatch.loadPersistedSettings()
+            check(edgeMatch.matchType == UInt8(edge), "boundary match type \(edge) restores")
+        }
+        matchModel.matchType = 3
+        let restoredTypeMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+        restoredTypeMatch.loadPersistedSettings()
+        check(restoredTypeMatch.matchType == 3, "playoff match type restores")
+        matchModel.matchType = 0
+        let restoredNoneTypeMatch = DSModel(settingsDefaults: matchSuite, persistenceEnabled: true)
+        restoredNoneTypeMatch.loadPersistedSettings()
+        check(restoredNoneTypeMatch.matchType == 0, "unspecified match type restores as 0")
+
+        let frozenMatchSuite = makeSuite(task2SuiteNames[2])
+        let frozenMatch = DSModel(settingsDefaults: frozenMatchSuite, persistenceEnabled: false)
+        frozenMatch.competition = "Frozen Regional"
+        frozenMatch.gameData = "RRR"
+        frozenMatch.matchType = 1
+        check(frozenMatch.competition == "Frozen Regional" && frozenMatch.gameData == "RRR" && frozenMatch.matchType == 1,
+              "match info still updates in memory when persistence is disabled")
+        check(frozenMatchSuite.object(forKey: "matchsticks.competition") == nil &&
+              frozenMatchSuite.object(forKey: "matchsticks.gameData") == nil &&
+              frozenMatchSuite.object(forKey: "matchsticks.matchType") == nil,
+              "disabled persistence leaves match info storage untouched")
+
+        // ⑯ 录制偏好：即时落盘、重启恢复；恢复 true 按既有开关行为开始录制，
+        //    但 Application Support 重定向到临时目录，测试绝不写真实用户抓包
+        let previousSupportOverride = ProcessInfo.processInfo.environment[AppSupportDirectory.overrideEnvironmentKey]
+        let scratchSupport = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("MatchSticks-DS-task2-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: scratchSupport, withIntermediateDirectories: true)
+        setenv(AppSupportDirectory.overrideEnvironmentKey, scratchSupport.path, 1)
+        check(AppSupportDirectory().url.path == scratchSupport.appendingPathComponent("MatchSticksDS").path,
+              "recording tests redirect Application Support to a scratch directory")
+
+        let recordingSuite = makeSuite(task2SuiteNames[3])
+        let recordingModel = DSModel(settingsDefaults: recordingSuite, persistenceEnabled: true)
+        check(!recordingModel.recording, "packet recording defaults to off")
+        recordingModel.recording = true
+        check((recordingSuite.object(forKey: "matchsticks.recording") as? NSNumber)?.boolValue == true,
+              "recording preference persists immediately")
+        check(recordingModel.dsEvents.contains { $0.text.contains("抓包录制开始") },
+              "starting recording logs the capture file")
+        recordingModel.recording = false
+        check((recordingSuite.object(forKey: "matchsticks.recording") as? NSNumber)?.boolValue == false,
+              "turning recording off persists false")
+        recordingSuite.set(true, forKey: "matchsticks.recording")
+        let restoredRecording = DSModel(settingsDefaults: recordingSuite, persistenceEnabled: true)
+        restoredRecording.loadPersistedSettings()
+        check(restoredRecording.recording, "recording preference restores after restart")
+        let scratchCaptures = AppSupportDirectory().subdirectory("captures", create: false)
+        let scratchCaptureFiles = (try? FileManager.default.contentsOfDirectory(atPath: scratchCaptures.path)) ?? []
+        // 文件名精确到秒：同一秒内两次开始会落到同名文件，故只断言重定向目录里确有抓包、不多于 2 个
+        let scratchCaptureCount = scratchCaptureFiles.filter { $0.hasPrefix("capture-") && $0.hasSuffix(".dsrec") }.count
+        check((1...2).contains(scratchCaptureCount),
+              "recording writes capture files only into the redirected Application Support directory")
+        check(restoredRecording.dsEvents.contains { $0.text.contains("抓包录制开始") },
+              "restored recording logs its start like a manual toggle")
+        restoredRecording.recording = false
+        check(!restoredRecording.recording, "recording can be switched off after restore")
+        check((recordingSuite.object(forKey: "matchsticks.recording") as? NSNumber)?.boolValue == false,
+              "switching recording off after restore persists false")
+
+        let untouchedRecordingSuite = makeSuite(task2SuiteNames[4])
+        let untouchedRecording = DSModel(settingsDefaults: untouchedRecordingSuite, persistenceEnabled: true)
+        untouchedRecording.loadPersistedSettings()
+        check(!untouchedRecording.recording, "fresh install does not record")
+
+        let frozenRecordingSuite = makeSuite(task2SuiteNames[5])
+        let frozenRecording = DSModel(settingsDefaults: frozenRecordingSuite, persistenceEnabled: false)
+        frozenRecording.recording = true
+        frozenRecording.recording = false
+        check(frozenRecordingSuite.object(forKey: "matchsticks.recording") == nil,
+              "disabled persistence leaves recording storage untouched")
+
+        // ⑰ 外观：system/light/dark 原始值与 NSAppearance 映射；像语言一样落盘并在持久化门控前恢复；
+        //    切换经 NSApp.appearance 全局生效；测试结束恢复进程原外观，避免泄漏到其他用例
+        let previousAppearance = NSApplication.shared.appearance
+        check(AppearanceMode.allCases.map(\.rawValue) == ["system", "light", "dark"],
+              "appearance modes are system, light and dark with stable raw values")
+        check(AppearanceMode.system.nsAppearance == nil, "system appearance maps to nil so the app follows macOS")
+        check(AppearanceMode.light.nsAppearance?.name == .aqua, "light appearance maps to aqua")
+        check(AppearanceMode.dark.nsAppearance?.name == .darkAqua, "dark appearance maps to darkAqua")
+        check(AppearanceMode.system.colorScheme == nil && AppearanceMode.light.colorScheme == .light &&
+              AppearanceMode.dark.colorScheme == .dark,
+              "optional color scheme mapping mirrors the appearance")
+        check(AppearanceMode(rawValue: "dark") == .dark && AppearanceMode(rawValue: "neon") == nil,
+              "appearance raw values round-trip and reject unknown values")
+
+        let appearanceSuite = makeSuite(task2SuiteNames[6])
+        let appearanceModel = DSModel(settingsDefaults: appearanceSuite, persistenceEnabled: true)
+        check(appearanceModel.appearanceMode == .system, "appearance defaults to following the system")
+        check(appearanceSuite.object(forKey: "matchsticks.appearance") == nil,
+              "fresh install needs no explicit appearance override")
+        appearanceModel.appearanceMode = .dark
+        check(appearanceSuite.string(forKey: "matchsticks.appearance") == "dark", "appearance persists immediately")
+        check(NSApplication.shared.appearance?.name == .darkAqua, "choosing dark applies the dark app appearance")
+        appearanceModel.appearanceMode = .light
+        check(NSApplication.shared.appearance?.name == .aqua, "choosing light applies the aqua app appearance")
+        appearanceModel.appearanceMode = .system
+        check(NSApplication.shared.appearance == nil, "choosing system restores the nil app appearance")
+        appearanceModel.appearanceMode = .dark
+        let restoredAppearance = DSModel(settingsDefaults: appearanceSuite, persistenceEnabled: true)
+        restoredAppearance.loadPersistedSettings()
+        check(restoredAppearance.appearanceMode == .dark, "appearance survives restart")
+        check(NSApplication.shared.appearance?.name == .darkAqua, "restored appearance is applied to the app on load")
+        // 像语言一样：didSet 写入不设门控，所以先显式把 suite 置回 dark 再验证门控前恢复
+        appearanceSuite.set("dark", forKey: "matchsticks.appearance")
+        let frozenAppearance = DSModel(settingsDefaults: appearanceSuite, persistenceEnabled: false)
+        frozenAppearance.loadPersistedSettings()
+        check(frozenAppearance.appearanceMode == .dark && NSApplication.shared.appearance?.name == .darkAqua,
+              "appearance restores before the persistence guard like language")
+        frozenAppearance.appearanceMode = .light
+        check(appearanceSuite.string(forKey: "matchsticks.appearance") == "light",
+              "appearance writes like language regardless of the persistence switch")
+        frozenAppearance.appearanceMode = .system
+        appearanceSuite.set("neon", forKey: "matchsticks.appearance")
+        let corruptAppearance = DSModel(settingsDefaults: appearanceSuite, persistenceEnabled: true)
+        corruptAppearance.loadPersistedSettings()
+        check(corruptAppearance.appearanceMode == .system && NSApplication.shared.appearance == nil,
+              "unknown stored appearance falls back to system without touching the app appearance")
+
+        // ⑱ 全设置重启往返：Settings 页每个控件取非默认值 → 新模型 loadPersistedSettings 全部恢复
+        let restartSuite = makeSuite(task2SuiteNames[7])
+        let beforeRestart = DSModel(settingsDefaults: restartSuite, persistenceEnabled: true)
+        beforeRestart.languageMode = .english
+        beforeRestart.appearanceMode = .dark
+        beforeRestart.practiceSeasonYear = 2022
+        beforeRestart.dashboardSelection = [.elastic, .shuffleboard]
+        beforeRestart.soundsEnabled = false
+        beforeRestart.enableDisableSoundsEnabled = false
+        beforeRestart.competition = "Midwest Regional"
+        beforeRestart.matchType = 3
+        beforeRestart.gameData = "LRL"
+        beforeRestart.dslogEnabled = false
+        beforeRestart.recording = true
+        let afterRestart = DSModel(settingsDefaults: restartSuite, persistenceEnabled: true)
+        afterRestart.loadPersistedSettings()
+        var restartMismatch: [String] = []
+        if afterRestart.languageMode != .english { restartMismatch.append("language") }
+        if afterRestart.appearanceMode != .dark { restartMismatch.append("appearance") }
+        if afterRestart.practiceSeasonYear != 2022 { restartMismatch.append("season") }
+        if afterRestart.dashboardSelection != [.elastic, .shuffleboard] { restartMismatch.append("dashboards") }
+        if afterRestart.soundsEnabled { restartMismatch.append("phase sounds") }
+        if afterRestart.enableDisableSoundsEnabled { restartMismatch.append("enable/disable sounds") }
+        if afterRestart.competition != "Midwest Regional" { restartMismatch.append("competition") }
+        if afterRestart.matchType != 3 { restartMismatch.append("match type") }
+        if afterRestart.gameData != "LRL" { restartMismatch.append("game data") }
+        if afterRestart.dslogEnabled { restartMismatch.append("session log") }
+        if !afterRestart.recording { restartMismatch.append("recording") }
+        check(restartMismatch.isEmpty, "every Settings control survives a restart round trip; lost: \(restartMismatch)")
+        check(NSApplication.shared.appearance?.name == .darkAqua && LanguageManager.shared.mode == .english,
+              "restart applies the restored appearance and language")
+        beforeRestart.recording = false
+        afterRestart.recording = false
+        afterRestart.languageMode = .system
+        afterRestart.appearanceMode = .system
+        NSApplication.shared.appearance = previousAppearance
+
+        // ⑲ Dashboard 多选分段与 DSSegmentedControl 文字段像素级一致（无图标、同底色、同字号）
+        check(renderedDashboardSegmentsMatchSegmentedControl(),
+              "Dashboard multi-select segments render exactly like DSSegmentedControl segments")
+
+        if let previousSupportOverride {
+            setenv(AppSupportDirectory.overrideEnvironmentKey, previousSupportOverride, 1)
+        } else {
+            unsetenv(AppSupportDirectory.overrideEnvironmentKey)
+        }
+        try? FileManager.default.removeItem(at: scratchSupport)
+        check(!FileManager.default.fileExists(atPath: scratchSupport.path),
+              "recording test scratch directory is removed")
+
+        for name in suiteNames + [estopAudioSuiteName] + task2SuiteNames {
             UserDefaults(suiteName: name)?.removePersistentDomain(forName: name)
         }
 
@@ -1191,12 +1407,111 @@ struct UIStateTests {
         check(timingSource.components(separatedBy: "Slider(value: value, in: range, step: 1)").count - 1 == 1,
               "practice sliders share one implementation with a one-second step")
 
+        // Task 2 放置守卫：外观行与语言行同构（360 宽）；Dashboard 无复选框图标，Launch 与分段控件同排紧邻其右。
+        let controlsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/DSControls.swift"), encoding: .utf8)) ?? ""
+        check(!controlsSource.isEmpty, "UI placement test loads the control source fixture")
+        if let generalStart = settingsSource.range(of: "private var generalPanel")?.lowerBound,
+           let generalEnd = settingsSource.range(of: "private var dashboardPanel")?.lowerBound {
+            let general = String(settingsSource[generalStart..<generalEnd])
+            check(general.components(separatedBy: "settingsRow(").count - 1 == 3,
+                  "General lists exactly Language, Appearance and Season rows")
+            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.practiceSeasonYear"], in: general),
+                  "Appearance row sits between Language and Season")
+            check(general.contains("DSSegmentedControl(title: tr(\"外观\"), selection: $model.appearanceMode, options: [") &&
+                  general.contains("DSSelectOption(value: AppearanceMode.system, label: tr(\"跟随系统\"))") &&
+                  general.contains("DSSelectOption(value: AppearanceMode.light, label: tr(\"浅色\"))") &&
+                  general.contains("DSSelectOption(value: AppearanceMode.dark, label: tr(\"深色\"))"),
+                  "Appearance is a Follow System / Light / Dark segmented control like Language")
+            check(general.components(separatedBy: ".frame(width: 360)").count - 1 == 2,
+                  "Appearance and Language rows share the 360-point width")
+        } else {
+            check(false, "General panel source can be located")
+        }
+        check(englishTable.contains("\"外观\" = \"Appearance\";") && englishTable.contains("\"浅色\" = \"Light\";") &&
+              englishTable.contains("\"深色\" = \"Dark\";"),
+              "Appearance labels have English translations")
+        if let dashboardStart = settingsSource.range(of: "private var dashboardPanel")?.lowerBound,
+           let dashboardEnd = settingsSource.range(of: "private var audioPanel")?.lowerBound {
+            let panel = String(settingsSource[dashboardStart..<dashboardEnd])
+            check(!panel.contains("checkmark.square") && !panel.contains("\"square\"") && !panel.contains("Image(systemName:"),
+                  "Dashboard multi-select renders text-only segments without checkbox icons")
+            check(panel.contains("HStack(") && !panel.contains("VStack"),
+                  "Launch Dashboard shares the Dashboard row's HStack instead of stacking below")
+            if let controlStart = panel.range(of: "DSMultiSelectControl(")?.lowerBound,
+               let controlEnd = panel.range(of: ".frame(width: 460)")?.upperBound,
+               let launchStart = panel.range(of: "Button(tr(\"启动 Dashboard\"))")?.lowerBound {
+                check(controlStart < controlEnd && controlEnd <= launchStart &&
+                      panel[controlEnd..<launchStart].allSatisfy(\.isWhitespace),
+                      "Launch Dashboard sits immediately to the right of the Dashboard control")
+            } else {
+                check(false, "Dashboard control and Launch button can be located in the row")
+            }
+            check(panel.components(separatedBy: "DSSelectOption(value:").count - 1 == 1,
+                  "Launch Dashboard is a separate button, not a fourth segment")
+            check(panel.contains(".disabled(model.dashboardSelection.isEmpty)"),
+                  "Launch Dashboard stays disabled for an empty selection")
+        } else {
+            check(false, "Dashboard panel source can be located")
+        }
+        check(!settingsSource.contains("checkmark.square") && !settingsSource.contains("\"square\"") &&
+              !controlsSource.contains("checkmark.square") && !controlsSource.contains("\"square\""),
+              "neither Settings nor the shared multi-select control renders checkbox icons")
+
         print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
     }
 }
 
+
+/// 源码顺序守卫：各标记按给定先后出现（全部存在才算通过）。
+private func sourceOrder(_ markers: [String], in text: String) -> Bool {
+    var cursor = text.startIndex
+    for marker in markers {
+        guard let found = text.range(of: marker, range: cursor..<text.endIndex) else { return false }
+        cursor = found.upperBound
+    }
+    return true
+}
+
+/// 同一选项、同一选中态下，多选分段控件与 DSSegmentedControl 的渲染逐采样点一致。
+@MainActor
+private func renderedDashboardSegmentsMatchSegmentedControl() -> Bool {
+    let options = DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) }
+    let segmented = DSSegmentedControl(title: "Dashboard", selection: .constant(.elastic), options: options)
+        .frame(width: 460, height: 32)
+    let multiSelect = DSMultiSelectControl(title: "Dashboard", selection: .constant([.elastic]), options: options)
+        .frame(width: 460, height: 32)
+    guard let segmentedBitmap = renderedBitmap(segmented, width: 460, height: 32),
+          let multiSelectBitmap = renderedBitmap(multiSelect, width: 460, height: 32) else { return false }
+    let tolerance: CGFloat = 0.02
+    var compared = 0
+    for x in stride(from: 0, to: 460, by: 4) {
+        for y in stride(from: 0, to: 32, by: 2) {
+            guard let a = segmentedBitmap.colorAt(x: x, y: y), let b = multiSelectBitmap.colorAt(x: x, y: y) else {
+                return false
+            }
+            if abs(a.redComponent - b.redComponent) > tolerance || abs(a.greenComponent - b.greenComponent) > tolerance ||
+               abs(a.blueComponent - b.blueComponent) > tolerance || abs(a.alphaComponent - b.alphaComponent) > tolerance {
+                return false
+            }
+            compared += 1
+        }
+    }
+    return compared == 115 * 16
+}
+
+@MainActor
+private func renderedBitmap<V: View>(_ view: V, width: Int, height: Int) -> NSBitmapImageRep? {
+    let renderer = ImageRenderer(content: view)
+    renderer.scale = 1
+    guard let image = renderer.nsImage,
+          image.size.width == CGFloat(width), image.size.height == CGFloat(height),
+          let bitmap = NSBitmapImageRep(data: image.tiffRepresentation ?? Data()),
+          bitmap.pixelsWide == width, bitmap.pixelsHigh == height else { return nil }
+    return bitmap
+}
 
 @MainActor
 private func renderedAllianceSelectionMatches(_ station: AllianceStation, red: CGFloat, green: CGFloat, blue: CGFloat) -> Bool {

@@ -32,6 +32,15 @@ struct SettingsView: View {
                 .frame(width: 360)
             }
             settingsSeparator
+            settingsRow(tr("外观")) {
+                DSSegmentedControl(title: tr("外观"), selection: $model.appearanceMode, options: [
+                    DSSelectOption(value: AppearanceMode.system, label: tr("跟随系统")),
+                    DSSelectOption(value: AppearanceMode.light, label: tr("浅色")),
+                    DSSelectOption(value: AppearanceMode.dark, label: tr("深色")),
+                ])
+                .frame(width: 360)
+            }
+            settingsSeparator
             settingsRow(tr("比赛年份")) {
                 DSSelectControl(title: tr("比赛年份"), selection: $model.practiceSeasonYear,
                                 options: model.practiceSeasonYearChoices.map { DSSelectOption(value: $0, label: String($0)) })
@@ -43,7 +52,7 @@ struct SettingsView: View {
     private var dashboardPanel: some View {
         settingsGroup("Dashboard") {
             settingsRow(tr("Dashboard 应用")) {
-                VStack(alignment: .trailing, spacing: 10) {
+                HStack(spacing: 10) {
                     DSMultiSelectControl(title: tr("Dashboard 应用"),
                                          selection: $model.dashboardSelection,
                                          options: DashboardKind.allCases.map { DSSelectOption(value: $0, label: $0.rawValue) })
@@ -159,67 +168,5 @@ struct SettingsView: View {
             .frame(height: 1)
             .frame(maxWidth: .infinity)
             .padding(.leading, 16)
-    }
-}
-
-/// 多选版分段控件：视觉与 DSSegmentedControl 一致，但每个选项独立开关（可全部关闭）。
-private struct DSMultiSelectControl<Value: Hashable>: View {
-    let title: String
-    @Binding var selection: Set<Value>
-    let options: [DSSelectOption<Value>]
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options) { option in
-                let isSelected = selection.contains(option.value)
-                Button {
-                    toggle(option.value)
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text(option.label)
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .frame(maxWidth: .infinity, minHeight: 26)
-                    .foregroundStyle(isSelected ? DSTheme.textPrimary : DSTheme.textSecondary)
-                    .background(isSelected ? DSTheme.segmentSelected : .clear,
-                                in: RoundedRectangle(cornerRadius: 5))
-                    .shadow(color: isSelected ? .black.opacity(0.12) : .clear, radius: 1, y: 1)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(DSMultiSelectButtonStyle(isSelected: isSelected))
-                .accessibilityLabel("\(title)，\(option.label)")
-                .accessibilityValue(isSelected ? tr("已选择") : tr("未选择"))
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            }
-        }
-        .padding(2)
-        .background(DSTheme.segmentTrack, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
-        .frame(minHeight: 32)
-    }
-
-    private func toggle(_ value: Value) {
-        if selection.contains(value) {
-            selection.remove(value)
-        } else {
-            selection.insert(value)
-        }
-    }
-}
-
-private struct DSMultiSelectButtonStyle: ButtonStyle {
-    let isSelected: Bool
-    @State private var hovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(!isSelected && (hovering || configuration.isPressed) ? DSTheme.hover.opacity(0.65) : .clear,
-                        in: RoundedRectangle(cornerRadius: 5))
-            .onHover { hovering = $0 }
     }
 }
