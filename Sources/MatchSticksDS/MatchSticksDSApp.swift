@@ -134,6 +134,7 @@ struct RootView: View {
                     .buttonStyle(DSActionStyle())
                     .help(tr("切换到迷你驾驶台；主窗口将隐藏，关闭迷你窗口即可返回。"))
                     UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
+                    GitHubStarButton()
                 }
             }
         }

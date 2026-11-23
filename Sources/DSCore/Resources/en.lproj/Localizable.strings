@@ -54,6 +54,10 @@
 "已连接机器人，无需刷新；刷新仅在未连接时重新搜索。" = "The robot is already connected; refresh only re-searches while disconnected.";
 "失能机器人" = "Disable the robot";
 
+/* ===== GitHub Star（Views/GitHubStarButton，主窗口工具栏可访问名称与帮助）===== */
+"在 GitHub 上给 MatchSticks DS 点 Star" = "Star MatchSticks DS on GitHub";
+"在默认浏览器中打开 MatchSticks DS 的 GitHub 仓库页面" = "Opens the MatchSticks DS repository on GitHub in your default browser";
+
 /* ===== 侧栏与页面导航（MatchSticksDSApp：操作 / 监测两组，监测含 Mac · 机器人 · 摄像头 · 控制台）===== */
 "驾驶" = "Drive";
 "连接" = "Connection";
