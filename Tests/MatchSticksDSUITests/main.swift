@@ -420,6 +420,7 @@ struct UIStateTests {
         thumbstickMotionTests(check)
         thumbstickSceneTests(check)
         flightStickSceneTests(check)
+        direwolfArtworkTests(check)
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         appIconAppearanceTests(check)

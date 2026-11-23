@@ -75,6 +75,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/ThumbstickMotionTests.swift \
   Tests/MatchSticksDSUITests/ThumbstickSceneTests.swift \
   Tests/MatchSticksDSUITests/FlightStickSceneTests.swift \
+  Tests/MatchSticksDSUITests/DirewolfArtworkTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
   -o .build/MatchSticksDSUIStateTests

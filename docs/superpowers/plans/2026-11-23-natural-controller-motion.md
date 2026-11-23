@@ -118,7 +118,7 @@ Expected: missing scene API or bitmap-transform assertions fail.
 
 - [ ] **Step 3: Implement contour-derived solid geometry**
 
-Trace the source alpha into closed contours, build beveled extruded meshes with source-image UVs, and attach a real shaft and ball joint at the calibrated pivot. Reconstruct the central base beneath the old silhouette. Use proper 3D transforms and shadow-casting lights, with a front-facing camera. Keep state highlights attached to their physical base/handle nodes.
+Build explicit source-pixel meshes with true sidewalls and beveled boundaries instead of relying on `SCNShape` triangulation of complex holes. Attach a real shaft and ball joint at the calibrated pivot. Reconstruct the central base beneath the old silhouette. Use proper 3D transforms and shadow-casting lights, with a front-facing camera. Keep state highlights attached to their physical base/handle nodes.
 
 - [ ] **Step 4: Verify real rendered movement and commit**
 
@@ -129,10 +129,15 @@ Commit: `fix: animate the flight stick as a 3D assembly`.
 ### Task 4: High-resolution Direwolf 4 artwork and calibration
 
 **Files:**
-- Create: `Sources/MatchSticksDS/Resources/Gamepads/direwolf4-shell.png`
+- Preserve: `Sources/MatchSticksDS/Resources/Gamepads/direwolf4-reference.png` (official 492×341 source)
+- Modify: `Sources/MatchSticksDS/Resources/Gamepads/direwolf4.png` (rebuilt 1968×1364 artwork)
+- Create: `Sources/MatchSticksDS/Resources/Gamepads/direwolf4-{left-stick,right-stick,well-left,well-right}.png`
+- Create: `scripts/render-direwolf4.swift`
 - Modify: `Sources/MatchSticksDS/Resources/Gamepads/ArtworkCredits.txt`
 - Modify: `Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift`
 - Modify: `Tests/MatchSticksDSUITests/GamepadArtworkTests.swift`
+- Create: `Tests/MatchSticksDSUITests/DirewolfArtworkTests.swift`
+- Modify: `Tests/MatchSticksDSUITests/GamepadRenderingTests.swift`
 
 **Interfaces:**
 - Produces: a transparent, front-facing, default-white shell at no less than 1968×1364, plus an explicit reference-to-output transform for every control region.

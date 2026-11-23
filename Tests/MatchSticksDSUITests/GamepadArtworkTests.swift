@@ -41,7 +41,8 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     check(abs((ps4.regions[.leftStickCap]?.midY ?? -1) - (ps4.regions[.rightStickCap]?.midY ?? 0)) <= 1,
           "PS4 对称布局的双摇杆中心应在同一水平线")
     let d4 = GamepadArtworkCatalog.spec(for: .direwolf4)
-    check(d4.referenceSize == CGSize(width: 492, height: 341), "冰原狼 4 使用飞智配置软件中的原生正视素材")
+    check(d4.referenceSize == CGSize(width: 1968, height: 1364),
+          "冰原狼 4 使用原轮廓和颜色重建的高清正视素材")
     check((d4.regions[.rightStickCap]?.midY ?? 0) > (d4.regions[.leftStickCap]?.midY ?? 0) &&
           (d4.regions[.rightStickCap]?.midX ?? 0) > (d4.regions[.leftStickCap]?.midX ?? 0),
           "冰原狼 4 正视保留真实的非对称摇杆布局，不强行拉平")
@@ -150,7 +151,7 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     }
     let faceNorth = d4.regions[.faceNorth] ?? .zero, faceSouth = d4.regions[.faceSouth] ?? .zero
     let faceWest = d4.regions[.faceWest] ?? .zero, faceEast = d4.regions[.faceEast] ?? .zero
-    check(abs(faceNorth.midX - faceSouth.midX) <= 15 && abs(faceWest.midY - faceEast.midY) <= 15,
+    check(abs(faceNorth.midX - faceSouth.midX) <= 60 && abs(faceWest.midY - faceEast.midY) <= 60,
           "冰原狼 4 原生正视商品图的面键保持菱形几何")
 
     for skin in GamepadSkin.allCases {

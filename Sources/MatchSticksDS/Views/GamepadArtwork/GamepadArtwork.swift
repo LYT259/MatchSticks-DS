@@ -165,8 +165,8 @@ enum GamepadArtworkCatalog {
         movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 765.5, y: 710))
 
     private static let direwolf4 = GamepadArtworkSpec(
-        imageName: "direwolf4", referenceSize: CGSize(width: 492, height: 341),
-        regions: [
+        imageName: "direwolf4", referenceSize: CGSize(width: 492 * 4, height: 341 * 4),
+        regions: Dictionary(uniqueKeysWithValues: [
             .leftStick: CGRect(x: 83.87, y: 55.40, width: 86.77, height: 85.50),
             .leftStickCap: CGRect(x: 103.56, y: 69.02, width: 49.37, height: 49.40),
             .rightStick: CGRect(x: 265.56, y: 135.41, width: 76.17, height: 79.66),
@@ -179,7 +179,7 @@ enum GamepadArtworkCatalog {
             .back: CGRect(x: 190.72, y: 73.16, width: 32.58, height: 24.90),
             .start: CGRect(x: 265.21, y: 73.60, width: 31.71, height: 24.15),
             .guide: CGRect(x: 230.46, y: 33.47, width: 29.08, height: 35.97),
-        ])
+        ].map { ($0.key, $0.value.applying(CGAffineTransform(scaleX: 4, y: 4))) }))
 }
 
 enum GamepadArtworkImageSource {

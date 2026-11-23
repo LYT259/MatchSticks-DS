@@ -77,7 +77,8 @@ private func saveMotionSheet(left: ThumbstickSceneView, right: ThumbstickSceneVi
         ("pressed", 1, 0, true),
     ]
     let size = spec.referenceSize
-    let sheet = NSImage(size: CGSize(width: size.width * 3, height: size.height * 3))
+    let tile = skin == .direwolf4 ? CGSize(width: size.width / 4, height: size.height / 4) : size
+    let sheet = NSImage(size: CGSize(width: tile.width * 3, height: tile.height * 3))
     sheet.lockFocus()
     for (index, item) in states.enumerated() {
         autoreleasepool {
@@ -86,8 +87,8 @@ private func saveMotionSheet(left: ThumbstickSceneView, right: ThumbstickSceneVi
                 right.update(spec: spec, region: .rightStick, state: state, container: size, sourceImage: source)
             check(ready, "\(skin.rawValue) \(item.0) 三维状态可渲染")
             guard ready else { return }
-            let frame = CGRect(x: CGFloat(index % 3) * size.width,
-                               y: CGFloat(2 - index / 3) * size.height, width: size.width, height: size.height)
+            let frame = CGRect(x: CGFloat(index % 3) * tile.width,
+                               y: CGFloat(2 - index / 3) * tile.height, width: tile.width, height: tile.height)
             left.snapshot().draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
             right.snapshot().draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1)
             NSString(string: item.0).draw(at: frame.origin, withAttributes: [
