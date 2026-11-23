@@ -17,7 +17,7 @@ import DSCore
 //   只能用它。键缺失 = 浅色（macOS 浅色模式不写该键）。
 // NSApp.effectiveAppearance 不能当「系统」来源：界面外观固定（NSApp.appearance 覆盖）时它
 // 跟随覆盖值、系统切换也不再改变它，会把图标跟随系统误绑到界面主题上。
-// Finder / 启动台图标由应用包内的 icon catalog 随系统渲染，运行时无法固定（设置页有说明）。
+// Finder / 启动台图标由应用包内的 icon catalog 随系统渲染；运行时固定选择只影响 Dock。
 
 /// 图标样式（彩色 / 单色）：两维图标偏好之一；另一维是图标外观（复用 AppearanceMode）。
 enum IconStyle: String, CaseIterable, Sendable {
@@ -33,6 +33,11 @@ enum AppIconArtwork {
         "app-icon-day", "app-icon-night", "app-icon-mono-day", "app-icon-mono-night",
     ]
 
+    /// 已加载图稿缓存：键 = bundle 路径 + 文件名（不同 bundle 互不串味）。设置页卡片
+    /// body 每次求值都取图稿，命中即返回同一 NSImage，不再重读 1024 PNG；缺失（nil）
+    /// 不入缓存。NSCache 自身线程安全，任意线程并发加载共享同一份缓存。
+    private static let loadedImages = NSCache<NSString, NSImage>()
+
     /// 样式 × 深浅 → 图稿文件名。
     static func fileName(style: IconStyle, dark: Bool) -> String {
         switch (style, dark) {
@@ -44,10 +49,15 @@ enum AppIconArtwork {
     }
 
     /// 按白名单文件名加载（清单外一律 nil；不接受的路径形态同样被清单拒绝）。
+    /// 白名单在缓存与文件系统之前拒绝；命中缓存返回同一实例，未命中才读盘一次。
     static func image(fileName: String, bundle: Bundle = .module) -> NSImage? {
         guard whitelist.contains(fileName),
               let url = bundle.url(forResource: fileName, withExtension: "png") else { return nil }
-        return NSImage(contentsOf: url)
+        let key = "\(bundle.bundlePath)|\(fileName)" as NSString
+        if let cached = loadedImages.object(forKey: key) { return cached }
+        guard let image = NSImage(contentsOf: url) else { return nil }
+        loadedImages.setObject(image, forKey: key)
+        return image
     }
 
     /// 按样式 × 深浅加载白名单图稿。
@@ -56,9 +66,10 @@ enum AppIconArtwork {
     }
 }
 
-/// 运行时图标中心：把两维偏好解析为图稿并推给 NSApplication.applicationIconImage。
+/// 运行时图标中心：解析两维偏好，向 Dock 与侧栏品牌区提供同一份图稿。
 /// artworkLoader / systemDarkProvider / applier 可注入（UI 干测试不触碰真实 Dock 与
 /// 真实系统外观；图稿缺失时静默 no-op，绝不把图标置空）。
+@Observable
 @MainActor
 final class AppIconCenter {
     /// 系统深浅切换的分布式通知名（Apple 惯用名，非 AppKit API；机制见文件头注释）。
@@ -73,15 +84,16 @@ final class AppIconCenter {
     }
 
     private(set) var pushedFileNames: [String] = []
+    private(set) var artwork: NSImage?
 
     var style: IconStyle = .color
     var mode: AppearanceMode = .system
 
-    var artworkLoader: (String) -> NSImage? = { AppIconArtwork.image(fileName: $0) }
-    var systemDarkProvider: () -> Bool = { AppIconCenter.systemPrefersDark() }
-    var applier: (NSImage) -> Void = { NSApplication.shared.applicationIconImage = $0 }
+    @ObservationIgnored var artworkLoader: (String) -> NSImage? = { AppIconArtwork.image(fileName: $0) }
+    @ObservationIgnored var systemDarkProvider: () -> Bool = { AppIconCenter.systemPrefersDark() }
+    @ObservationIgnored var applier: (NSImage) -> Void = { NSApplication.shared.applicationIconImage = $0 }
 
-    private var distributedObserver: NSObjectProtocol?
+    @ObservationIgnored private var distributedObserver: NSObjectProtocol?
 
     /// 偏好变化入口（设置页 didSet / 启动恢复后各调一次）：更新两维并立即重推。
     func update(style: IconStyle, mode: AppearanceMode) {
@@ -96,6 +108,7 @@ final class AppIconCenter {
         let name = AppIconArtwork.fileName(style: style, dark: dark)
         guard let image = artworkLoader(name) else { return }
         pushedFileNames.append(name)
+        artwork = image
         applier(image)
     }
 

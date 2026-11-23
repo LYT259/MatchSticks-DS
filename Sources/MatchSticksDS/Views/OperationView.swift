@@ -3,11 +3,13 @@ import DSCore
 
 struct OperationView: View {
     let model: DSModel
+    @State private var confirmReboot = false
+    @State private var confirmRestart = false
 
     var body: some View {
         ScrollView {
-            HStack(alignment: .top, spacing: 18) {
-                VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 18) {
                     DSPanel(title: tr("驾驶模式")) {
                         VStack(spacing: 8) {
                             modeRow(.teleoperated, title: tr("遥控"), detail: tr("用手柄直接控制机器人"), symbol: "gamecontroller")
@@ -20,69 +22,67 @@ struct OperationView: View {
                             opModePicker
                         }
                     }
-                    DSPanel(title: tr("联盟站位")) {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(alignment: .top, spacing: 12) {
-                                blueAllianceGroup
-                                redAllianceGroup
+                    DSPanel(title: tr("练习赛")) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            PracticeDurationCards(model: model)
+                            if model.practicePhase != .idle {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        Text(model.practicePhase.displayName)
+                                        Spacer()
+                                        Text(String(format: "%.1f s", max(0, model.practiceRemaining))).monospacedDigit()
+                                    }.font(.callout)
+                                    ProgressView(value: practiceProgress)
+                                        .tint(DSTheme.accent)
+                                        .controlSize(.small)
+                                }
                             }
-                            VStack(alignment: .leading, spacing: 12) {
-                                blueAllianceGroup
-                                redAllianceGroup
+                            if model.practiceActive {
+                                Button(tr("停止练习（A-Stop）"), systemImage: "stop.fill") { model.aStop() }
+                                    .buttonStyle(DSActionStyle(color: DSTheme.danger))
+                                    .keyboardShortcut(.delete, modifiers: [])
+                            } else {
+                                Button(tr("开始练习赛"), systemImage: "play.circle") { model.startPractice() }
+                                    .disabled(model.estopEngaged)
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity)
-                VStack(alignment: .leading, spacing: 18) {
-                    DSPanel(title: tr("练习赛")) {
-                        HStack(spacing: 18) {
-                            duration(tr("自动"), model.practiceAutoTime)
-                            Image(systemName: "arrow.right").foregroundStyle(DSTheme.textSecondary)
-                            duration(tr("遥控"), model.effectivePracticeTeleopTime)
+                DSPanel(title: tr("联盟站位")) {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 12) {
+                            blueAllianceGroup
+                            redAllianceGroup
                         }
-                        if model.practicePhase != .idle {
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    Text(model.practicePhase.displayName)
-                                    Spacer()
-                                    Text(String(format: "%.1f s", max(0, model.practiceRemaining))).monospacedDigit()
-                                }.font(.callout)
-                                ProgressView(value: practiceProgress)
-                                    .tint(DSTheme.accent)
-                                    .controlSize(.small)
-                            }
-                        }
-                        if model.practiceActive {
-                            Button(tr("停止练习（A-Stop）"), systemImage: "stop.fill") { model.aStop() }
-                                .buttonStyle(DSActionStyle(color: DSTheme.danger))
-                                .keyboardShortcut(.delete, modifiers: [])
-                        } else {
-                            Button(tr("开始自动练习"), systemImage: "play.circle") { model.startPractice() }
-                                .disabled(model.estopEngaged)
+                        VStack(alignment: .leading, spacing: 12) {
+                            blueAllianceGroup
+                            redAllianceGroup
                         }
                     }
+                }
+                DSPanel(title: tr("比赛时间线")) {
+                    PracticeMatchTimeline(model: model)
+                }
+                HStack(alignment: .top, spacing: 18) {
                     practiceTimingPanel
                     if model.practiceSeasonYear == 2022 {
-                        DSPanel(title: "2022 Timeout") {
-                            duration("Timeout", model.timeoutActive ? model.timeoutRemaining : model.timeoutDuration)
-                            if model.timeoutActive {
-                                ProgressView(value: timeoutProgress)
-                                    .tint(DSTheme.accent)
-                                    .controlSize(.small)
-                                Button(tr("取消 Timeout"), systemImage: "stop.fill") { model.cancelTimeout() }
-                                    .buttonStyle(DSActionStyle(color: DSTheme.danger))
-                            } else {
-                                Button(tr("开始 Timeout"), systemImage: "pause.circle") { model.startTimeout() }
-                                    .disabled(model.enabled || model.practiceActive || model.estopEngaged)
-                            }
-                        }
+                        timeoutPanel
                     }
+                    maintenancePanel
                 }
-                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
+        }
+        .confirmationDialog(tr("确认重启机器人控制器？"), isPresented: $confirmReboot, titleVisibility: .visible) {
+            Button(tr("重启控制器"), role: .destructive) { model.rebootRoboRIO() }
+        } message: {
+            Text(tr("机器人将暂时断开连接。请确认当前已失能。"))
+        }
+        .confirmationDialog(tr("确认重启机器人程序？"), isPresented: $confirmRestart, titleVisibility: .visible) {
+            Button(tr("重启程序"), role: .destructive) { model.restartRobotCode() }
+        } message: {
+            Text(tr("重启会中断当前程序。请先确认机器人已失能。"))
         }
     }
 
@@ -98,6 +98,36 @@ struct OperationView: View {
                 }
                 .padding(.bottom, 12)
                 PracticeTimingEditor(model: model)
+            }
+        }
+    }
+
+    private var timeoutPanel: some View {
+        DSPanel(title: "2022 Timeout") {
+            duration("Timeout", model.timeoutActive ? model.timeoutRemaining : model.timeoutDuration)
+            if model.timeoutActive {
+                ProgressView(value: timeoutProgress)
+                    .tint(DSTheme.accent)
+                    .controlSize(.small)
+                Button(tr("取消 Timeout"), systemImage: "stop.fill") { model.cancelTimeout() }
+                    .buttonStyle(DSActionStyle(color: DSTheme.danger))
+            } else {
+                Button(tr("开始 Timeout"), systemImage: "pause.circle") { model.startTimeout() }
+                    .disabled(model.enabled || model.practiceActive || model.estopEngaged)
+            }
+        }
+    }
+
+    private var maintenancePanel: some View {
+        DSPanel(title: tr("机器人维护"), subtitle: tr("重启会中断控制。请先确认机器人已失能。")) {
+            HStack(spacing: 12) {
+                Button(tr("重启机器人程序"), systemImage: "arrow.clockwise") { confirmRestart = true }
+                    .buttonStyle(DSActionStyle())
+                    .disabled(!model.commConnected)
+                Button(tr("重启控制器"), systemImage: "power") { confirmReboot = true }
+                    .buttonStyle(DSActionStyle())
+                    .disabled(!model.commConnected)
+                Spacer(minLength: 0)
             }
         }
     }

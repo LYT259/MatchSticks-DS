@@ -9,7 +9,6 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 generalPanel
-                iconPanel
                 updatePanel
                 dashboardPanel
                 audioPanel
@@ -23,6 +22,7 @@ struct SettingsView: View {
         .background(DSTheme.canvas)
     }
 
+    // 图标设置并入 General：不单独 settingsGroup、无灰色说明脚注；子分组标题在上、卡片均分全宽。
     private var generalPanel: some View {
         settingsGroup(tr("通用")) {
             settingsRow(tr("界面语言")) {
@@ -47,6 +47,15 @@ struct SettingsView: View {
                 DSSelectControl(title: tr("比赛年份"), selection: $model.practiceSeasonYear,
                                 options: model.practiceSeasonYearChoices.map { DSSelectOption(value: $0, label: String($0)) })
                     .frame(width: 120)
+            }
+            // 图标样式 × 图标外观两维互不重置，均直接绑定 model 即时生效并落独立键（PathBlender 式卡片）
+            settingsSeparator
+            settingsSubgroup(tr("图标样式")) {
+                AppIconStyleCardPicker(title: tr("图标样式"), selection: $model.iconStyle)
+            }
+            settingsSeparator
+            settingsSubgroup(tr("图标外观")) {
+                AppIconAppearanceCardPicker(title: tr("图标外观"), style: model.iconStyle, selection: $model.iconAppearance)
             }
         }
     }
@@ -87,40 +96,6 @@ struct SettingsView: View {
                     .controlSize(.small)
                     .tint(DSTheme.accent)
             }
-        }
-    }
-
-    // 应用图标（独立面板）：样式 × 外观两维互不重置，均直接绑定 model 即时生效并落独立键。
-    private var iconPanel: some View {
-        settingsGroup(tr("应用图标")) {
-            settingsRow(tr("图标样式")) {
-                HStack(spacing: 12) {
-                    DSSegmentedControl(title: tr("图标样式"), selection: $model.iconStyle, options: [
-                        DSSelectOption(value: IconStyle.color, label: tr("彩色")),
-                        DSSelectOption(value: IconStyle.monochrome, label: tr("单色")),
-                    ])
-                    .frame(width: 300)
-                    AppIconArtworkPreview(style: model.iconStyle, appearance: .system)
-                }
-            }
-            settingsSeparator
-            settingsRow(tr("图标外观")) {
-                HStack(spacing: 12) {
-                    DSSegmentedControl(title: tr("图标外观"), selection: $model.iconAppearance, options: [
-                        DSSelectOption(value: AppearanceMode.system, label: tr("跟随系统")),
-                        DSSelectOption(value: AppearanceMode.light, label: tr("浅色")),
-                        DSSelectOption(value: AppearanceMode.dark, label: tr("深色")),
-                    ])
-                    .frame(width: 300)
-                    AppIconArtworkPreview(style: model.iconStyle, appearance: model.iconAppearance)
-                }
-            }
-            settingsSeparator
-            Text(tr("运行中的 Dock 图标立即使用所选图稿；Finder 与启动台图标由应用包提供、始终随系统深浅显示，固定浅色/深色只影响运行中的 Dock。"))
-                .font(.system(size: 11))
-                .foregroundStyle(DSTheme.textSecondary)
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -218,51 +193,24 @@ struct SettingsView: View {
         .frame(minHeight: 60)
     }
 
+    // 全宽子分组（PathBlender preferences-icon-subgroup legend 式）：小标题在卡片上方，内容占满面板内宽
+    private func settingsSubgroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(DSTheme.textSecondary)
+            content()
+                .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var settingsSeparator: some View {
         Rectangle()
             .fill(DSTheme.line)
             .frame(height: 1)
             .frame(maxWidth: .infinity)
             .padding(.leading, 16)
-    }
-}
-
-/// 图标设置的图稿预览：跟随系统显示浅深一对（样式行恒为一对，直观对比两种深浅）；
-/// 固定浅色/深色只显示对应单张。图稿一律经白名单加载，无任意路径入口。
-private struct AppIconArtworkPreview: View {
-    let style: IconStyle
-    let appearance: AppearanceMode
-
-    var body: some View {
-        HStack(spacing: 6) {
-            switch appearance {
-            case .system:
-                thumbnail(dark: false)
-                thumbnail(dark: true)
-            case .light:
-                thumbnail(dark: false)
-            case .dark:
-                thumbnail(dark: true)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(appearance == .system
-                            ? tr("图标预览：浅色与深色图稿")
-                            : (appearance == .dark ? tr("深色图稿预览") : tr("浅色图稿预览")))
-    }
-
-    private func thumbnail(dark: Bool) -> some View {
-        Group {
-            if let image = AppIconArtwork.image(style: style, dark: dark) {
-                Image(nsImage: image).resizable()
-            } else {
-                // 图稿资源缺失（如 UI 干测试不打包资源）时的占位，保持行高稳定
-                Rectangle().fill(DSTheme.card)
-            }
-        }
-        .frame(width: 28, height: 28)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(DSTheme.line))
-        .help(dark ? tr("深色") : tr("浅色"))
     }
 }

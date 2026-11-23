@@ -110,8 +110,9 @@ func updateChannelTests(_ check: @MainActor (@autoclosure () -> Bool, String) ->
           settingsSource.contains("DSSelectOption(value: UpdateChannel.stable, label: tr(\"稳定版\"))") &&
           settingsSource.contains("DSSelectOption(value: UpdateChannel.beta, label: tr(\"测试版\"))"),
           "the update channel is a Stable / Beta segmented control bound directly to the model")
-    check(updateSourceOrder(["generalPanel", "iconPanel", "updatePanel", "dashboardPanel"], in: settingsSource),
-          "the Software Updates panel sits after General and App Icon, before Dashboard")
+    check(updateSourceOrder(["generalPanel", "updatePanel", "dashboardPanel"], in: settingsSource) &&
+          !settingsSource.contains("private var iconPanel"),
+          "the Software Updates panel sits after General's integrated App Icon cards, before Dashboard")
     check(settingsSource.contains("测试版会同时接收稳定版与测试版更新"),
           "the footnote explains that beta also receives stable updates")
     check(englishTable.contains("\"软件更新\" = \"Software Updates\";") &&

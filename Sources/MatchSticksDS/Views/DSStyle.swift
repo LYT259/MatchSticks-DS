@@ -270,7 +270,7 @@ extension DSModel {
 
     var enableExplanation: String {
         if estopEngaged { return tr("急停已锁定；复位将请求重启机器人程序。") }
-        if remoteEstopReported { return tr("机器人仍报告急停；请在诊断页检查或重启机器人程序。") }
+        if remoteEstopReported { return tr("机器人仍报告急停；请在机器人页检查，或在驾驶页重启机器人程序。") }
         if !watchdogHealthy { return tr("界面心跳异常，使能输出已冻结。") }
         if !commConnected { return tr("先在「连接」页配置机器人。") }
         if enabled { return tr("运行中。按 Return 失能，按空格急停。") }

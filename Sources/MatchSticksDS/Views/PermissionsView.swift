@@ -3,11 +3,72 @@ import AppKit
 import CoreGraphics
 import DSCore
 
+/// 权限面板徽章的色调。`.success` 只用于有正面证据表明权限可用的情形；`.warning` 表示没有证据
+/// （并不代表被拒绝）；`.neutral` 用于应用根本不读取该配置的面板。
+enum PermissionTone: Equatable {
+    case success, warning, neutral
+
+    var color: Color {
+        switch self {
+        case .success: return DSTheme.success
+        case .warning: return DSTheme.warning
+        case .neutral: return DSTheme.textSecondary
+        }
+    }
+}
+
+/// 本地网络面板的证据。连接记录不是权限查询：只有真实的非回环机器人连接才能证明本地网络访问可用。
+@MainActor
+enum LocalNetworkEvidence: Equatable {
+    case verifiedRobot
+    case loopbackSimulator
+    case unverified
+
+    init(commState: DSClient.CommState) {
+        switch commState {
+        case .idle, .searching: self = .unverified
+        case .connected(let host): self = Self.isLoopbackHost(host) ? .loopbackSimulator : .verifiedRobot
+        }
+    }
+
+    /// 回环主机（本机模拟器）不经本地网络权限；点分地址复用模型的 127/8 解析，命名回环主机按字面匹配。
+    static func isLoopbackHost(_ host: String) -> Bool {
+        host == "localhost" || host == "::1" || DSModel.isLoopbackIPv4(host)
+    }
+
+    var tone: PermissionTone {
+        switch self {
+        case .verifiedRobot: return .success
+        case .loopbackSimulator, .unverified: return .warning
+        }
+    }
+
+    var badge: String {
+        switch self {
+        case .verifiedRobot: return tr("机器人通信正常")
+        case .loopbackSimulator: return tr("已连接本机模拟器")
+        case .unverified: return tr("尚未通过连接验证")
+        }
+    }
+
+    var symbol: String { self == .verifiedRobot ? "checkmark.circle.fill" : "info.circle" }
+
+    func explanation(connectionDetail: String) -> String {
+        switch self {
+        case .verifiedRobot: return tr("已与 %@ 建立通信，当前连接可用。", connectionDetail)
+        case .loopbackSimulator: return tr("本机连接正常，但它不能验证真实机器人所需的本地网络权限。")
+        case .unverified: return tr("目前没有机器人连接记录可用于确认网络访问。连接失败时，可先检查本地网络权限。")
+        }
+    }
+}
+
 // Connection evidence is not the same as a direct permission query.
 struct PermissionsView: View {
     let model: DSModel
     @State private var inputMonitoringOK = false
     @State private var settingsMessage = ""
+
+    private var networkEvidence: LocalNetworkEvidence { LocalNetworkEvidence(commState: model.commState) }
 
     var body: some View {
         ScrollView {
@@ -21,7 +82,6 @@ struct PermissionsView: View {
                 }
             }
             .padding(24)
-            .frame(maxWidth: 1040)
             .frame(maxWidth: .infinity)
         }
         .background(DSTheme.canvas)
@@ -35,9 +95,8 @@ struct PermissionsView: View {
                     .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
                     .frame(width: 36)
                 VStack(alignment: .leading, spacing: 8) {
-                    DSBadge(text: networkBadge, color: hasRemoteConnection ? DSTheme.success : .secondary,
-                            symbol: hasRemoteConnection ? "checkmark.circle.fill" : "info.circle")
-                    Text(networkExplanation)
+                    DSBadge(text: networkEvidence.badge, color: networkEvidence.tone.color, symbol: networkEvidence.symbol)
+                    Text(networkEvidence.explanation(connectionDetail: model.connectionDetail))
                         .font(.callout).fixedSize(horizontal: false, vertical: true)
                     Text(tr("应用无法直接读取本地网络授权状态；未连接也可能由网络、地址或机器人状态引起。"))
                         .font(.caption).foregroundStyle(DSTheme.textSecondary)
@@ -54,7 +113,8 @@ struct PermissionsView: View {
                 Text(tr("macOS 15 及更新系统提供本地网络权限设置。"))
                     .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 Spacer()
-                Button(tr("打开本地网络设置")) {
+                // 深链不保证直达本地网络子页面：按钮只承诺打开「隐私与安全性」，提示也只说“已请求”
+                Button(tr("打开隐私与安全性")) {
                     openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
                 }
                 .buttonStyle(DSActionStyle())
@@ -69,7 +129,8 @@ struct PermissionsView: View {
                     .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
                     .frame(width: 36)
                 VStack(alignment: .leading, spacing: 8) {
-                    DSBadge(text: tr("无需额外授权"), symbol: "checkmark.circle")
+                    // 前台本地事件监听不需要 Input Monitoring
+                    DSBadge(text: tr("无需额外授权"), color: DSTheme.success, symbol: "checkmark.circle")
                     Text(tr("当前尚未提供后台全局快捷键。切换到其他应用后，请勿依赖键盘快捷键操作机器人。"))
                         .font(.callout).fixedSize(horizontal: false, vertical: true)
                     Text(inputMonitoringOK
@@ -94,7 +155,8 @@ struct PermissionsView: View {
             Text(tr("在「系统设置 → 网络 → 防火墙 → 选项」中，检查 MatchSticks DS 是否允许接收传入连接。保留其他应用的防火墙设置即可。"))
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             HStack {
-                DSBadge(text: tr("未检测系统防火墙配置"), symbol: "info.circle")
+                // 未读取系统防火墙配置：中性灰，不暗示已授权或被拒绝
+                DSBadge(text: tr("未检测系统防火墙配置"), color: PermissionTone.neutral.color, symbol: "info.circle")
                 Spacer()
                 Button(tr("打开防火墙设置")) {
                     openSettings("x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall")
@@ -102,24 +164,6 @@ struct PermissionsView: View {
                 .buttonStyle(DSActionStyle())
             }
         }
-    }
-
-    private var isLoopbackConnection: Bool {
-        guard case .connected(let host) = model.commState else { return false }
-        return host == "localhost" || host == "::1" || host.hasPrefix("127.")
-    }
-
-    private var hasRemoteConnection: Bool { model.commConnected && !isLoopbackConnection }
-    private var networkBadge: String {
-        if hasRemoteConnection { return tr("机器人通信正常") }
-        if isLoopbackConnection { return tr("已连接本机模拟器") }
-        return tr("尚未通过连接验证")
-    }
-
-    private var networkExplanation: String {
-        if hasRemoteConnection { return tr("已与 %@ 建立通信，当前连接可用。", model.connectionDetail) }
-        if isLoopbackConnection { return tr("本机连接正常，但它不能验证真实机器人所需的本地网络权限。") }
-        return tr("目前没有机器人连接记录可用于确认网络访问。连接失败时，可先检查本地网络权限。")
     }
 
     private func instruction(_ number: Int, _ text: String) -> some View {
@@ -137,6 +181,6 @@ struct PermissionsView: View {
             settingsMessage = tr("无法直接打开对应页面，请从「系统设置」按上方路径进入。")
             return
         }
-        settingsMessage = tr("已打开系统设置；若未跳转到对应页面，请按上方路径进入。")
+        settingsMessage = tr("已请求打开系统设置；若未跳转到对应页面，请按上方路径进入。")
     }
 }
