@@ -26,9 +26,7 @@ struct GamepadArtworkOverlay: View {
                 let container = geometry.size
                 ZStack(alignment: .topLeading) {
                     if spec.movingImageName != nil {
-                        artworkImage(spec.imageName)
                         flightAssembly(in: container)
-                        fixedFlightControls(in: container)
                     } else {
                         stick(.leftStick, state: state.leftStick,
                               usage: (layout.stickUsage.lx, layout.stickUsage.ly),
@@ -50,41 +48,13 @@ struct GamepadArtworkOverlay: View {
         }
     }
 
-    @ViewBuilder private func artworkImage(_ name: String) -> some View {
-        if let image = GamepadArtworkImageSource.image(named: name) {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .accessibilityHidden(true)
-        } else {
-            Color.red
-                .accessibilityLabel(tr("手柄图片缺失：%@", name))
-        }
-    }
-
     private func flightAssembly(in container: CGSize) -> some View {
-        let pose = spec.flightPose(left: state.leftStick, twist: state.rightStick, in: container)
-        let anchor = spec.flightAnchor(in: container)
-        return ZStack(alignment: .topLeading) {
-            if let name = spec.movingImageName { artworkImage(name) }
-            movingControls(in: container)
-            trigger(.triggerL, state: state.triggerL,
-                    help: help.trigger(layout.triggerUsage.lt, layout.triggerButton.l), in: container)
-            Color.clear
-                .frame(width: 80, height: 80)
-                .position(spec.flightPivot ?? .zero)
-                .help(help.stick(layout.stickUsage.lx, layout.stickUsage.ly, layout.stickPress.l))
-                .accessibilityElement()
-                .accessibilityLabel(tr("主摇杆与 Z 扭转"))
-                .accessibilityValue(tr("X %+.2f，Y %+.2f，Z %+.2f",
-                                       state.leftStick.x, state.leftStick.yUp, state.rightStick.x))
-        }
-        .frame(width: container.width, height: container.height)
-        .rotation3DEffect(.degrees(pose.pitch), axis: (x: 1, y: 0, z: 0), anchor: anchor)
-        .rotation3DEffect(.degrees(pose.roll), axis: (x: 0, y: 1, z: 0), anchor: anchor)
-        .rotationEffect(.degrees(pose.twist), anchor: anchor)
-        .offset(pose.offset)
+        FlightStickScene(spec: spec, state: state, container: container)
+            .help(help.stick(layout.stickUsage.lx, layout.stickUsage.ly, layout.stickPress.l))
+            .accessibilityElement()
+            .accessibilityLabel(tr("主摇杆与 Z 扭转"))
+            .accessibilityValue(tr("X %+.2f，Y %+.2f，Z %+.2f",
+                                   state.leftStick.x, state.leftStick.yUp, state.rightStick.x))
     }
 
     @ViewBuilder private func movingControls(in container: CGSize) -> some View {
@@ -117,16 +87,6 @@ struct GamepadArtworkOverlay: View {
                help: help.button(layout.extras[.backR]), shape: .rounded, in: container)
         region(.mode, pressed: false, help: nil, shape: .rounded, in: container)
         region(.modeLED, pressed: false, help: nil, shape: .ellipse, in: container)
-    }
-
-    @ViewBuilder private func fixedFlightControls(in container: CGSize) -> some View {
-        region(.shoulderL, pressed: state.shoulderL,
-               help: help.button(layout.shoulder.l), shape: .rounded, in: container)
-        region(.shoulderR, pressed: state.shoulderR,
-               help: help.button(layout.shoulder.r), shape: .rounded, in: container)
-        trigger(.triggerR, state: state.triggerR,
-                help: help.trigger(layout.triggerUsage.rt, layout.triggerButton.r), in: container)
-        fixedControls(in: container)
     }
 
     @ViewBuilder private func stick(_ region: GamepadArtworkRegion, state: GamepadStickState,

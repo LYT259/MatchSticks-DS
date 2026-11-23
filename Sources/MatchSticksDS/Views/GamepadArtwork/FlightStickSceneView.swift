@@ -183,6 +183,27 @@ final class FlightStickSceneView: SCNView {
                              point: { CGPoint(x: $0.x - pivot.x, y: pivot.y - $0.y) }, z: 0.5, ellipse: true)
             }
         }
+        if let whole = spec.regions[.dpad] {
+            for direction in GamepadDirection.allCases {
+                let rect: CGRect
+                switch direction {
+                case .up:
+                    rect = CGRect(x: whole.midX - whole.width / 4, y: whole.minY,
+                                  width: whole.width / 2, height: whole.height / 2)
+                case .right:
+                    rect = CGRect(x: whole.midX, y: whole.midY - whole.height / 4,
+                                  width: whole.width / 2, height: whole.height / 2)
+                case .down:
+                    rect = CGRect(x: whole.midX - whole.width / 4, y: whole.midY,
+                                  width: whole.width / 2, height: whole.height / 2)
+                case .left:
+                    rect = CGRect(x: whole.minX, y: whole.midY - whole.height / 4,
+                                  width: whole.width / 2, height: whole.height / 2)
+                }
+                addHighlight(name: "dpad\(direction.rawValue)", rect: rect, parent: handle,
+                             point: { CGPoint(x: $0.x - pivot.x, y: pivot.y - $0.y) }, z: 0.5, ellipse: false)
+            }
+        }
         for (region, name) in [(GamepadArtworkRegion.triggerL, "triggerL"), (.triggerR, "triggerR")] {
             if let rect = spec.regions[region] {
                 let moving = region == .triggerL
@@ -222,6 +243,9 @@ final class FlightStickSceneView: SCNView {
     private func updateHighlights(spec: GamepadArtworkSpec, state: GamepadElementState) {
         for face in GamepadFace.allCases {
             node("highlight-face\(face.rawValue)")?.isHidden = !(state.face[face] ?? false)
+        }
+        for direction in GamepadDirection.allCases {
+            node("highlight-dpad\(direction.rawValue)")?.isHidden = !state.dpad.contains(direction)
         }
         for (name, pressed) in ["shoulderL": state.shoulderL, "shoulderR": state.shoulderR,
                                 "back": state.back, "start": state.start, "guide": state.guide,
@@ -305,7 +329,7 @@ private enum RasterMesh {
             guard x >= 0, y >= 0, x < width, y < height else { return false }
             return pixels[(y * width + x) * 4 + 3] >= 128
         }
-        let step = 2
+        let step = 1
         var vertices = [SCNVector3](), normals = [SCNVector3](), colors = [SCNVector4]()
         var coordinates = [CGPoint](), indices = [Int32]()
         var indicesByPoint = [Int: Int32]()

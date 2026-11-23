@@ -57,15 +57,15 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     let flightNeutral = flight.flightPose(left: .init(x: 0, yUp: 0, pressed: false),
                                           twist: .init(x: 0, yUp: 0, pressed: false), in: container)
     check(flightNeutral == .zero, "Extreme 中立姿态不偏移、不倾斜")
-    check(flight.flightAnchor(in: .zero) == .center, "Extreme 零尺寸布局不产生非法枢轴")
+    check(flight.flightPivot == CGPoint(x: 765.5, y: 710),
+          "Extreme 球关节使用座圈等宽轮廓标定的中心")
     let flightRight = flight.flightPose(left: .init(x: 1, yUp: 0, pressed: false),
                                         twist: .init(x: 1, yUp: 0, pressed: false), in: container)
-    check(flightRight.offset.width > 0 && flightRight.roll > 0 && flightRight.twist > 0,
+    check(flightRight.roll > 0 && flightRight.twist > 0,
           "Extreme 杆身实际右倾，并使用独立 Z 轴扭转")
     let flightForward = flight.flightPose(left: .init(x: 0, yUp: 1, pressed: false),
                                           twist: .init(x: 0, yUp: 0, pressed: false), in: container)
-    check(flightForward.offset.height < 0 && flightForward.pitch > 0,
-          "Extreme 前后倾斜方向与屏幕一致")
+    check(flightForward.pitch > 0, "Extreme 前后倾斜方向与屏幕一致")
     let flightInvalid = flight.flightPose(left: .init(x: .nan, yUp: .infinity, pressed: false),
                                           twist: .init(x: .infinity, yUp: 0, pressed: false), in: container)
     check(flightInvalid == .zero, "Extreme 异常轴值安全回中")

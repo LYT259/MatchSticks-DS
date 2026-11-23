@@ -12,8 +12,7 @@ struct FlightStickPose: Equatable {
     let pitch: Double
     let roll: Double
     let twist: Double
-    let offset: CGSize
-    static let zero = FlightStickPose(pitch: 0, roll: 0, twist: 0, offset: .zero)
+    static let zero = FlightStickPose(pitch: 0, roll: 0, twist: 0)
 }
 
 struct GamepadArtworkSpec {
@@ -28,19 +27,7 @@ struct GamepadArtworkSpec {
             value.isFinite ? min(1, max(-1, CGFloat(value))) : 0
         }
         let x = clamp(left.x), y = clamp(left.yUp)
-        let scale = min(size.width / referenceSize.width, size.height / referenceSize.height)
-        return FlightStickPose(
-            pitch: Double(y * 7), roll: Double(x * 7), twist: Double(clamp(twist.x) * 16),
-            offset: CGSize(width: x * 30 * scale, height: -y * 30 * scale))
-    }
-
-    func flightAnchor(in size: CGSize) -> UnitPoint {
-        guard let flightPivot, size.width > 0, size.height > 0,
-              referenceSize.width > 0, referenceSize.height > 0 else { return .center }
-        let scale = min(size.width / referenceSize.width, size.height / referenceSize.height)
-        return UnitPoint(
-            x: ((size.width - referenceSize.width * scale) / 2 + flightPivot.x * scale) / size.width,
-            y: ((size.height - referenceSize.height * scale) / 2 + flightPivot.y * scale) / size.height)
+        return FlightStickPose(pitch: Double(y * 7), roll: Double(x * 7), twist: Double(clamp(twist.x) * 16))
     }
 
     func region(_ region: GamepadArtworkRegion, in size: CGSize) -> CGRect {

@@ -5,6 +5,17 @@ import DSCore
 @MainActor
 func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     let spec = GamepadArtworkCatalog.spec(for: .extreme3DPro)
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let overlay = (try? String(contentsOf: root.appendingPathComponent(
+        "Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift"), encoding: .utf8)) ?? ""
+    let artwork = (try? String(contentsOf: root.appendingPathComponent(
+        "Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift"), encoding: .utf8)) ?? ""
+    check(overlay.contains("FlightStickScene("), "Extreme 正式布局使用三维装配")
+    check(!overlay.contains("rotation3DEffect") && !overlay.contains("rotationEffect") &&
+          !overlay.contains("offset(pose.offset)") && !artwork.contains("flightAnchor") &&
+          !artwork.contains("let offset: CGSize"),
+          "Extreme 不再使用整图旋转、图片平移或旧锚点")
     check(spec.flightPivot == CGPoint(x: 765.5, y: 710),
           "Extreme 球关节使用原图座圈等宽轮廓标定的固定中心")
     let view = FlightStickSceneView(frame: CGRect(origin: .zero, size: spec.referenceSize))
@@ -36,6 +47,8 @@ func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     var state = GamepadElementState.neutral
     state.leftStick = GamepadStickState(x: 1, yUp: 0, pressed: false)
     state.face[.north] = true
+    state.dpad.insert(.up)
+    state.triggerR = GamepadTriggerState(pressed: true, depth: 0.65)
     check(view.update(spec: spec, state: state, container: spec.referenceSize),
           "Extreme 右倾与按钮状态可更新")
     check(abs(pivot.eulerAngles.y - 7 * CGFloat.pi / 180) < 0.0001,
@@ -49,9 +62,16 @@ func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     check(scene.rootNode.childNode(withName: "highlight-facenorth", recursively: true)?.isHidden == false &&
           scene.rootNode.childNode(withName: "highlight-faceeast", recursively: true)?.isHidden == true,
           "Extreme 按钮高亮附着于真实手柄节点并只在按下时显示")
-    check(scene.rootNode.childNode(withName: "highlight-shoulderL", recursively: true)?.isHidden == true &&
-          scene.rootNode.childNode(withName: "highlight-depth-triggerR", recursively: true)?.isHidden == true,
-          "Extreme 未按下的肩键与油门不会错误高亮")
+    check(scene.rootNode.childNode(withName: "highlight-dpadup", recursively: true)?.isHidden == false,
+          "Extreme 方向键高亮附着在真实手柄上")
+    if let throttle = scene.rootNode.childNode(withName: "highlight-depth-triggerR", recursively: true) {
+        check(!throttle.isHidden && abs(throttle.scale.y - 0.65) < 0.0001,
+              "Extreme 油门按真实行程显示深度")
+    } else {
+        check(false, "Extreme 油门深度节点存在")
+    }
+    check(scene.rootNode.childNode(withName: "highlight-shoulderL", recursively: true)?.isHidden == true,
+          "Extreme 未按下的肩键不会错误高亮")
     saveFlightReview(view.snapshot(), name: "right")
     state.leftStick = GamepadStickState(x: 0, yUp: 1, pressed: false)
     check(view.update(spec: spec, state: state, container: spec.referenceSize),
@@ -59,6 +79,14 @@ func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     check(abs(pivot.eulerAngles.x - 7 * CGFloat.pi / 180) < 0.0001,
           "Extreme 前倾保持既有输入幅度")
     saveFlightReview(view.snapshot(), name: "forward")
+    state.leftStick = .init(x: -1, yUp: 0, pressed: false)
+    check(view.update(spec: spec, state: state, container: spec.referenceSize) && pivot.eulerAngles.y < 0,
+          "Extreme 左倾方向与右倾相反")
+    saveFlightReview(view.snapshot(), name: "left")
+    state.leftStick = .init(x: 0, yUp: -1, pressed: false)
+    check(view.update(spec: spec, state: state, container: spec.referenceSize) && pivot.eulerAngles.x < 0,
+          "Extreme 后倾方向与前倾相反")
+    saveFlightReview(view.snapshot(), name: "back")
     state.leftStick = .init(x: 0, yUp: 0, pressed: false)
     state.rightStick = .init(x: 1, yUp: 0, pressed: false)
     check(view.update(spec: spec, state: state, container: spec.referenceSize),
