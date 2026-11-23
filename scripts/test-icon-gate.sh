@@ -26,7 +26,7 @@ export DEVELOPER_DIR
 ACTOOL="$(xcrun --find actool 2>/dev/null)" || ACTOOL=""
 [ -n "$ACTOOL" ] || { echo "test-icon-gate.sh: 找不到 actool（需要完整 Xcode）" >&2; exit 1; }
 
-TMP=".build/icon-test/gate-scratch.$$"
+TMP="$ROOT/.build/icon-test/gate-scratch.$$"
 rm -rf "$TMP"
 mkdir -p "$TMP"
 trap 'rm -rf "$TMP"' EXIT

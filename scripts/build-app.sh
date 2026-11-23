@@ -108,7 +108,7 @@ fi
 #    是唯一能让两张原图都真实编入且按外观翻转的写法。其余要点沿用 PathBlender 实测：
 #    glass:false 禁 Liquid Glass、组级 shadow 键整体省略（kind:"none" 会让 actool
 #    静默零产出）、translucency 置 false——不改变用户图稿、不加边圈
-ICON_WORK=".build/icon-work"
+ICON_WORK="$PWD/.build/icon-work"
 rm -rf "$ICON_WORK"
 ICON_PKG="$ICON_WORK/AppIcon.icon"
 mkdir -p "$ICON_PKG/Assets" "$ICON_WORK/actool-out"
