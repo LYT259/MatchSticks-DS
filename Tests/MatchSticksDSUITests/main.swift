@@ -98,6 +98,7 @@ struct UIStateTests {
         check(!model.uiConnectionEditingLocked, "live disabled state allows connection editing")
 
         let practice = DSModel()
+        practice.practiceCountdownSpeech = CountdownSpeechSpy()
         practice.commState = .connected(host: "127.0.0.1")
         practice.startPractice()
         check(practice.practiceActive, "practice button enters original sequencer")
@@ -422,6 +423,7 @@ struct UIStateTests {
         appIconAppearanceTests(check)
         miniDriverStationTests(check)
         localNetworkDiscoveryTests(check)
+        practiceCountdownSpeechTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
@@ -683,6 +685,7 @@ struct UIStateTests {
         check(played == ["CHARGE", "3BELLS"], "stopping clears pending audio")
 
         let rebuiltAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        rebuiltAudio.practiceCountdownSpeech = CountdownSpeechSpy()
         rebuiltAudio.practiceSeasonYear = 2026
         rebuiltAudio.practiceAutoTime = 0.1
         rebuiltAudio.practiceDelayTime = 0.1
@@ -711,6 +714,7 @@ struct UIStateTests {
         ]
         for season in legacySeasons {
             let legacyAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+            legacyAudio.practiceCountdownSpeech = CountdownSpeechSpy()
             legacyAudio.practiceSeasonYear = season.year
             legacyAudio.practiceAutoTime = 0.1
             legacyAudio.practiceTeleopTime = 0.1
@@ -730,6 +734,7 @@ struct UIStateTests {
         }
 
         let stopAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        stopAudio.practiceCountdownSpeech = CountdownSpeechSpy()
         stopAudio.practiceStartDelay = 0
         var stopPlayed: [String] = []
         stopAudio.practiceAudio.playHandler = {
@@ -742,6 +747,7 @@ struct UIStateTests {
         check(stopPlayed == ["CHARGE", "FOGHORN"], "A-Stop plays match-stopped Foghorn")
 
         let interruptedAudio = DSModel(settingsDefaults: makeSuite(suiteNames[7]), persistenceEnabled: false)
+        interruptedAudio.practiceCountdownSpeech = CountdownSpeechSpy()
         interruptedAudio.practiceSeasonYear = 2026
         interruptedAudio.practiceAutoTime = 0.1
         interruptedAudio.practiceDelayTime = 0.1
@@ -1013,6 +1019,7 @@ struct UIStateTests {
         timeoutCueModel.cancelTimeout()
 
         let connectedPractice = DSModel(settingsDefaults: makeSuite(suiteNames[15]), persistenceEnabled: false)
+        connectedPractice.practiceCountdownSpeech = CountdownSpeechSpy()
         connectedPractice.commState = .connected(host: "127.0.0.1")
         connectedPractice.practiceSeasonYear = 2026
         connectedPractice.practiceAutoTime = 0.1
