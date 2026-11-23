@@ -28,8 +28,9 @@ final class DriverStationWindowFlow {
         case returnToMainTapped
         /// Mini 窗口被用户关闭（红绿灯 / Cmd-W）。
         case miniWindowClosed
-        /// Mini 窗口在主窗模式仍活跃时出现（macOS 状态恢复误开）→ 归一回主窗。
-        case miniAppearedWhileMainActive
+        /// Mini 窗口上屏（onAppear）。主窗模式下（状态恢复误开）归一回主窗；
+        /// Mini 模式下完成切换——主窗此时才收起，兜底路径绝不等 Mini 上屏就藏主窗。
+        case miniWindowAppeared
     }
 
     enum Effect: Equatable {
@@ -53,12 +54,13 @@ final class DriverStationWindowFlow {
             return (.mini, .showMiniOnly)
         case (.returnToMainTapped, .mini), (.miniWindowClosed, .mini):
             return (.main, .showMainOnly)
-        case (.miniAppearedWhileMainActive, .main):
+        case (.miniWindowAppeared, .main):
             return (.main, .showMainOnly)
+        case (.miniWindowAppeared, .mini):
+            return (.mini, .showMiniOnly)
         case (.miniEntryTapped, .mini),
              (.miniWindowClosed, .main),
-             (.returnToMainTapped, .main),
-             (.miniAppearedWhileMainActive, .mini):
+             (.returnToMainTapped, .main):
             return (mode, .none)
         }
     }
@@ -91,10 +93,13 @@ enum DriverStationWindowPresenter {
         case .showMiniOnly:
             if let mini = window(miniWindowIdentifier) {
                 mini.makeKeyAndOrderFront(nil)
+                window(mainWindowIdentifier)?.orderOut(nil)
             } else {
+                // macOS 14+ 不保证已关闭的场景窗口残留在 NSApp.windows：找不到就要求
+                // 真实 openWindow 重建。此刻绝不隐藏主窗——绝不能先隐藏主窗后无窗；
+                // Mini 真正上屏后由 .miniWindowAppeared 完成切换（收起主窗）。
                 openMini()
             }
-            window(mainWindowIdentifier)?.orderOut(nil)
         case .showMainOnly:
             if let main = window(mainWindowIdentifier) {
                 main.makeKeyAndOrderFront(nil)

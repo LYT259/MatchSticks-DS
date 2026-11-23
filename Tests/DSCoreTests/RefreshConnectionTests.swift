@@ -22,7 +22,11 @@ func refreshConnectionDecisionTests() {
 func refreshConnectionSafetyScenario() {
     // 已连接 + 已使能时连点两次刷新：链路保持、无 autoDisabled、应答持续抵达
     let server = ScenarioServer(controlPort: 12330, responsePort: 12350)
-    guard server.start() else { return }
+    guard server.start() else {
+        // 安全场景不得在端口被占用时静默跳过——显式失败让运行结果可信
+        check(false, "安全场景应答器启动失败（隔离端口 12330/12350 被占用？）——不得静默跳过")
+        return
+    }
     defer { server.stop() }
     Thread.sleep(forTimeInterval: 0.05)
     let sink = runScenarioClient(
@@ -54,7 +58,10 @@ func refreshConnectionRescueScenario() {
             (0.9, { $0.refreshConnection() }),
             (1.3, { _ in
                 let s = ScenarioServer(controlPort: 12370, responsePort: 12390)
-                if s.start() { server = s }
+                let started = s.start()
+                // 应答器起不来必须显式失败，不能静默降低场景覆盖
+                check(started, "rescue 场景应答器启动失败（隔离端口 12370/12390 被占用？）——不得静默跳过")
+                if started { server = s }
             }),
         ],
         duration: 3.2,

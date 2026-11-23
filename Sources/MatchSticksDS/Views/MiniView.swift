@@ -22,11 +22,17 @@ struct MiniView: View {
         MiniConsoleBar(model: model, flow: flow, refresh: refresh)
             .onAppear {
                 refresh.bindAction { model.refreshRobotConnection() }
+                // 绑定必须完整：openMini 保留真实 openWindow 兜底。这里会覆盖 RootView
+                // 的绑定——若换成空闭包，关闭 Mini 后再次从主窗进入就永远打不开 Mini、
+                // 主窗却已被收起（窗口重入缺陷）。openMain 同理兜底主窗不存在的情况。
                 flow.perform = { effect in
-                    DriverStationWindowPresenter.apply(effect, openMini: {}, openMain: { openWindow(id: "main") })
+                    DriverStationWindowPresenter.apply(effect,
+                                                       openMini: { openWindow(id: "mini") },
+                                                       openMain: { openWindow(id: "main") })
                 }
-                // macOS 状态恢复可能把 Mini 与主窗一起开出来：主窗模式仍活跃时归一回主窗。
-                flow.send(.miniAppearedWhileMainActive)
+                // Mini 上屏：主窗模式下（状态恢复误开）归一回主窗；
+                // Mini 模式下完成切换——此刻 Mini 已可见，收起主窗不再有零窗风险。
+                flow.send(.miniWindowAppeared)
             }
     }
 }

@@ -52,6 +52,12 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
     check(!appSource.contains("placement: .primaryAction"),
           "mini entry no longer sits in the leading toolbar area over the sidebar divider")
 
+    // ===== ③b 窗口重入（审查修复）：共享 flow 绑定必须保留真实 openMini 兜底 =====
+    check(miniSource.contains("openMini: { openWindow(id: \"mini\") }"),
+          "MiniView keeps the real openWindow(id: \"mini\") fallback in its flow binding")
+    check(!miniSource.contains("openMini: {}"),
+          "MiniView never overwrites the shared flow binding with an empty mini opener")
+
     // ===== ④ 真实渲染几何：宽横向布局 =====
     miniDriverStationRenderTests(check)
 
@@ -130,8 +136,10 @@ private func miniDriverStationWindowFlowTests(_ check: @MainActor (@autoclosure 
           "the restore control brings the main window back")
     check(DriverStationWindowFlow.decide(.miniWindowClosed, mode: .mini) == (.main, .showMainOnly),
           "closing the mini window always restores the main window (never a UI-less app)")
-    check(DriverStationWindowFlow.decide(.miniAppearedWhileMainActive, mode: .main) == (.main, .showMainOnly),
+    check(DriverStationWindowFlow.decide(.miniWindowAppeared, mode: .main) == (.main, .showMainOnly),
           "a restoration-opened mini normalizes back to the main window")
+    check(DriverStationWindowFlow.decide(.miniWindowAppeared, mode: .mini) == (.mini, .showMiniOnly),
+          "mini appearing in mini mode completes the switch (main retracts only after mini is on screen)")
     // 幂等：重复/过时事件不重复执行窗口动作
     check(DriverStationWindowFlow.decide(.miniEntryTapped, mode: .mini) == (.mini, .none),
           "re-tapping the entry while already in mini does nothing")
@@ -139,8 +147,6 @@ private func miniDriverStationWindowFlowTests(_ check: @MainActor (@autoclosure 
           "a stale close event while main is active does nothing")
     check(DriverStationWindowFlow.decide(.returnToMainTapped, mode: .main) == (.main, .none),
           "a stale restore event while main is active does nothing")
-    check(DriverStationWindowFlow.decide(.miniAppearedWhileMainActive, mode: .mini) == (.mini, .none),
-          "an appearance event while already in mini does nothing")
 
     // 可注入执行器：事件 → 恰好一次窗口效果，模式跟随决策
     let flow = DriverStationWindowFlow()
@@ -167,10 +173,21 @@ private func miniDriverStationPresenterTests(_ check: @MainActor (@autoclosure (
     NSApplication.shared.setActivationPolicy(.prohibited)
     defer { NSApplication.shared.setActivationPolicy(previousActivationPolicy) }
 
-    // 真实离屏主窗 + 懒创建的 Mini（首次入口点击时 Mini 尚不存在，走 openMini 创建——
-    // 与 SwiftUI 场景首次打开一致）
+    // ===== A. 窗口重入安全（审查修复）：Mini 场景窗口不存在时绝不先隐藏主窗 =====
+    // macOS 14+ 不保证已关闭的 SwiftUI 场景窗口残留在 NSApp.windows——本测试进程
+    // 此刻没有任何 Mini 标识窗口，等价于「关闭后被系统回收」的再次进入。
+    check(NSApp.windows.first { $0.identifier == DriverStationWindowPresenter.miniWindowIdentifier } == nil,
+          "precondition: no stale mini window exists before the re-entry scenarios")
     let mainWindow = makeOffscreenDriverStationWindow(identifier: DriverStationWindowPresenter.mainWindowIdentifier)
     mainWindow.orderFront(nil)
+    var fallbackOpens = 0
+    DriverStationWindowPresenter.apply(.showMiniOnly, openMini: { fallbackOpens += 1 })
+    check(fallbackOpens == 1,
+          "re-entry with no mini window falls back to the real openWindow path")
+    check(mainWindow.isVisible,
+          "the fallback path never hides the main window first (no zero-visible-window state)")
+    mainWindow.makeKeyAndOrderFront(nil)
+
     var miniWindow: NSWindow?
     check(mainWindow.isVisible, "offscreen fixture main window starts visible")
 
@@ -185,11 +202,15 @@ private func miniDriverStationPresenterTests(_ check: @MainActor (@autoclosure (
         })
     }
 
-    // 入口点击：Mini 打开（openMini 真被调用）、主窗隐藏
+    // ===== B. 全周期重入回归：入口 → Mini 上屏 → 真实 performClose → 再次入口 =====
     flow.send(.miniEntryTapped)
     check(miniOpenCount == 1, "showMiniOnly actually opens the mini window")
-    check(!mainWindow.isVisible, "showMiniOnly retracts (hides) the main window without closing it")
-    check(miniWindow?.isVisible == true, "the mini window stays visible after the switch")
+    check(miniWindow?.isVisible == true, "the fallback-created mini window is on screen")
+    check(mainWindow.isVisible,
+          "the fallback entry keeps the main window visible until mini is on screen (never zero windows)")
+    flow.send(.miniWindowAppeared)
+    check(!mainWindow.isVisible && miniWindow?.isVisible == true,
+          "mini appearing completes the switch: main retracts, mini stays visible")
 
     // 恢复主窗：主窗回前台、Mini 收起
     flow.send(.returnToMainTapped)
@@ -201,11 +222,16 @@ private func miniDriverStationPresenterTests(_ check: @MainActor (@autoclosure (
     DriverStationWindowPresenter.apply(.showMainOnly, openMini: {})
     check(mainWindow.isVisible, "showMainOnly un-hides an orderOut main window")
 
-    // 真实关闭路径：NSWindow willClose（红绿灯）→ 观察者 → flow → 主窗恢复，永不无窗
+    // ===== C. 真实红绿灯关闭 → 再次入口（窗口重入核心回归）=====
     var closedCount = 0
     let closeFlow = DriverStationWindowFlow()
     closeFlow.perform = { effect in
-        DriverStationWindowPresenter.apply(effect, openMini: {})
+        DriverStationWindowPresenter.apply(effect, openMini: {
+            let window = miniWindow
+                ?? makeOffscreenDriverStationWindow(identifier: DriverStationWindowPresenter.miniWindowIdentifier)
+            window.makeKeyAndOrderFront(nil)
+            miniWindow = window
+        })
     }
     mainWindow.orderOut(nil)
     closeFlow.send(.miniEntryTapped)
@@ -226,6 +252,15 @@ private func miniDriverStationPresenterTests(_ check: @MainActor (@autoclosure (
     check(closedCount == 1, "closing the mini window via the red button fires the close observer exactly once")
     check(closeFlow.mode == .main, "the close event routes through the window flow")
     check(mainWindow.isVisible, "the real red-button close restores the hidden main window")
+
+    // 再次入口：真实关闭过的 Mini 回到屏幕、主窗收起（macOS 不回收窗口的分支；
+    // 「回收后再次进入」分支由开头 A 段在 NSApp.windows 真实无 Mini 时覆盖）
+    closeFlow.send(.miniEntryTapped)
+    check(miniForClose.isVisible && !mainWindow.isVisible,
+          "re-entry after a real close shows a visible mini window and retracts main")
+    miniForClose.performClose(nil)
+    check(closedCount == 2, "a second real close fires the observer again")
+    check(mainWindow.isVisible, "a second close still restores the main window (the cycle is stable)")
 
     mainWindow.close()
     miniWindow?.close()
