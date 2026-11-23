@@ -49,6 +49,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/HIDInputManager.swift \
   Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
   Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
+  Sources/MatchSticksDS/PracticeCountdownSpeech.swift \
   Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
   .build/uitest/BundleModuleShim.swift Sources/MatchSticksDS/Shortcuts.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputReport.swift \
@@ -77,5 +78,6 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
   Tests/MatchSticksDSUITests/PracticeProgressTests.swift \
+  Tests/MatchSticksDSUITests/PracticeCountdownSpeechTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests "$@"

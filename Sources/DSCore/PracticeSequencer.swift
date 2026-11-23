@@ -67,6 +67,13 @@ public struct PracticeTimingPreset: Sendable, Equatable {
     }
 }
 
+public enum PracticeCountdownCue: String, Sendable, Equatable, CaseIterable {
+    case three
+    case two
+    case one
+    case go
+}
+
 // MARK: - PracticeSequencer：Practice 时序纯状态机（报告 §2.1 NI DS Practice 语义）
 // 阶段：开始等待 → Auto → 过渡 → Teleop（2026 展开六个子阶段）→ 结束；A-Stop 任意时刻中止。
 
@@ -145,25 +152,49 @@ public struct PracticeSequencer: Sendable, Equatable {
         case finished         // 全程结束
         case aborted          // A-Stop
         case endgameWarning   // 2022–2025 Teleop 内提示，不改变当前阶段
+        case countdown(PracticeCountdownCue)
     }
 
     public private(set) var phase: Phase = .idle
     public private(set) var remaining: TimeInterval = 0
     public private(set) var config: Config
+    private var announcedCountdownCues: Set<PracticeCountdownCue> = []
 
     public init(config: Config = Config()) {
         self.config = config
     }
 
     public mutating func start() -> [Event] {
+        announcedCountdownCues.removeAll()
         if config.startDelay > 0 {
             phase = .delayBeforeAuto
             remaining = config.startDelay
-            return [.entered(.delayBeforeAuto)]
+            return [.entered(.delayBeforeAuto)] + countdownEvents()
         }
+        return enterAutonomous()
+    }
+
+    private mutating func enterAutonomous() -> [Event] {
         phase = .autonomous
         remaining = config.autoTime
-        return [.entered(.autonomous), .enable]
+        announcedCountdownCues.insert(.go)
+        return [.entered(.autonomous), .enable, .countdown(.go)]
+    }
+
+    private mutating func countdownEvents() -> [Event] {
+        let cue: PracticeCountdownCue
+        if remaining <= 1.005 {
+            cue = .one
+        } else if remaining <= 2.005 {
+            cue = .two
+        } else if remaining <= 3.005 {
+            cue = .three
+        } else {
+            return []
+        }
+        guard !announcedCountdownCues.contains(cue) else { return [] }
+        announcedCountdownCues.insert(cue)
+        return [.countdown(cue)]
     }
 
     /// A-Stop：立即失能并结束
@@ -203,7 +234,10 @@ public struct PracticeSequencer: Sendable, Equatable {
                remaining + carry > warning + 0.005, remaining <= warning + 0.005 {
                 events.append(.endgameWarning)
             }
-            guard remaining <= 0.005 else { break }
+            guard remaining <= 0.005 else {
+                if phase == .delayBeforeAuto { events += countdownEvents() }
+                break
+            }
             carry = overshoot
             events += advance()
         } while carry > 0 && phase.isActive
@@ -220,9 +254,7 @@ public struct PracticeSequencer: Sendable, Equatable {
     private mutating func advance() -> [Event] {
         switch phase {
         case .delayBeforeAuto:
-            phase = .autonomous
-            remaining = config.autoTime
-            return [.entered(.autonomous), .enable]
+            return enterAutonomous()
         case .autonomous:
             if config.delayTime > 0 {
                 phase = .delayBeforeTeleop

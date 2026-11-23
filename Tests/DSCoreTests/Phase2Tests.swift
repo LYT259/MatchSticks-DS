@@ -1168,6 +1168,20 @@ func practiceSequencerTests() {
 
 // MARK: PracticeSequencer 大 dt 追赶（主 runloop 停顿后按真实 elapsed 推进到正确阶段）
 
+private func practiceControlEvents(_ events: [PracticeSequencer.Event]) -> [PracticeSequencer.Event] {
+    events.filter { event in
+        if case .countdown = event { return false }
+        return true
+    }
+}
+
+private func practiceCountdownCues(_ events: [PracticeSequencer.Event]) -> [PracticeCountdownCue] {
+    events.compactMap { event in
+        guard case .countdown(let cue) = event else { return nil }
+        return cue
+    }
+}
+
 func practiceSequencerCatchUpTests() {
     // 跨阶段余量：开始等待 2s，一次 2.5s 的 dt 应让 Auto 从 19.5 起算，而不是从满 20 重新开始
     var carried = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 2))
@@ -1175,7 +1189,10 @@ func practiceSequencerCatchUpTests() {
     let carriedEvents = carried.tick(2.5)
     check(carried.phase == .autonomous, "大 dt 跨过开始等待后进入 Auto")
     check(abs(carried.remaining - 19.5) < 1e-9, "跨阶段余量带入 Auto：剩余 19.5，实际 \(carried.remaining)")
-    check(carriedEvents == [.entered(.autonomous), .enable], "跨阶段只发一次进入与使能")
+    check(practiceControlEvents(carriedEvents) == [.entered(.autonomous), .enable],
+          "跨阶段只发一次进入与使能")
+    check(practiceCountdownCues(carriedEvents) == [.go], "跨阶段进入 Auto 只发一次 go")
+    check(carriedEvents.filter { $0 == .enable }.count == 1, "跨阶段不重复 Auto 使能")
 
     // 一次 dt 跨三个阶段：事件序列与逐 0.1s 推进完全一致，最终状态一致
     var jumped = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 2))
@@ -1187,8 +1204,9 @@ func practiceSequencerCatchUpTests() {
     _ = stepped.start()
     var steppedEvents: [PracticeSequencer.Event] = []
     for _ in 0..<255 { steppedEvents += stepped.tick(0.1) }
-    check(jumpedEvents == steppedEvents,
-          "一次大 dt 与 255 次小 tick 的事件序列相同：\(jumpedEvents) 对 \(steppedEvents)")
+    check(practiceControlEvents(jumpedEvents) == practiceControlEvents(steppedEvents),
+          "一次大 dt 与 255 次小 tick 的控制事件序列相同")
+    check(practiceCountdownCues(jumpedEvents) == [.go], "大 dt 跨过等待只报当前 go，不补数字")
     check(stepped.phase == .teleoperated && abs(stepped.remaining - jumped.remaining) < 1e-9,
           "两种推进方式的最终阶段与剩余一致")
     check(jumpedEvents.filter { $0 == .enable }.count == 2 && jumpedEvents.filter { $0 == .disable }.count == 1,
@@ -1199,9 +1217,10 @@ func practiceSequencerCatchUpTests() {
     _ = overrun.start()
     let overrunEvents = overrun.tick(1_000)
     check(overrun.phase == .finished && overrun.remaining == 0, "超长 dt 直接结束且剩余为 0")
-    check(overrunEvents == [.entered(.autonomous), .enable, .entered(.delayBeforeTeleop), .disable,
-                            .entered(.teleoperated), .enable, .disable, .finished],
-          "超长 dt 事件顺序：进入 → 使能 → 失能 → 使能 → 失能 → 结束，实际 \(overrunEvents)")
+    check(practiceControlEvents(overrunEvents) == [.entered(.autonomous), .enable, .entered(.delayBeforeTeleop), .disable,
+                                                   .entered(.teleoperated), .enable, .disable, .finished],
+          "超长 dt 控制事件顺序：进入 → 使能 → 失能 → 使能 → 失能 → 结束，实际 \(overrunEvents)")
+    check(practiceCountdownCues(overrunEvents) == [.go], "超长 dt 倒数仍只发一次 go")
     check(overrun.tick(5).isEmpty, "结束后大 dt 空转")
 
     // Teleop 内提示与结束落在同一 tick：提示先于失能

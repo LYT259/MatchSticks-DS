@@ -387,7 +387,10 @@ final class DSModel {
     /// 此刻的显示值（TimelineView 等显示驱动逐帧读取）
     var livePracticeDisplay: PracticeDisplay { practiceDisplay(at: practiceClock()) }
     var soundsEnabled = true {
-        didSet { settings.set("soundsEnabled", soundsEnabled) }
+        didSet {
+            settings.set("soundsEnabled", soundsEnabled)
+            if !soundsEnabled { practiceCountdownSpeech.stop() }
+        }
     }
     var enableDisableSoundsEnabled = true {
         didSet { settings.set("enableDisableSoundsEnabled", enableDisableSoundsEnabled) }
@@ -481,6 +484,7 @@ final class DSModel {
     private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
     let practiceAudio = PracticeAudioPlayer()
+    var practiceCountdownSpeech: any PracticeCountdownSpeaking = PracticeCountdownSpeech()
     private var practiceTimer: Timer?
     /// 上一次有效 practiceTick 的时钟读数（nil = 尚无有效读数）：显示外推与真实 elapsed 的
     /// 共同基点。只前进不后退，非有限读数不写入。
@@ -1068,6 +1072,7 @@ final class DSModel {
         pollAndPublishSnapshot()
         cancelTimeout()
         practiceAudio.stop()
+        practiceCountdownSpeech.stop()
         playEstopSound()
         log(tr("E-STOP 触发（Space）"))
     }
@@ -1149,6 +1154,7 @@ final class DSModel {
     func startPractice() {
         guard !sequencer.phase.isActive, !timeoutActive else { return }
         practiceAudio.stop()
+        practiceCountdownSpeech.stop()
         let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026
             ? .init(transitionShift: practiceTransitionShiftTime, allianceShift: practiceAllianceShiftTime,
                     endgame: practiceEndgameTime)
@@ -1164,6 +1170,7 @@ final class DSModel {
     }
 
     func aStop() {
+        practiceCountdownSpeech.stop()
         applyPracticeEvents(sequencer.abort())
         practiceTimer?.invalidate()
         practiceTimer = nil
@@ -1281,6 +1288,7 @@ final class DSModel {
                 default: break
                 }
                 if phase.isActive { log("Practice → \(phase.displayName)") }
+            case .countdown(let cue): playPracticeCountdownCue(cue)
             case .enable: setEnabled(true, soundSource: .automatic)
             case .disable: setEnabled(false, soundSource: .automatic)
             case .finished:
@@ -1324,6 +1332,11 @@ final class DSModel {
             estopSound = NSSound(contentsOf: url, byReference: false)
         }
         _ = estopSound?.play()
+    }
+
+    private func playPracticeCountdownCue(_ cue: PracticeCountdownCue) {
+        guard soundsEnabled, !estopEngaged else { return }
+        practiceCountdownSpeech.speak(cue)
     }
 
     private func playPracticeSound(_ event: PracticeSoundEvent) {

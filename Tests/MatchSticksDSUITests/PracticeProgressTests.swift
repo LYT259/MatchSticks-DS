@@ -17,6 +17,7 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     // 会让停顿 0.5s 跨过 0.3s 开始等待后仍停在「准备自动阶段」。
     let stalled = DSModel(settingsDefaults: suite, persistenceEnabled: false)
     stalled.practiceStartDelay = 0.3
+    stalled.practiceCountdownSpeech = CountdownSpeechSpy()
     stalled.startPractice()
     check(stalled.practicePhase == .delayBeforeAuto, "练习从开始等待进入")
     Thread.sleep(forTimeInterval: 0.5)   // 模拟主线程被阻塞（拖窗口/菜单期间的同步工作）
@@ -37,6 +38,7 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     model.practiceAutoTime = 15
     model.practiceDelayTime = 3
     model.practiceTeleopTime = 135
+    model.practiceCountdownSpeech = CountdownSpeechSpy()
     model.startPractice()
     check(model.practicePhase == .delayBeforeAuto && model.practiceRemaining == 2, "开始练习：进入开始等待，剩余 2")
     let start = model.practiceDisplay(at: now)
@@ -97,6 +99,7 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     hardened.practiceAutoTime = 15
     hardened.practiceDelayTime = 3
     hardened.practiceTeleopTime = 135
+    hardened.practiceCountdownSpeech = CountdownSpeechSpy()
     hardened.startPractice()
     check(hardened.practicePhase == .autonomous && hardened.practiceRemaining == 15, "0 秒开始等待直接进入 Auto")
     for bad in [Double.nan, .infinity, -.infinity] {
@@ -118,6 +121,7 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     var startClock: TimeInterval = .nan
     badStart.practiceClock = { startClock }
     badStart.practiceStartDelay = 0
+    badStart.practiceCountdownSpeech = CountdownSpeechSpy()
     badStart.startPractice()
     startClock = 2_000
     badStart.practiceTick()
