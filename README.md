@@ -1,6 +1,6 @@
 # MatchSticks DS
 
-**macOS 原生 FRC Driver Station** —— 同时支持 roboRIO 1.0 / roboRIO 2.0（NI 协议）与 SystemCore（MRCCOMM V2 协议，实验性）的驾驶台，严格遵循 Apple 设计语言（SwiftUI 原生）。应用本体只在 macOS 构建与分发；2026-11-23 起验证矩阵覆盖 macOS / Windows / Linux 三平台，但跨平台验证的对象仅是 `DSCore` 协议核心与回归测试（App / UI / E2E 只在 Mac 跑）——**不提供 Windows / Linux 版 App**（见[分支模型](#分支模型)）。协议核心可移植性 ADR 正在并行收尾，编号与文件路径以并行任务最终报告为准，本页暂不预设链接。
+**macOS 原生 FRC Driver Station** —— 同时支持 roboRIO 1.0 / roboRIO 2.0（NI 协议）与 SystemCore（MRCCOMM V2 协议，实验性）的驾驶台，严格遵循 Apple 设计语言（SwiftUI 原生）。应用本体只在 macOS 构建与分发；2026-11-23 起验证矩阵覆盖 macOS / Windows / Linux 三平台，但跨平台验证的对象仅是 `DSCore` 协议核心与回归测试（App / UI / E2E 只在 Mac 跑）——**不提供 Windows / Linux 版 App**（见[分支模型](#分支模型)）。协议核心可移植性 ADR：[ADR-0005](docs/decisions/0005-portable-dscore-validation.md)。
 
 > ⚠️ **Practice Only**：所有第三方 DS 均不得用于正式比赛（规则 R710/R901）。本项目定位为练习、调试与台架测试工具。
 >
@@ -127,7 +127,7 @@ docs/                协议档案 / 发版操作单（release-kit）/ 真机台�
 - **beta → stable 的触发**：按自上个 stable 以来累计的用户可感知改动评估——一个值得写进 Release notes 的新功能 / 显著改进，或一批明显修复；纯内部 CI / docs / 重构不算。完成 beta 交付时只提醒「可能可以合并」，合并与发版等用户明确同意；
 - **统一入口**：`scripts/validate-all.sh`（与三平台核心任务一同交付）；**脚本存在或能跑 ≠ 验证通过**，证据以实际运行输出（记入工程日志）为准。
 
-决策记录见 [ADR-0003](docs/decisions/0003-three-platform-validation.md)；更新通道与连通性决策见 **ADR-0004**（文件随对应功能分支合入，本页暂不预设链接）。
+决策记录见 [ADR-0003](docs/decisions/0003-three-platform-validation.md)；更新通道与连通性决策见 [ADR-0004](docs/decisions/0004-update-channels-and-connectivity.md)；协议核心可移植性 ADR：[ADR-0005](docs/decisions/0005-portable-dscore-validation.md)。
 
 ## 路线图（报告 §9）
 

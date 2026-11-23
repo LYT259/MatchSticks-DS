@@ -2,7 +2,7 @@
 
 > Phase 4 分发配套（2026-10-01）；与 CLAUDE.md「分发、安装与自动更新」章配套使用。
 > 2026-11-23：发版前置 = 用户明确同意 + 三平台全量验证三端全过（[ADR-0003](decisions/0003-three-platform-validation.md)）；GitHub Actions 仅用于 Windows 全量验证。所有合入 `beta` 的改动（含文档 / 测试 / CI）都必须验证，没有豁免。
-> 2026-11-23：appcast 改为 stable / beta 双渠道、**同一个 feed**——发布规则与授权边界见「五」（决策 **ADR-0004**，文件随对应功能分支合入）。本文件只是操作单：2026-11-23 的文档修订**未执行任何**一次 beta / stable 发布，也没改过任何 Release 的附件。
+> 2026-11-23：appcast 改为 stable / beta 双渠道、**同一个 feed**——发布规则与授权边界见「五」（决策 [ADR-0004](decisions/0004-update-channels-and-connectivity.md)）。本文件只是操作单：2026-11-23 的文档修订**未执行任何**一次 beta / stable 发布，也没改过任何 Release 的附件。
 > **生产自动更新可用性前提（尚未满足）**：仓库目前为 Private，匿名 Latest appcast 返回 404，Cloudflare 镜像尚未部署。必须先提供匿名可读的同一 Latest appcast、确认客户端实际 feed 地址可匿名读取，并部署镜像、回读验证；在此之前**不得宣称现网应用内更新可用**。
 > 发版本身等用户点名；本文件是发版当天的操作单。
 
@@ -87,7 +87,7 @@
 
 ## 五、双渠道 appcast 发布规则（stable / beta 同一个 feed）
 
-> 本节是规则 + 操作单。**2026-11-23 的文档修订未执行任何一步**（没有发过 beta Release、没有改过任何 Release 的附件）；实际执行记录以工程日志为准。决策见 **ADR-0004**（文件随对应功能分支合入），实现见 `Sources/MatchSticksDS/UpdateChannel.swift`（随对应功能分支合入；`allowedChannels`：stable = 空集、beta = `{"beta"}`，默认渠道永远包含）。
+> 本节是规则 + 操作单。**2026-11-23 的文档修订未执行任何一步**（没有发过 beta Release、没有改过任何 Release 的附件）；实际执行记录以工程日志为准。决策见 [ADR-0004](decisions/0004-update-channels-and-connectivity.md)，实现见 `Sources/MatchSticksDS/UpdateChannel.swift`（`allowedChannels`：stable = 空集、beta = `{"beta"}`，默认渠道永远包含）。
 
 ### 机制（为什么必须这样发）
 

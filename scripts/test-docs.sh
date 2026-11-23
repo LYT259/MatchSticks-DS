@@ -98,10 +98,23 @@ contains(release_kit, "不运行 Windows / Linux App")
 contains(adr, "不意味着 Windows / Linux 上有可用的 App")
 contains(readme, "可移植性 ADR")
 contains(adr, "可移植性 ADR")
-contains(adr, "编号与文件路径以并行任务最终报告为准")
-for doc in [readme, adr]:
-    require(not re.search(r"\]\([^)]*0005[^)]*\)", Path(doc).read_text(encoding="utf-8")),
-            f"{doc}: 可移植性 ADR 编号未定时不得臆造文件链接")
+contains(readme, "[ADR-0004](docs/decisions/0004-update-channels-and-connectivity.md)")
+contains(release_kit, "[ADR-0004](decisions/0004-update-channels-and-connectivity.md)")
+contains(adr, "[ADR-0004](0004-update-channels-and-connectivity.md)")
+contains(readme, "[ADR-0005](docs/decisions/0005-portable-dscore-validation.md)")
+contains(adr, "[ADR-0005](0005-portable-dscore-validation.md)")
+for doc in public_docs:
+    absent(doc, "文件随对应功能分支合入")
+    absent(doc, "本页暂不预设链接")
+    absent(doc, "编号与文件路径以并行任务最终报告为准")
+absent(adr, "暂不设链接")
+absent(adr, "由并行任务交付")
+contains(adr, "`git archive HEAD`")
+contains(adr, "`mktemp -d`")
+contains(adr, "读取 `headSha`")
+contains(adr, "至多 dispatch 一次")
+absent(adr, "`rsync` 同一 SHA")
+absent(adr, "`gh workflow run")
 contains(adr, "不声称三平台验证已经通过")
 
 for doc in public_docs:
