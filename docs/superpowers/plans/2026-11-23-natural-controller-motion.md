@@ -28,17 +28,17 @@
 - Modify: `scripts/test-ui.sh`
 
 **Interfaces:**
-- Produces: `ThumbstickMotion.pose(well:cap:state:in:) -> ThumbstickPose`, with `pivot`, `tiltX`, `tiltY`, `travel`, and `capSize` fields.
+- Produces: `ThumbstickMotion.pose(well:cap:state:) -> ThumbstickPose`, with `pivot`, `tiltX`, `tiltY`, `travel`, and `capSize` fields.
 - Produces: `GamepadArtworkImageSource.imageMaskingStickCaps(_:capRegions:) -> CGImage?`, preserving pixels outside the mask and clearing alpha inside it.
 
 - [ ] **Step 1: Write failing behavior tests**
 
 ```swift
-let neutral = ThumbstickMotion.pose(well: well, cap: cap, state: .init(x: 0, yUp: 0, pressed: false), in: container)
+let neutral = ThumbstickMotion.pose(well: well, cap: cap, state: .init(x: 0, yUp: 0, pressed: false))
 check(neutral.pivot == CGPoint(x: well.midX, y: well.midY) && neutral.tiltX == 0 && neutral.tiltY == 0, "neutral fixes the well pivot")
-let right = ThumbstickMotion.pose(well: well, cap: cap, state: .init(x: 1, yUp: 0, pressed: false), in: container)
+let right = ThumbstickMotion.pose(well: well, cap: cap, state: .init(x: 1, yUp: 0, pressed: false))
 check(right.tiltY > 0 && right.pivot == neutral.pivot, "right tilt rotates around the well, not a bitmap offset")
-let invalid = ThumbstickMotion.pose(well: well, cap: cap, state: .init(x: .nan, yUp: .infinity, pressed: false), in: container)
+let invalid = ThumbstickMotion.pose(well: well, cap: cap, state: .init(x: .nan, yUp: .infinity, pressed: false))
 check(invalid == neutral, "invalid axes recenter safely")
 let masked = GamepadArtworkImageSource.imageMaskingStickCaps(source, capRegions: [cap])
 check(alpha(masked, at: capCenter) == 0 && rgba(masked, at: outside) == originalOutside, "mask clears only the old cap; no cloned pixels")

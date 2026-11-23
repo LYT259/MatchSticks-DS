@@ -222,6 +222,22 @@ enum GamepadArtworkImageSource {
         return image
     }
 
+    static func imageMaskingStickCaps(_ image: CGImage, capRegions: [CGRect]) -> CGImage? {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0,
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        context.setBlendMode(.clear)
+        for region in capRegions where region.origin.x.isFinite && region.origin.y.isFinite &&
+            region.width.isFinite && region.height.isFinite && region.width > 0 && region.height > 0 {
+            context.fillEllipse(in: CGRect(x: region.minX, y: CGFloat(height) - region.maxY,
+                                           width: region.width, height: region.height))
+        }
+        return context.makeImage()
+    }
+
     static func imageWithoutStickCaps(named name: String, capRegions: [CGRect]) -> NSImage? {
         let key = "\(name)#without-sticks-\(capRegions)" as NSString
         if let cached = cache.object(forKey: key) { return cached }

@@ -54,6 +54,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
   Sources/MatchSticksDS/GamepadInputManager.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickMotion.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
@@ -62,6 +63,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
   Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
+  Tests/MatchSticksDSUITests/ThumbstickMotionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
   -o .build/MatchSticksDSUIStateTests
