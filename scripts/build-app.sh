@@ -99,7 +99,7 @@ if [ ! -s "$APP/Contents/Resources/AppIcon.icns" ]; then
   exit 1
 fi
 
-# 2) Icon Composer 图标包（.build 下临时组装，PNG 复制自 Sources，不重复入库）→
+# 2) Icon Composer 图标包（.build 下临时组装，全幅输入由仓库图稿派生，不重复入库）→
 #    actool 编译 Assets.car：浅色 Aqua + 深色 DarkAqua，macOS 按 CFBundleIconName 优先
 #    选它做外观切换。深色变体用「双层 + hidden-specializations」结构（day 层 dark 时
 #    隐藏、night 层 light 时隐藏）——本机实测（Xcode 27.2 / 27B52，矩阵实验存档
@@ -108,10 +108,27 @@ fi
 #    是唯一能让两张原图都真实编入且按外观翻转的写法。其余要点沿用 PathBlender 实测：
 #    glass:false 禁 Liquid Glass、组级 shadow 键整体省略（kind:"none" 会让 actool
 #    静默零产出）、translucency 置 false——不改变用户图稿、不加边圈
-ICON_WORK=".build/icon-work"
+ICON_WORK="$PWD/.build/icon-work"
 rm -rf "$ICON_WORK"
 ICON_PKG="$ICON_WORK/AppIcon.icon"
 mkdir -p "$ICON_PKG/Assets" "$ICON_WORK/actool-out"
+# FULLBLEED-SEGMENT-START：Icon Composer 输入必须全幅无透明边距（test-icon-gate.sh G3 抽取本段）
+# 仓库图稿是 824 参考轮廓的圆角稿；带透明边距/圆角的图稿直接编译，系统底板会从透明区
+# 透出——Stage Manager/侧边白圈（用户 2026-11 实测）。先派生全幅日/夜间输入（824 底板
+# 等比放大满幅、四角填底板色、内部图形比例与背景色不变），系统负责最终原生圆角/尺寸。
+swift scripts/calibrate-icon.swift full-bleed --out "$ICON_WORK/fullbleed" \
+  || { echo "  ✗ Icon Composer 全幅输入生成失败（见上）" >&2; exit 1; }
+for FB_NAME in icon-day.png icon-night.png; do
+  if [ ! -s "$ICON_WORK/fullbleed/$FB_NAME" ]; then
+    echo "  ✗ 全幅输入缺失：$ICON_WORK/fullbleed/$FB_NAME" >&2
+    exit 1
+  fi
+done
+# PNG 一律 cat 重定向新写（不用 cp）：图稿带下载隔离属性（com.apple.quarantine）时，
+# cp 的 clonefile 拷贝会让本机 actool 的 IconStudio 导出间歇性报「image does not
+# exist」（实测对照各 3 次：cp 失败 / cat 新写稳定）
+cat "$ICON_WORK/fullbleed/icon-day.png"   > "$ICON_PKG/Assets/icon-day.png"
+cat "$ICON_WORK/fullbleed/icon-night.png" > "$ICON_PKG/Assets/icon-night.png"
 cat > "$ICON_PKG/icon.json" <<'ICONJSON'
 {
   "groups": [
@@ -156,11 +173,6 @@ cat > "$ICON_PKG/icon.json" <<'ICONJSON'
   }
 }
 ICONJSON
-# PNG 一律 cat 重定向新写（不用 cp）：用户原稿带下载隔离属性（com.apple.quarantine），
-# cp 的 clonefile 拷贝会让本机 actool 的 IconStudio 导出间歇性报「image does not
-# exist」（实测对照各 3 次：cp 失败 / cat 新写稳定）
-cat "$ICON_SRC_DIR/app-icon-day.png"   > "$ICON_PKG/Assets/icon-day.png"
-cat "$ICON_SRC_DIR/app-icon-night.png" > "$ICON_PKG/Assets/icon-night.png"
 
 ACTOOL="$(xcrun --find actool 2>/dev/null)" || ACTOOL=""
 if [ -z "$ACTOOL" ]; then
