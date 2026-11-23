@@ -38,7 +38,7 @@
 "正在寻找机器人" = "Searching for Robot";
 "复位急停（请求重启程序）" = "Reset E-Stop (requests code restart)";
 "急停已锁定；复位将请求重启机器人程序。" = "E-Stop latched; resetting will request a robot code restart.";
-"机器人仍报告急停；请在诊断页检查或重启机器人程序。" = "The robot still reports E-Stop; check Diagnostics or restart robot code.";
+"机器人仍报告急停；请在机器人页检查，或在驾驶页重启机器人程序。" = "The robot still reports E-Stop; check the Robot page or restart robot code from the Drive page.";
 "界面心跳异常，使能输出已冻结。" = "UI heartbeat abnormal; enable output is frozen.";
 "先在「连接」页配置机器人。" = "Configure the robot on the Connection page first.";
 "运行中。按 Return 失能，按空格急停。" = "Running. Press Return to disable, Space to E-Stop.";
@@ -48,24 +48,23 @@
 "快捷键仅在前台、非文本输入时生效" = "Shortcuts apply only in the foreground and outside text input";
 "运行时间" = "Run Time";
 "驾驶控制" = "Drive Controls";
-"机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。" = "The robot still reports E-Stop; Enable is unavailable. Wait for the reset to take effect or restart robot code from Diagnostics.";
+"机器人仍报告急停，使能不可用；等待复位生效或到驾驶页重启机器人程序。" = "The robot still reports E-Stop; Enable is unavailable. Wait for the reset to take effect or restart robot code from the Drive page.";
 "使能机器人（需已连接且无急停）" = "Enable the robot (requires connection and no E-Stop)";
 "迷你驾驶台" = "Mini Driver Station";
 
-/* ===== 侧栏与页面导航（MatchSticksDSApp）===== */
+/* ===== 侧栏与页面导航（MatchSticksDSApp：操作 / 监测两组，监测含 Mac · 机器人 · 摄像头 · 控制台）===== */
 "驾驶" = "Drive";
 "连接" = "Connection";
 "手柄" = "Joysticks";
-"诊断" = "Diagnostics";
-"数据图表" = "Charts";
+"Mac" = "Mac";
+"机器人" = "Robot";
+"摄像头" = "Camera";
 "控制台" = "Console";
 "权限与帮助" = "Permissions & Help";
 "设置" = "Settings";
 "确认连接与模式，然后开始操作。" = "Confirm connection and mode, then start operating.";
 "连接机器人，配置练习和记录偏好。" = "Connect the robot and configure practice and logging preferences.";
 "检查输入，安排机器人接收的手柄顺序。" = "Inspect inputs and set the joystick order the robot receives.";
-"检查链路、机器人资源和故障信息。" = "Check the link, robot resources, and faults.";
-"观察电池、处理器和通信质量的变化。" = "Watch battery, processor, and link quality over time.";
 "查看机器人输出、错误与驾驶台事件。" = "View robot output, errors, and driver station events.";
 "排查连接问题，了解当前快捷键的使用范围。" = "Troubleshoot connection issues and see when shortcuts apply.";
 "机器人驾驶台" = "Robot Driver Station";
@@ -168,13 +167,7 @@
 "尝试启动 Dashboard：%@" = "Trying to launch Dashboard: %@";
 "启动 Dashboard 失败：%@（%@）——请确认已安装该应用" = "Failed to launch Dashboard: %@ (%@) — make sure the app is installed";
 
-/* ===== DiagnosticsView ===== */
-"确认重启机器人控制器？" = "Restart robot controller?";
-"重启控制器" = "Restart Controller";
-"机器人将暂时断开连接。请确认当前已失能。" = "The robot will disconnect temporarily. Confirm it is disabled first.";
-"确认重启机器人程序？" = "Restart robot code?";
-"重启程序" = "Restart Code";
-"重启会中断当前程序。请先确认机器人已失能。" = "Restarting interrupts the running program. Confirm the robot is disabled first.";
+/* ===== RobotView（机器人页：链路 / 资源 / CAN / 电源 / 版本，合并原诊断页机器人内容）===== */
 "连接检查" = "Connection Check";
 "机器人通信" = "Robot Comms";
 "机器人无线电" = "Robot Radio";
@@ -186,8 +179,6 @@
 "USB 直连地址未手动指定" = "USB direct address not set";
 "FMS：不提供连接" = "FMS: not provided";
 "机器人资源" = "Robot Resources";
-"控制器回传" = "reported by controller";
-"连接后显示实时数据" = "live data appears once connected";
 "尚未连接机器人" = "Not Connected to Robot";
 "内存" = "Memory";
 "可用磁盘" = "Disk Free";
@@ -204,23 +195,20 @@
 "6 V 电源故障" = "6 V Rail Faults";
 "5 V 电源故障" = "5 V Rail Faults";
 "3.3 V 电源故障" = "3.3 V Rail Faults";
-"这台 Mac" = "This Mac";
+"设备版本" = "Device Versions";
+"未连接；如有记录，显示上次收到的版本" = "Not connected; shows last received versions if any";
+"尚未收到版本信息。连接后由机器人程序提供。" = "No version info yet. Provided by robot code after connecting.";
+"%@ · 类型 %d" = "%@ · Type %d";
+"等待控制器回传资源数据" = "Waiting for controller resource data";
+
+/* ===== MacStatusView（Mac 页：Mac 状态面板）===== */
+"Mac 状态" = "Mac Status";
 "电池" = "Battery";
 "供电方式" = "Power Source";
 "外接电源" = "AC Power";
 "电池供电" = "On Battery";
 "系统 CPU" = "System CPU";
 "应用内存" = "App Memory";
-"设备版本" = "Device Versions";
-"未连接；如有记录，显示上次收到的版本" = "Not connected; shows last received versions if any";
-"尚未收到版本信息。连接后由机器人程序提供。" = "No version info yet. Provided by robot code after connecting.";
-"%@ · 类型 %d" = "%@ · Type %d";
-"摄像头" = "Camera";
-"模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）" = "Simulator MOCK image source (real SystemCore stream protocol TBD)";
-"机器人维护" = "Robot Maintenance";
-"重启会中断控制。请先确认机器人已失能。" = "Restarts interrupt control. Confirm the robot is disabled first.";
-"重启机器人程序" = "Restart Robot Code";
-"等待控制器回传资源数据" = "Waiting for controller resource data";
 
 /* ===== USBDevicesView ===== */
 "%d 个手柄" = "%d joysticks";
@@ -259,7 +247,7 @@
 "已按下" = "Pressed";
 "已松开" = "Released";
 
-/* ===== OperationView ===== */
+/* ===== OperationView（驾驶页：模式 / 站位 / 练习 / 机器人维护——重启控制器与重启程序自诊断页移入）===== */
 "驾驶模式" = "Drive Mode";
 "失能后可切换模式。" = "Switch modes while disabled.";
 "遥控" = "Teleoperated";
@@ -301,6 +289,15 @@
 "准备遥控阶段" = "Teleop Countdown";
 "遥控阶段" = "Teleoperated";
 "练习已结束" = "Practice Finished";
+"机器人维护" = "Robot Maintenance";
+"重启会中断控制。请先确认机器人已失能。" = "Restarts interrupt control. Confirm the robot is disabled first.";
+"重启机器人程序" = "Restart Robot Code";
+"重启控制器" = "Restart Controller";
+"确认重启机器人控制器？" = "Restart robot controller?";
+"机器人将暂时断开连接。请确认当前已失能。" = "The robot will disconnect temporarily. Confirm it is disabled first.";
+"确认重启机器人程序？" = "Restart robot code?";
+"重启程序" = "Restart Code";
+"重启会中断当前程序。请先确认机器人已失能。" = "Restarting interrupts the running program. Confirm the robot is disabled first.";
 
 /* ===== PermissionsView ===== */
 "本地网络" = "Local Network";
@@ -333,13 +330,8 @@
 "无法直接打开对应页面，请从「系统设置」按上方路径进入。" = "Couldn't open the pane directly; follow the path above from System Settings.";
 "已打开系统设置；若未跳转到对应页面，请按上方路径进入。" = "System Settings opened; if the right pane didn't come up, follow the path above.";
 
-/* ===== ChartsView ===== */
-"当前读数" = "Current Readings";
-"来自机器人回传" = "from robot telemetry";
-"未连接机器人；下方保留已采集的历史" = "Robot not connected; history collected so far is kept below";
+/* ===== RobotHistoryView（机器人页历史曲线，合并原图表页）===== */
 "丢包率" = "Packet Loss";
-"累计接收" = "Total Received";
-"最近 300 个回传采样 · 单位 V" = "Last 300 samples · V";
 "采样序号" = "Sample #";
 "电压" = "Voltage";
 "采样序号（由早到晚）" = "Sample # (oldest → newest)";
@@ -347,14 +339,12 @@
 "等待电池电压采样" = "Waiting for battery samples";
 "连接机器人后显示电压变化。" = "Voltage history appears after connecting.";
 "机器人 CPU" = "Robot CPU";
-"每个核心分别显示 · 最近保留的采样" = "Per-core series · most recent samples retained";
 "等待 CPU 采样" = "Waiting for CPU samples";
 "控制器回传核心负载后显示历史曲线。" = "History appears once the controller reports core loads.";
 "时间" = "Time";
 "占用率" = "Load";
 "核心" = "Core";
 "通信质量" = "Link Quality";
-"丢包率 · 最近 180 个采样" = "Packet loss · last 180 samples";
 "等待通信采样" = "Waiting for link samples";
 "开始连接后显示链路统计。" = "Link stats appear once a connection starts.";
 "累计发送 %d 个数据包 · 接收 %d 个数据包" = "Sent %d packets · received %d packets";
@@ -417,7 +407,8 @@
 "更新检查/下载失败（静默跳过，下次启动再试）%@" = "Update check/download failed (skipped silently, retried next launch) %@";
 "更新：应用即将重启（安装器接管）" = "Update: app restarting now (installer taking over)";
 
-/* ===== CameraView ===== */
+/* ===== CameraView（摄像头页：MOCK 图像源）===== */
+"模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）" = "Simulator MOCK image source (real SystemCore stream protocol TBD)";
 "摄像头画面（模拟器图像源）" = "Camera feed (simulator source)";
 "刷新" = "Refresh";
 "点「刷新」从 MOCK 通道取一帧" = "Click Refresh to fetch a frame from the MOCK channel";

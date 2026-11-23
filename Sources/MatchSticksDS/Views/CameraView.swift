@@ -82,6 +82,21 @@ struct CameraMockPanel: View {
     }
 }
 
+struct CameraView: View {
+    let model: DSModel
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                DSPanel(title: tr("摄像头"), subtitle: tr("模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）")) {
+                    CameraMockPanel()
+                }
+            }
+            .padding(24)
+        }
+    }
+}
+
 private struct ImageView: NSViewRepresentable {
     let image: NSImage
     func makeNSView(context: Context) -> NSImageView {
