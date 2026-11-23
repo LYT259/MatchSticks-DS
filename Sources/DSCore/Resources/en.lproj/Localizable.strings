@@ -11,7 +11,6 @@
 "默认跟随系统语言；手动选择立即生效。" = "Follows the system language by default; a manual choice takes effect immediately.";
 
 /* ===== 应用图标（运行时 Dock 图标：样式 × 外观；卡片选择器见 AppIconAppearanceCards.swift）===== */
-"应用图标" = "App Icon";
 "图标样式" = "Icon Style";
 "图标外观" = "Icon Appearance";
 "彩色" = "Color";
@@ -320,6 +319,7 @@
 "回到应用，确认 Mac 与机器人位于同一网络，并核对连接设置。" = "Return to the app, confirm the Mac and robot are on the same network, and check the connection settings.";
 "macOS 15 及更新系统提供本地网络权限设置。" = "macOS 15 and later provide the local network permission setting.";
 "打开本地网络设置" = "Open Local Network Settings";
+"打开隐私与安全性" = "Open Privacy & Security";
 "键盘快捷键" = "Keyboard Shortcuts";
 "当前版本的快捷键仅在应用处于前台时生效。" = "In this version, shortcuts work only while the app is in the foreground.";
 "无需额外授权" = "No extra permission needed";
@@ -335,6 +335,7 @@
 "打开防火墙设置" = "Open Firewall Settings";
 "无法直接打开对应页面，请从「系统设置」按上方路径进入。" = "Couldn't open the pane directly; follow the path above from System Settings.";
 "已打开系统设置；若未跳转到对应页面，请按上方路径进入。" = "System Settings opened; if the right pane didn't come up, follow the path above.";
+"已请求打开系统设置；若未跳转到对应页面，请按上方路径进入。" = "Requested to open System Settings; if the right pane didn't come up, follow the path above.";
 
 /* ===== NI 服务发现（首次启动本地网络授权触发） ===== */
 "本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。" = "Local network access was denied: allow MatchSticks DS under System Settings → Privacy & Security → Local Network, then reopen the app.";

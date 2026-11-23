@@ -113,7 +113,8 @@ struct PermissionsView: View {
                 Text(tr("macOS 15 及更新系统提供本地网络权限设置。"))
                     .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 Spacer()
-                Button(tr("打开本地网络设置")) {
+                // 深链不保证直达本地网络子页面：按钮只承诺打开「隐私与安全性」，提示也只说“已请求”
+                Button(tr("打开隐私与安全性")) {
                     openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
                 }
                 .buttonStyle(DSActionStyle())
@@ -180,6 +181,6 @@ struct PermissionsView: View {
             settingsMessage = tr("无法直接打开对应页面，请从「系统设置」按上方路径进入。")
             return
         }
-        settingsMessage = tr("已打开系统设置；若未跳转到对应页面，请按上方路径进入。")
+        settingsMessage = tr("已请求打开系统设置；若未跳转到对应页面，请按上方路径进入。")
     }
 }

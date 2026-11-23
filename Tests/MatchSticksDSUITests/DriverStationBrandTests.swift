@@ -100,10 +100,18 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
     defaults.set("monochrome", forKey: "matchsticks.appIconStyle")
     defaults.set("dark", forKey: "matchsticks.appIconAppearance")
     defer { defaults.removePersistentDomain(forName: suiteName) }
-    let restored = DSModel(settingsDefaults: defaults, persistenceEnabled: true)
+    var restoredDockImage: NSImage?
+    let restored = DSModel(settingsDefaults: defaults, persistenceEnabled: true) { center in
+        center.artworkLoader = { $0 == "app-icon-mono-night" ? dark : light }
+        center.systemDarkProvider = { false }
+        center.applier = { restoredDockImage = $0 }
+    }
     check(restored.iconStyle == .monochrome && restored.iconAppearance == .dark &&
           restored.appIconCenter.style == .monochrome && restored.appIconCenter.mode == .dark,
           "the first brand render restores icon preferences without waiting for start or an explicit settings reload")
+    check(restored.appIconCenter.pushedFileNames == ["app-icon-mono-night"] &&
+          restored.appIconCenter.artwork === dark && restoredDockImage === dark,
+          "the first brand render pushes monochrome dark artwork exactly once and applies the same NSImage")
 }
 
 private func brandColorBounds(in bitmap: NSBitmapImageRep, red: Bool) -> (top: Int, bottom: Int)? {

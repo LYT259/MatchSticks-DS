@@ -10,8 +10,7 @@ struct DriverStationBrandView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 56, height: 56)
-                .accessibilityLabel(tr("应用图标"))
-                .accessibilityIdentifier("driver-station-app-icon")
+                .accessibilityHidden(true)
             Text("MatchSticks Driver Station")
                 .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .multilineTextAlignment(.center)
@@ -21,5 +20,7 @@ struct DriverStationBrandView: View {
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("driver-station-brand-name")
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("MatchSticks Driver Station")
     }
 }

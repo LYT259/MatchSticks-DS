@@ -1726,6 +1726,21 @@ struct UIStateTests {
                   "DSBadge(text: tr(\"未检测系统防火墙配置\"), color: PermissionTone.neutral.color"),
               "firewall badge stays explicitly neutral")
 
+        // Local Network 按钮：只请求打开「隐私与安全性」，不得暗示已直达本地网络子页面；
+        // 旧系统的 x-apple.systempreferences 深链保留，成功提示也只说“已请求”而非“已打开”
+        check(permissionsSource.contains("Button(tr(\"打开隐私与安全性\"))"),
+              "local network button asks to open Privacy & Security without implying the Local Network pane")
+        check(permissionsSource.contains(
+                  "settingsMessage = tr(\"已请求打开系统设置；若未跳转到对应页面，请按上方路径进入。\")"),
+              "opening System Settings reports a request rather than a confirmed pane")
+        check(!permissionsSource.contains("打开本地网络设置") && !permissionsSource.contains("已打开系统设置"),
+              "local network wording no longer claims the Local Network pane or System Settings was opened")
+        check(permissionsSource.contains("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"),
+              "local network button keeps the deep link for systems that still honor it")
+        check(englishTable.contains("\"打开隐私与安全性\" = \"Open Privacy & Security\";") &&
+              englishTable.contains("\"已请求打开系统设置；若未跳转到对应页面，请按上方路径进入。\" = \"Requested to open System Settings; if the right pane didn't come up, follow the path above.\";"),
+              "the Privacy & Security button and request wording have English translations")
+
         print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
