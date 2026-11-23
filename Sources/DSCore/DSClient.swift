@@ -181,6 +181,26 @@ public final class DSClient {
         }
     }
 
+    /// 手动刷新决策（纯函数，可测）：仅在控制环已启动且未连接时执行真重搜。
+    /// 已连接时 rebuild 候选会强制 autoDisabled——刷新绝不能变成误失能。
+    public static func shouldRefreshConnection(running: Bool, connected: Bool) -> Bool {
+        running && !connected
+    }
+
+    /// 手动机器人刷新（Mini Driver Station 刷新按钮的真实动作）：
+    /// 清 mDNS 解析缓存与 2s 节流、重建发送候选并宣告搜索态——等价一次全新搜索，
+    /// 不只是视觉反馈。已连接/未启动时为空操作（见 shouldRefreshConnection）。
+    public func refreshConnection() {
+        queue.async {
+            guard Self.shouldRefreshConnection(running: self.running, connected: self.isConnectedLocked) else { return }
+            self.lastResolveAt = 0
+            self.rebuildCandidatesLocked()
+            guard self.commState != .searching else { return }
+            self.commState = .searching
+            self.emit(.commState(.searching))
+        }
+    }
+
     public func start() {
         queue.async { [weak self] in
             guard let self else { return }

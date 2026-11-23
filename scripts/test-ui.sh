@@ -45,7 +45,8 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
-  Sources/MatchSticksDS/DSModel.swift Sources/MatchSticksDS/HIDInputManager.swift \
+  Sources/MatchSticksDS/DSModel.swift Sources/MatchSticksDS/LocalNetworkDiscovery.swift \
+  Sources/MatchSticksDS/HIDInputManager.swift \
   Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
   Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
   Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
@@ -54,15 +55,24 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
   Sources/MatchSticksDS/GamepadInputManager.swift \
+  Sources/MatchSticksDS/Views/OperationView.swift \
+  Sources/MatchSticksDS/Views/PracticeTimingEditor.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
   Sources/MatchSticksDS/AppIconAppearance.swift \
+  Sources/MatchSticksDS/Views/DriverStationBrand.swift \
+  Sources/MatchSticksDS/Views/AppIconAppearanceCards.swift \
+  Sources/MatchSticksDS/Views/PermissionsView.swift \
   Tests/MatchSticksDSUITests/main.swift Tests/MatchSticksDSUITests/F310XInputReportTests.swift \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
   Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
+  Tests/MatchSticksDSUITests/DriverStationBrandTests.swift \
+  Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
+  Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
+  Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
   -o .build/MatchSticksDSUIStateTests
-.build/MatchSticksDSUIStateTests
+.build/MatchSticksDSUIStateTests "$@"

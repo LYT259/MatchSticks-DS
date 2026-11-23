@@ -2,34 +2,16 @@ import SwiftUI
 import Charts
 import DSCore
 
-// Separate observation boundaries keep 50 Hz current readings from rebuilding history charts.
-struct ChartsView: View {
+// Separate observation boundaries keep 50 Hz telemetry from rebuilding history charts.
+// Embedded inside RobotView's ScrollView, so this stack carries no padding of its own.
+struct RobotHistoryView: View {
     let model: DSModel
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                CurrentReadingsPanel(model: model)
-                BatteryHistoryPanel(model: model)
-                CPUHistoryPanel(model: model)
-                LinkHistoryPanel(model: model)
-            }
-            .padding(24)
+        VStack(spacing: 16) {
+            BatteryHistoryPanel(model: model)
+            CPUHistoryPanel(model: model)
+            LinkHistoryPanel(model: model)
         }
-    }
-}
-
-private struct CurrentReadingsPanel: View {
-    let model: DSModel
-    var body: some View {
-                DSPanel(title: tr("当前读数"), subtitle: model.commConnected ? nil : tr("未连接机器人；下方保留已采集的历史")) {
-                    HStack(spacing: 24) {
-                        DSMetric(title: tr("电池电压"), value: model.commConnected ? String(format: "%.2f V", model.batteryVolts) : "—",
-                                 symbol: "battery.100percent", color: model.robotStatus.brownout && model.commConnected ? .red : .primary)
-                        DSMetric(title: tr("丢包率"), value: model.commConnected ? String(format: "%.1f%%", model.lossPercent) : "—",
-                                 symbol: "waveform.path")
-                        DSMetric(title: tr("累计接收"), value: "\(model.rxCount)", symbol: "arrow.down")
-                    }
-                }
     }
 }
 
