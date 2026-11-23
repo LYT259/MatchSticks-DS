@@ -149,15 +149,8 @@ struct RootView: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("MatchSticks")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Text("DS").font(.system(size: 14, weight: .semibold))
-                Text(tr("机器人驾驶台")).font(.caption).foregroundStyle(DSTheme.textSecondary)
-            }
-            .padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 32)
+            DriverStationBrandView(model: model)
+                .padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 32)
             navGroup(tr("操作"), pages: [.operation, .setup, .usb])
             navGroup(tr("监测"), pages: [.mac, .robot, .camera, .messages])
                 .padding(.top, 22)

@@ -146,9 +146,15 @@ final class DSModel {
 
     /// `DSModel()` 保持原行为（环境变量解析设置域，AUTO_SIM 禁用持久化）。
     /// 测试可注入临时 suite 与持久化开关；manualIP 等写入必须真实经过 didSet。
-    init(settingsDefaults: UserDefaults? = nil, persistenceEnabled: Bool? = nil) {
+    init(
+        settingsDefaults: UserDefaults? = nil,
+        persistenceEnabled: Bool? = nil,
+        configureAppIcon: ((AppIconCenter) -> Void)? = nil
+    ) {
         settings = SettingsStore(defaults: settingsDefaults ?? Self.resolvedSettingsDefaults())
         persistenceAllowed = persistenceEnabled ?? !Self.isAutoSim
+        configureAppIcon?(appIconCenter)
+        restoreIconPreferences()
     }
 
     // MARK: 连接与配置
@@ -393,16 +399,19 @@ final class DSModel {
     var iconStyle = IconStyle.color {
         didSet {
             settings.set("appIconStyle", iconStyle.rawValue)
+            guard !isRestoringIconPreferences else { return }
             appIconCenter.update(style: iconStyle, mode: iconAppearance)
         }
     }
     var iconAppearance = AppearanceMode.system {
         didSet {
             settings.set("appIconAppearance", iconAppearance.rawValue)
+            guard !isRestoringIconPreferences else { return }
             appIconCenter.update(style: iconStyle, mode: iconAppearance)
         }
     }
     let appIconCenter = AppIconCenter()
+    private var isRestoringIconPreferences = false
 
     // MARK: 事件日志
 
@@ -465,6 +474,16 @@ final class DSModel {
 
     var persistenceEnabled: Bool { persistenceAllowed }
 
+    private func restoreIconPreferences() {
+        let storedStyle = settings.string("appIconStyle").flatMap(IconStyle.init(rawValue:))
+        let storedAppearance = settings.string("appIconAppearance").flatMap(AppearanceMode.init(rawValue:))
+        isRestoringIconPreferences = true
+        if let storedStyle { iconStyle = storedStyle }
+        if let storedAppearance { iconAppearance = storedAppearance }
+        isRestoringIconPreferences = false
+        appIconCenter.update(style: iconStyle, mode: iconAppearance)
+    }
+
     func loadPersistedSettings() {
         // 语言 / 外观不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
         if let raw = settings.string("language"), let mode = LanguageMode(rawValue: raw) {
@@ -472,13 +491,6 @@ final class DSModel {
         }
         if let raw = settings.string("appearance"), let mode = AppearanceMode(rawValue: raw) {
             appearanceMode = mode
-        }
-        // 图标偏好与语言/外观同属 UI 偏好：门控前恢复（AUTO_SIM 会话同样按上次选择显示图标）
-        if let raw = settings.string("appIconStyle"), let style = IconStyle(rawValue: raw) {
-            iconStyle = style
-        }
-        if let raw = settings.string("appIconAppearance"), let appearance = AppearanceMode(rawValue: raw) {
-            iconAppearance = appearance
         }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
@@ -545,8 +557,8 @@ final class DSModel {
             options: [.latencyCritical],
             reason: "MatchSticks DS 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
         loadPersistedSettings()
-        // 启动恢复后显式设置运行时图标（默认安装也在此时首次推送日间图稿），
-        // 并开始监听系统深浅（跟随系统模式随系统重推；固定模式不受影响）
+        // 启动时重推一次，覆盖 init → start 期间的系统深浅变化，
+        // 并开始监听后续系统切换（跟随系统模式随系统重推；固定模式不受影响）
         appIconCenter.update(style: iconStyle, mode: iconAppearance)
         appIconCenter.startObservingSystemAppearance()
         installTimers()
