@@ -63,14 +63,172 @@ for REQUIRED in FOGHORN.wav ArtworkCredits.txt dualsense.png dualshock4.png xbox
     fi
 done
 
-# 图标（缺失时跳过，不阻塞打包）
-if [ ! -f "scripts/AppIcon.iconset/icon_512x512@2x.png" ]; then
-  echo "  生成图标…"
-  swift scripts/make-icon.swift scripts >/dev/null 2>&1 || echo "  ⚠ 图标生成失败，跳过"
+# ── 图标链：全部图标必须来自用户原稿 Sources/.../AppIcons（淘汰程序绘制图标）；
+#    任何缺失/失败都阻断打包——不出无图标包，更不出残留旧图标的包。注入先于 codesign ──
+echo "▶ 图标：iconset → AppIcon.icns + actool Assets.car（浅/深外观）"
+ICON_SRC_DIR="Sources/MatchSticksDS/Resources/AppIcons"
+# 四张白名单原稿缺一不可：day/night 供 bundle 图标（icns + Assets.car），
+# mono-day/mono-night 供应用内单色变体。损坏（非图片内容/非 1024×1024）同样阻断——
+# sips 对损坏文件不报错，但尺寸输出为 <nil>，因此必须比对解析值而非退出码
+for ICON_SRC in app-icon-day.png app-icon-night.png app-icon-mono-day.png app-icon-mono-night.png; do
+  if [ ! -f "$ICON_SRC_DIR/$ICON_SRC" ]; then
+    echo "  ✗ 图标原稿缺失：$ICON_SRC_DIR/$ICON_SRC" >&2
+    exit 1
+  fi
+  DIMS="$(sips -g pixelWidth -g pixelHeight "$ICON_SRC_DIR/$ICON_SRC" 2>/dev/null | awk '/^  pixel(Width|Height):/ {print $2}' | paste -sd 'x' -)"
+  if [ "$DIMS" != "1024x1024" ]; then
+    echo "  ✗ 图标原稿损坏或非 1024×1024：$ICON_SRC_DIR/$ICON_SRC（实际：${DIMS:-不可解码}）" >&2
+    exit 1
+  fi
+done
+
+# 1) 10 尺寸 iconset（每次全量重建，不跳过）→ AppIcon.icns（传统 CFBundleIconFile 兼容）
+swift scripts/make-icon.swift scripts || { echo "  ✗ iconset 生成失败（见上）" >&2; exit 1; }
+for ICON_FILE in icon_16x16.png icon_16x16@2x.png icon_32x32.png icon_32x32@2x.png \
+                 icon_128x128.png icon_128x128@2x.png icon_256x256.png icon_256x256@2x.png \
+                 icon_512x512.png icon_512x512@2x.png; do
+  if [ ! -s "scripts/AppIcon.iconset/$ICON_FILE" ]; then
+    echo "  ✗ iconset 不完整：缺 $ICON_FILE" >&2
+    exit 1
+  fi
+done
+iconutil -c icns scripts/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns" \
+  || { echo "  ✗ iconutil 转 icns 失败" >&2; exit 1; }
+if [ ! -s "$APP/Contents/Resources/AppIcon.icns" ]; then
+  echo "  ✗ AppIcon.icns 未产出" >&2
+  exit 1
 fi
-if [ -d "scripts/AppIcon.iconset" ]; then
-  iconutil -c icns scripts/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null || echo "  ⚠ icns 转换失败，跳过"
+
+# 2) Icon Composer 图标包（.build 下临时组装，PNG 复制自 Sources，不重复入库）→
+#    actool 编译 Assets.car：浅色 Aqua + 深色 DarkAqua，macOS 按 CFBundleIconName 优先
+#    选它做外观切换。深色变体用「双层 + hidden-specializations」结构（day 层 dark 时
+#    隐藏、night 层 light 时隐藏）——本机实测（Xcode 27.2 / 27B52，矩阵实验存档
+#    .build/icon-test/matrix）：actool 会静默丢弃 image-name-specializations 的
+#    dark→night 替换（PathBlender 参考包同车翻车，car 里只剩日间图像素），双层结构
+#    是唯一能让两张原图都真实编入且按外观翻转的写法。其余要点沿用 PathBlender 实测：
+#    glass:false 禁 Liquid Glass、组级 shadow 键整体省略（kind:"none" 会让 actool
+#    静默零产出）、translucency 置 false——不改变用户图稿、不加边圈
+ICON_WORK=".build/icon-work"
+rm -rf "$ICON_WORK"
+ICON_PKG="$ICON_WORK/AppIcon.icon"
+mkdir -p "$ICON_PKG/Assets" "$ICON_WORK/actool-out"
+cat > "$ICON_PKG/icon.json" <<'ICONJSON'
+{
+  "groups": [
+    {
+      "layers": [
+        {
+          "blend-mode": "normal",
+          "fill": "none",
+          "glass": false,
+          "image-name": "icon-day.png",
+          "hidden-specializations": [
+            {
+              "appearance": "dark",
+              "value": true
+            }
+          ]
+        },
+        {
+          "blend-mode": "normal",
+          "fill": "none",
+          "glass": false,
+          "image-name": "icon-night.png",
+          "hidden-specializations": [
+            {
+              "appearance": "light",
+              "value": true
+            }
+          ]
+        }
+      ],
+      "translucency": {
+        "enabled": false,
+        "value": 0.2
+      }
+    }
+  ],
+  "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
+    "squares": "shared"
+  }
+}
+ICONJSON
+# PNG 一律 cat 重定向新写（不用 cp）：用户原稿带下载隔离属性（com.apple.quarantine），
+# cp 的 clonefile 拷贝会让本机 actool 的 IconStudio 导出间歇性报「image does not
+# exist」（实测对照各 3 次：cp 失败 / cat 新写稳定）
+cat "$ICON_SRC_DIR/app-icon-day.png"   > "$ICON_PKG/Assets/icon-day.png"
+cat "$ICON_SRC_DIR/app-icon-night.png" > "$ICON_PKG/Assets/icon-night.png"
+
+ACTOOL="$(xcrun --find actool 2>/dev/null)" || ACTOOL=""
+if [ -z "$ACTOOL" ]; then
+  echo "  ✗ 找不到 actool——Assets.car 编译需要完整 Xcode（仅 Command Line Tools 不够）" >&2
+  exit 1
 fi
+if ! "$ACTOOL" "$ICON_PKG" --app-icon AppIcon \
+    --compile "$ICON_WORK/actool-out" \
+    --output-partial-info-plist "$ICON_WORK/actool-out/partial.plist" \
+    --minimum-deployment-target 14.0 --platform macosx --target-device mac \
+    >"$ICON_WORK/actool.log" 2>&1; then
+  echo "  ✗ actool 编译图标目录失败：" >&2
+  tail -20 "$ICON_WORK/actool.log" >&2
+  exit 1
+fi
+if [ ! -s "$ICON_WORK/actool-out/Assets.car" ]; then
+  echo "  ✗ actool 未产出 Assets.car（icon.json 配置错误会静默零产出）：" >&2
+  tail -20 "$ICON_WORK/actool.log" >&2
+  exit 1
+fi
+
+# 硬检查：深色变体必须「真实存在且方向正确」。只比 Aqua/DarkAqua digest 差异不够——
+# 日夜倒置（浅色显示夜图）同样 digest 不同，会假绿；必须按 car 实际输出的可见层
+# 断言：Aqua=AppIcon_Assets/icon-day、DarkAqua=AppIcon_Assets/icon-night，
+# 并保留 digest 不同与双 1024 像素载荷断言。car 结构里的 DarkAqua 条目在纯日间
+# car 上同样存在，grep 计数不能作证据
+if [ ! -x /usr/bin/python3 ]; then
+  echo "  ✗ 需要 /usr/bin/python3 做 Assets.car 深色变体硬检查" >&2
+  exit 1
+fi
+ASSETUTIL="$(xcrun --find assetutil 2>/dev/null)" || ASSETUTIL="/usr/bin/assetutil"
+if ! "$ASSETUTIL" --info "$ICON_WORK/actool-out/Assets.car" 2>/dev/null | /usr/bin/python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("  ✗ assetutil 无法解析 Assets.car", file=sys.stderr); sys.exit(1)
+def visible_layer(group):
+    layers = [l for l in (group.get("Layers") or [])
+              if l.get("AssetType") in (None, "Image") and l.get("LayerOpacity", 1) >= 1]
+    return layers[0] if layers else None
+aqua = dark = None
+images = set()
+for e in d:
+    if e.get("AssetType") == "Image" and e.get("PixelWidth") == 1024:
+        images.add(e.get("SHA1Digest"))
+    if e.get("AssetType") == "IconGroup":
+        v = visible_layer(e)
+        if e.get("Appearance") == "NSAppearanceNameAqua": aqua = v
+        if e.get("Appearance") == "NSAppearanceNameDarkAqua": dark = v
+def name(x): return x.get("Name") if x else None
+def sha(x): return str(x.get("SHA1Digest"))[:12] if x else None
+ok = (aqua and dark
+      and name(aqua) == "AppIcon_Assets/icon-day"
+      and name(dark) == "AppIcon_Assets/icon-night"
+      and aqua.get("SHA1Digest") != dark.get("SHA1Digest")
+      and len(images) >= 2)
+if ok:
+    sys.exit(0)
+print(f"  ✗ Assets.car 深色变体未正确编入（Aqua 可见层={name(aqua)}/{sha(aqua)} "
+      f"DarkAqua 可见层={name(dark)}/{sha(dark)} 1024 像素载荷={len(images)}；"
+      f"要求 Aqua=AppIcon_Assets/icon-day、DarkAqua=AppIcon_Assets/icon-night 且 digest 不同）",
+      file=sys.stderr)
+sys.exit(1)
+'; then
+  exit 1
+fi
+cp "$ICON_WORK/actool-out/Assets.car" "$APP/Contents/Resources/Assets.car"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -90,6 +248,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
          （运行期另有 ProcessInfo.beginActivity(.latencyCritical)，见 DSModel.start） -->
     <key>NSAppSleepDisabled</key><true/>
     <key>CFBundleIconFile</key><string>AppIcon</string>
+    <!-- macOS 优先按名字取 Assets.car 里的 AppIcon iconstack（浅/深外观自动切换，见上方 actool 段）；
+         icns 仅作旧路径兜底，两者同名 AppIcon -->
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <!-- 双语：开发区域 en（非中英系统回退英文）；Localizations 声明供系统与 Sparkle 识别 -->
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleLocalizations</key>
