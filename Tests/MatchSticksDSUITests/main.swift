@@ -420,6 +420,7 @@ struct UIStateTests {
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         appIconAppearanceTests(check)
+        localNetworkDiscoveryTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
@@ -1475,6 +1476,70 @@ struct UIStateTests {
         check(!settingsSource.contains("checkmark.square") && !settingsSource.contains("\"square\"") &&
               !controlsSource.contains("checkmark.square") && !controlsSource.contains("\"square\""),
               "neither Settings nor the shared multi-select control renders checkbox icons")
+
+        // ===== Permissions 页：权限状态呈现（2026-11-23）=====
+        // 宽度与 Settings 一致：不再 1040 封顶，仍填满可用宽度
+        let permissionsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/PermissionsView.swift"), encoding: .utf8)) ?? ""
+        check(!permissionsSource.isEmpty, "permissions source fixture loads")
+        check(!permissionsSource.contains("1040") && permissionsSource.contains(".frame(maxWidth: .infinity)"),
+              "Permissions content fills the available width like Settings instead of capping at 1040 points")
+
+        // 本地网络证据：连接记录不是权限查询。真实非回环机器人 → success（唯一绿色来源）；
+        // 回环模拟器 / 无连接 / 搜索中 → warning，不得显示为已授权
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")) == .verifiedRobot &&
+              LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")).tone == .success,
+              "a real robot connection is the only positive local network evidence")
+        check(LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "localhost")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "::1")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "127.255.255.254")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "128.0.0.1")) == .verifiedRobot,
+              "loopback simulator hosts (127/8, localhost, ::1) are not robot evidence; 128/8 is not loopback")
+        check(LocalNetworkEvidence(commState: .idle).tone == .warning &&
+              LocalNetworkEvidence(commState: .searching).tone == .warning &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")).tone == .warning,
+              "no connection, searching and loopback simulator are warnings rather than green")
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")).badge == "机器人通信正常" &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")).badge == "已连接本机模拟器" &&
+              LocalNetworkEvidence(commState: .idle).badge == "尚未通过连接验证",
+              "network badge wording stays with its evidence state")
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2"))
+                  .explanation(connectionDetail: "10.25.90.2") == tr("已与 %@ 建立通信，当前连接可用。", "10.25.90.2") &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1"))
+                  .explanation(connectionDetail: "127.0.0.1") == tr("本机连接正常，但它不能验证真实机器人所需的本地网络权限。") &&
+              LocalNetworkEvidence(commState: .idle)
+                  .explanation(connectionDetail: tr("尚未连接"))
+                  == tr("目前没有机器人连接记录可用于确认网络访问。连接失败时，可先检查本地网络权限。"),
+              "network explanations stay with their evidence state")
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")).symbol == "checkmark.circle.fill" &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")).symbol == "info.circle" &&
+              LocalNetworkEvidence(commState: .idle).symbol == "info.circle",
+              "network badge symbols stay with their evidence state")
+
+        // 色调语义：success / warning / neutral 分别映射主题语义色；neutral 即 textSecondary
+        check(PermissionTone.success.color == DSTheme.success &&
+              PermissionTone.warning.color == DSTheme.warning &&
+              PermissionTone.neutral.color == DSTheme.textSecondary,
+              "permission tones map to the theme's success, warning and neutral colors")
+
+        // 键盘快捷键：前台本地事件监听无需 Input Monitoring，徽章为 success；页面不得发起权限请求
+        check(permissionsSource.contains("DSBadge(text: tr(\"无需额外授权\"), color: DSTheme.success"),
+              "keyboard shortcuts badge uses the semantic success color")
+        check(!permissionsSource.contains("CGRequestListenEventAccess") &&
+              !permissionsSource.contains("CGRequestPostEventAccess"),
+              "permissions page never requests Input Monitoring or Post Event access")
+        let shortcutsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Shortcuts.swift"), encoding: .utf8)) ?? ""
+        check(shortcutsSource.contains("addLocalMonitorForEvents") &&
+              !shortcutsSource.contains("addGlobalMonitorForEvents") &&
+              !shortcutsSource.contains("CGEvent.tapCreate"),
+              "keyboard shortcuts stay foreground-only local monitors that need no Input Monitoring")
+
+        // 防火墙：未检测配置 → 中性灰，不得暗示已授权或被拒绝
+        check(permissionsSource.contains(
+                  "DSBadge(text: tr(\"未检测系统防火墙配置\"), color: PermissionTone.neutral.color"),
+              "firewall badge stays explicitly neutral")
 
         print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
