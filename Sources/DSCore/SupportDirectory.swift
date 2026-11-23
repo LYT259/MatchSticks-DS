@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 // MARK: - Application Support 数据目录（新品牌 + 旧目录保留式迁移）
 //
@@ -160,14 +159,13 @@ public struct AppSupportDirectory {
             && fileManager.isWritableFile(atPath: url.path)
     }
 
-    /// lstat 语义：只判断路径本身，不跟随链接（悬空链接也能识别）。
-    /// 去掉目录 URL 可能带有的尾斜杠：lstat 对 "link/" 会按目录跟随链接。
+    /// readlink/lstat 语义：只判断路径本身，不跟随链接（悬空链接也能识别）。
+    /// 去掉目录 URL 可能带有的尾斜杠：对 "link/" 按目录会跟随链接。
+    /// 经 FileManager 的可移植 API（macOS/Linux/Windows 同源），不用 Darwin 的 lstat。
     private static func isSymbolicLink(_ url: URL) -> Bool {
         var path = url.path
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }
-        var info = stat()
-        guard lstat(path, &info) == 0 else { return false }
-        return (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK)
+        return (try? FileManager.default.destinationOfSymbolicLink(atPath: path)) != nil
     }
 
     /// 只补齐缺失项：源目录只读不写；目标目录递归补齐，已存在的目标文件不覆盖。

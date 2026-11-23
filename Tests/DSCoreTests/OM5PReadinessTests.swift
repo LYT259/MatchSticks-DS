@@ -8,32 +8,31 @@
 // ⑥ 0x0C 按钮声明数截到 64 但字节数用未截断 n → n>64 时包结构错位
 
 import Foundation
-import DSCore
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+import DSCore
 
 // MARK: 回环测试辅具
 
 /// 在 127.0.0.1 绑定临时端口并 listen，返回 (fd, port)
 @discardableResult
 func loopbackListen(backlog: Int32) -> (fd: Int32, port: UInt16) {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
-    var yes: Int32 = 1
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = 0
-    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let bound = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-    }
-    precondition(bound == 0, "loopbackListen bind 失败 errno \(errno)")
-    precondition(listen(fd, backlog) == 0, "loopbackListen listen 失败")
-    var got = sockaddr_in()
-    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-    _ = withUnsafeMutablePointer(to: &got) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) }
-    }
-    return (fd, UInt16(bigEndian: got.sin_port))
+    let fd = SocketCompat.tcpSocket()
+    precondition(fd >= 0, "loopbackListen socket 失败 errno \(SocketCompat.lastError)")
+    SocketCompat.setReuseAddress(fd)
+    var addr = SocketCompat.loopbackAddress(port: 0)
+    let bound = SocketCompat.bindSocket(fd, &addr)
+    precondition(bound == 0, "loopbackListen bind 失败 errno \(SocketCompat.lastError)")
+    precondition(SocketCompat.listenSocket(fd, backlog: backlog) == 0, "loopbackListen listen 失败")
+    let port = SocketCompat.localAddress(fd).map { SocketCompat.port(of: $0) } ?? 0
+    return (fd, port)
 }
 
 /// 回环黑洞：listen(backlog 1) + 一条永不 accept 的连接填满积压 → 后续 SYN 被内核丢弃，
@@ -49,24 +48,17 @@ final class LoopbackBlackhole {
         listener = lfd
         port = p
         // 首条连接立即完成并滞留在 accept 队列（回环实测：填满后后续 connect 全部悬挂）
-        let c = socket(AF_INET, SOCK_STREAM, 0)
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = p.bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let rc = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(c, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard rc == 0 else { close(c); close(lfd); return false }
+        let c = SocketCompat.tcpSocket()
+        var addr = SocketCompat.loopbackAddress(port: p)
+        let rc = SocketCompat.connectSocket(c, &addr)
+        guard rc == 0 else { SocketCompat.closeSocket(c); SocketCompat.closeSocket(lfd); return false }
         filler = c
         return true
     }
 
     func stop() {
-        if filler >= 0 { close(filler) }
-        if listener >= 0 { close(listener) }
+        if filler >= 0 { SocketCompat.closeSocket(filler) }
+        if listener >= 0 { SocketCompat.closeSocket(listener) }
         filler = -1
         listener = -1
     }
@@ -83,9 +75,9 @@ final class GarbageResponder {
     private(set) var replies = 0
 
     func start() -> Bool {
-        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
-        txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
+        rxSock = SocketCompat.udpSocket()
+        txSock = SocketCompat.udpSocket()
+        _ = SocketCompat.setNonBlocking(rxSock)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "畸形应答器 控制口") else { return false }
         Thread.detachNewThread { [weak self] in self?.loop() }
         return true
@@ -94,29 +86,18 @@ final class GarbageResponder {
     private func loop() {
         var buf = [UInt8](repeating: 0, count: 2048)
         while !stopFlag {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let n = withUnsafeMutablePointer(to: &src) { p in
-                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
-                }
-            }
+            var src = SocketCompat.emptyAddress()
+            let n = SocketCompat.receiveFrom(rxSock, &buf, buf.count, &src)
             if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             replies += 1
-            withUnsafePointer(to: &src) { dst in
-                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    Self.garbage.withUnsafeBytes { raw in
-                        _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-            }
+            _ = SocketCompat.sendDatagram(txSock, Self.garbage, &src)
         }
     }
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
-        if txSock >= 0 { close(txSock) }
+        if rxSock >= 0 { SocketCompat.shutdownReadWrite(rxSock); SocketCompat.closeSocket(rxSock) }
+        if txSock >= 0 { SocketCompat.closeSocket(txSock) }
     }
 }
 
@@ -145,27 +126,46 @@ func outcomeTag(_ o: DSClient.TCPConnectOutcome) -> String {
 func boundedConnectClassificationTests() {
     // connected：监听中
     let live = loopbackListen(backlog: 4)
-    defer { close(live.fd) }
+    defer { SocketCompat.closeSocket(live.fd) }
     var t0 = Date()
     var outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: live.port, timeout: 1.0)
     check(outcomeTag(outcome) == "connected", "监听中 → connected（got \(outcomeTag(outcome))）")
     if case .connected(let fd) = outcome {
         check(fd >= 0, "connected 返回可用 fd")
-        check(DirectInterface.boundInterfaceIndex(fd: fd) == if_nametoindex("lo0"),
-              "TCP 回环连接绑定 lo0，直连接入已覆盖 boundedTCPConnect")
-        close(fd)
+        if SocketCompat.supportsInterfaceBinding {
+            check(DirectInterface.boundInterfaceIndex(fd: fd) == SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName),
+                  "TCP 回环连接绑定 \(SocketCompat.loopbackInterfaceName)，直连接入已覆盖 boundedTCPConnect")
+        } else {
+            check(DirectInterface.boundInterfaceIndex(fd: fd) == nil,
+                  "不支持接口钉绑的平台：TCP 回环连接按系统路由（无绑定）")
+        }
+        SocketCompat.closeSocket(fd)
     }
     check(-t0.timeIntervalSinceNow < 1.0, "connected 快速返回")
 
     // refused：端口关但主机活（真机 OM5P:80 形态 → RST）
     let dead = loopbackListen(backlog: 4)
-    close(dead.fd)
+    SocketCompat.closeSocket(dead.fd)
     t0 = Date()
     outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: dead.port, timeout: 1.0)
     check(outcomeTag(outcome) == "refused", "端口关闭 → refused（ECONNREFUSED 独立分类，got \(outcomeTag(outcome))）")
     check(-t0.timeIntervalSinceNow < 2.0, "refused 即时返回（不等待）")
 
     // timedOut：黑洞链路（accept 积压填满 → SYN 被丢）
+    #if os(Windows)
+    // Winsock 的 backlog 语义与 BSD 不同：accept 队列满时对端直接被拒（RST）而非丢弃 SYN，
+    // 无法用同样的手法造出「静默黑洞」。此处仍断言有界性（截止时间内必有结局、绝不悬挂）。
+    let hole = LoopbackBlackhole()
+    check(hole.start(), "黑洞监听就绪（Windows：退化为被拒链路）")
+    defer { hole.stop() }
+    t0 = Date()
+    outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: hole.port, timeout: 0.6)
+    let elapsed = -t0.timeIntervalSinceNow
+    check(["timedOut", "refused"].contains(outcomeTag(outcome)),
+          "Windows：积压满的链路结局为 timedOut/refused 之一（got \(outcomeTag(outcome))）")
+    check(elapsed <= 2.5, "截止时间有界（\(String(format: "%.2f", elapsed))s）")
+    if case .connected(let fd) = outcome { SocketCompat.closeSocket(fd) }
+    #else
     let hole = LoopbackBlackhole()
     check(hole.start(), "黑洞监听就绪")
     defer { hole.stop() }
@@ -175,6 +175,7 @@ func boundedConnectClassificationTests() {
     let elapsed = -t0.timeIntervalSinceNow
     check(elapsed >= 0.5 && elapsed <= 2.5,
           "截止时间有界（\(String(format: "%.2f", elapsed))s；阻塞式回环实测 ~7.8s、真机 ~75s）")
+    #endif
 
     // error：非数字 IP（分类而非崩溃/悬挂）
     outcome = DSClient.boundedTCPConnect(to: "roboRIO-2590-FRC.local", port: 1740, timeout: 1.0)
@@ -217,7 +218,7 @@ func radioProbeClassificationTests() {
 
     // 4. 活监听 → connected → 可达
     let live = loopbackListen(backlog: 4)
-    defer { close(live.fd) }
+    defer { SocketCompat.closeSocket(live.fd) }
     probe.hostProvider = { (host: "127.0.0.1", port: live.port) }
     check(waitUntil(8.0) { probe.isReachable }, "监听中 → 可达")
 
@@ -305,8 +306,13 @@ func startEmitsSearchingTest() {
     Thread.sleep(forTimeInterval: 0.4)
     check(client.localUDPPortForTest == NICodec.udpResponsePort,
           "roboRIO 2.0 真机应答固定发往 1150，UDP 本地端口不得再随机分配")
-    check(client.localUDPBoundInterfaceIndexForTest == if_nametoindex("lo0"),
-          "DSClient UDP 回环目标实际绑定 lo0")
+    if SocketCompat.supportsInterfaceBinding {
+        check(client.localUDPBoundInterfaceIndexForTest == SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName),
+              "DSClient UDP 回环目标实际绑定 \(SocketCompat.loopbackInterfaceName)")
+    } else {
+        check(client.localUDPBoundInterfaceIndexForTest == nil,
+              "不支持接口钉绑的平台：DSClient UDP 按系统路由")
+    }
     client.stop()
 
     box.lock.lock(); defer { box.lock.unlock() }

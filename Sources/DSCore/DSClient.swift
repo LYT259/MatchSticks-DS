@@ -2,6 +2,12 @@ import Foundation
 
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(WinSDK)
+import WinSDK
 #endif
 
 // MARK: - DS 客户端：UDP 控制环 + TCP 慢速通道 + 连接管理 + 看门狗
@@ -319,26 +325,16 @@ public final class DSClient {
 
     private func openUDPLocked() {
         closeUDPLocked()
-        let fd = socket(AF_INET, SOCK_DGRAM, 0)
+        let fd = SocketCompat.udpSocket()
         guard fd >= 0 else { emit(.log("UDP socket create failed")); return }
-        let flags = fcntl(fd, F_GETFL, 0)
-        _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-        var reuse: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        _ = SocketCompat.setNonBlocking(fd)
+        _ = SocketCompat.setReuseAddress(fd)
         // 2026-11-14 roboRIO 2.0 真机验证：应答固定发往 DS UDP 1150。
         // 旧实现不 bind，内核分配临时端口，真机应答因此全部收不到。
-        var local = sockaddr_in()
-        local.sin_family = sa_family_t(AF_INET)
-        local.sin_port = NICodec.udpResponsePort.bigEndian
-        local.sin_addr.s_addr = 0
-        let bound = withUnsafePointer(to: &local) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                bind(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard bound == 0 else {
-            emit(.log("UDP bind 1150 failed: errno \(errno)"))
-            close(fd)
+        var local = SocketCompat.anyAddress(port: NICodec.udpResponsePort)
+        guard SocketCompat.bindSocket(fd, &local) == 0 else {
+            emit(.log("UDP bind 1150 failed: errno \(SocketCompat.lastError)"))
+            SocketCompat.closeSocket(fd)
             return
         }
         udpSock = fd
@@ -348,27 +344,17 @@ public final class DSClient {
     private func flushStaleUDPPacketsLocked() {
         guard udpSock >= 0 else { return }
         while true {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            var src = SocketCompat.emptyAddress()
             var buffer = [UInt8](repeating: 0, count: 4096)
-            let n = withUnsafeMutablePointer(to: &src) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(udpSock, &buffer, buffer.count, 0, sa, &len)
-                }
-            }
+            let n = SocketCompat.receiveFrom(udpSock, &buffer, buffer.count, &src)
             if n <= 0 { break }
         }
     }
 
     public var localUDPPortForTest: UInt16? {
         queue.sync {
-            guard udpSock >= 0 else { return nil }
-            var addr = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            guard getsockname(udpSock, withUnsafeMutablePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in sa }
-            }, &len) == 0 else { return nil }
-            return UInt16(bigEndian: addr.sin_port)
+            guard udpSock >= 0, let addr = SocketCompat.localAddress(udpSock) else { return nil }
+            return SocketCompat.port(of: addr)
         }
     }
 
@@ -379,34 +365,25 @@ public final class DSClient {
     private func closeUDPLocked() {
         resetUDPBindCacheLocked()
         guard udpSock >= 0 else { return }
-        close(udpSock)
+        SocketCompat.closeSocket(udpSock)
         udpSock = -1
     }
 
     private func sockaddrFor(_ ip: String, port: UInt16) -> sockaddr_in? {
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        guard inet_pton(AF_INET, ip, &addr.sin_addr) == 1 else { return nil }
-        return addr
+        SocketCompat.address(ip, port: port)
     }
 
     private func drainUDPLocked(now: Double) {
         guard udpSock >= 0 else { return }
         var count = 0
         while count < 12 {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            var src = SocketCompat.emptyAddress()
             var buffer = [UInt8](repeating: 0, count: 4096)
-            let n = withUnsafeMutablePointer(to: &src) { srcPtr in
-                srcPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(udpSock, &buffer, buffer.count, 0, sa, &len)
-                }
-            }
+            let n = SocketCompat.receiveFrom(udpSock, &buffer, buffer.count, &src)
             guard n > 0 else { break }
             count += 1
 
-            let srcIP = Self.ipString(from: src)
+            let srcIP = SocketCompat.ipString(of: &src)
             let connectedHost: String? = { if case .connected(let h) = commState { return h }; return nil }()
             let allowedHosts = Self.sendRotation(staticCandidates: candidates, resolvedMDNS: resolvedMDNS)
             guard Self.shouldAcceptResponse(srcIP: srcIP, connectedHost: connectedHost,
@@ -498,13 +475,6 @@ public final class DSClient {
         return true
     }
 
-    static func ipString(from addr: sockaddr_in) -> String {
-        var a = addr.sin_addr
-        var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-        inet_ntop(AF_INET, &a, &buf, socklen_t(INET_ADDRSTRLEN))
-        return String(cString: buf)
-    }
-
     private func sendControlPacketLocked(now: Double) -> Bool {
         guard udpSock >= 0, !candidates.isEmpty else { return !awaitingUpperDisabled }
 
@@ -517,7 +487,7 @@ public final class DSClient {
             }
         }
         guard let target = currentTarget,
-              let addr = sockaddrFor(target, port: config.controlPort) else {
+              var addr = sockaddrFor(target, port: config.controlPort) else {
             return !awaitingUpperDisabled
         }
 
@@ -619,13 +589,7 @@ public final class DSClient {
             )
         }
 
-        let sent = withUnsafePointer(to: addr) { addrPtr in
-            addrPtr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                packet.withUnsafeBytes { raw in
-                    sendto(udpSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-        }
+        let sent = SocketCompat.sendDatagram(udpSock, packet, &addr)
         if sent >= 0 {
             txSeq &+= 1; txCount += 1
             recordSink?(.controlOut, packet)
@@ -648,18 +612,32 @@ public final class DSClient {
         guard team > 0, config.manualIP == nil else { return }
         resolverQueue.async { [weak self] in
             let name = "roboRIO-\(team)-FRC.local"
+            // getaddrinfo 是 Winsock API：Windows 上必须先 WSAStartup（套接字创建之前就可能走到这里）
+            SocketCompat.ensureInitialized()
             var hints = addrinfo()
-            hints.ai_family = AF_INET
-            hints.ai_socktype = SOCK_DGRAM
+            hints.ai_family = .init(AF_INET)
+            hints.ai_socktype = .init(SOCK_DGRAM)
             var result: UnsafeMutablePointer<addrinfo>?
-            guard getaddrinfo(name, nil, &hints, &result) == 0, let first = result else { return }
-            defer { freeaddrinfo(result) }
+            #if os(Windows)
+            // ws2tcpip.h 用 `#define getaddrinfo getaddrinfoA` 做 ANSI/UNICODE 分派，宏别名不保证能导入 Swift：直接调 A 版
+            let resolved = getaddrinfoA(name, nil, &hints, &result) == 0
+            #else
+            let resolved = getaddrinfo(name, nil, &hints, &result) == 0
+            #endif
+            guard resolved, let first = result else { return }
+            defer {
+                #if os(Windows)
+                freeaddrinfoA(result)
+                #else
+                freeaddrinfo(result)
+                #endif
+            }
             var ips: [String] = []
             var info: UnsafeMutablePointer<addrinfo>? = first
             while let i = info {
-                if i.pointee.ai_family == AF_INET {
-                    let ip = i.pointee.ai_addr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) {
-                        Self.ipString(from: $0.pointee)
+                if Int(i.pointee.ai_family) == SocketCompat.afINET, let raw = i.pointee.ai_addr {
+                    let ip = raw.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
+                        SocketCompat.ipString(of: &sin.pointee)
                     }
                     ips.append(ip)
                 }
@@ -688,7 +666,8 @@ public final class DSClient {
             self.queue.async {
                 self.tcpConnectInFlight = false
                 guard self.running, self.isConnectedLocked(to: target), self.currentTarget == target else {
-                    if case .connected(let fd) = outcome { close(fd) }
+                    // 丢弃连接结果：套接字必须经 SocketCompat 关闭（Windows 上 C close() 不能关套接字）
+                    if case .connected(let fd) = outcome { SocketCompat.closeSocket(fd) }
                     self.tcpRetryAfter = self.monotonicNow() + 1.0
                     return
                 }
@@ -706,9 +685,9 @@ public final class DSClient {
     }
 
     /// 有界 TCP 连接的结局分类：
-    /// - connected：已建立（fd 已是非阻塞，归调用者所有，用毕须 close）
+    /// - connected：已建立（fd 已是非阻塞，归调用者所有，用毕须关闭）
     /// - refused：ECONNREFUSED——主机在线但端口关（2026-10-31 实测 OM5P:80 形态）
-    /// - timedOut：poll 截止时间到（黑洞链路/物理断线；阻塞式 connect 会挂到内核超时，
+    /// - timedOut：等待截止时间到（黑洞链路/物理断线；阻塞式 connect 会挂到内核超时，
     ///   回环实测 ~7.8s、真机 en4 实测 ~75s）
     /// - unreachable：ENETUNREACH / EHOSTUNREACH
     /// - error：其余错误（含非数字 IP 的 EINVAL、直连绑定失败）
@@ -721,87 +700,74 @@ public final class DSClient {
         case error(errno: Int32)
     }
 
-    /// 非阻塞 connect + select 截止时间 + SO_ERROR 分类。
-    /// 旧实现（blockingTCPConnect，已移除）设 SO_SNDTIMEO/RCVTIMEO 后直接阻塞 connect——
-    /// 这两个选项不约束 connect 本身，黑洞链路会挂到内核 TCP 超时（~75s），且把
+    /// 非阻塞 connect + 有界等待（SocketCompat：Darwin select / Linux poll / Windows select）
+    /// + SO_ERROR 分类。旧实现（blockingTCPConnect，已移除）设 SO_SNDTIMEO/RCVTIMEO 后直接阻塞
+    /// connect——这两个选项不约束 connect 本身，黑洞链路会挂到内核 TCP 超时（~75s），且把
     /// ECONNREFUSED 与其他失败一并吞成 -1，OM5P 在线时的 RST 被误判离线
     /// （engineering-log/2026.10.31.md root cause ①）。
     public static func boundedTCPConnect(to ip: String, port: UInt16, timeout: Double) -> TCPConnectOutcome {
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        guard inet_pton(AF_INET, ip, &addr.sin_addr) == 1 else { return .error(errno: EINVAL) }
+        guard var addr = SocketCompat.address(ip, port: port) else {
+            return .error(errno: SocketCompat.einval)
+        }
 
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return .error(errno: errno) }
-        let flags = fcntl(fd, F_GETFL, 0)
-        guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 else {
-            let e = errno; close(fd); return .error(errno: e)
+        let fd = SocketCompat.tcpSocket()
+        guard fd >= 0 else { return .error(errno: SocketCompat.lastError) }
+        guard SocketCompat.setNonBlocking(fd) else {
+            let e = SocketCompat.lastError
+            SocketCompat.closeSocket(fd)
+            return .error(errno: e)
         }
         switch DirectInterface.bind(fd: fd, target: ip) {
         case .bound, .noMatch:
             break
-        case .failed(let errno):
-            close(fd)
-            return .error(errno: errno)
+        case .failed(let code):
+            SocketCompat.closeSocket(fd)
+            return .error(errno: code)
         }
 
-        let rc = withUnsafePointer(to: addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                connect(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
+        let rc = SocketCompat.connectSocket(fd, &addr)
         if rc == 0 { return .connected(fd: fd) } // 回环可立即完成
-        guard errno == EINPROGRESS else {
-            let e = errno
-            close(fd)
-            switch e {
-            case ECONNREFUSED: return .refused
-            case ENETUNREACH, EHOSTUNREACH: return .unreachable
-            default: return .error(errno: e)
+        let pending = SocketCompat.lastError
+        guard SocketCompat.connectPending(pending) else {
+            SocketCompat.closeSocket(fd)
+            switch pending {
+            case SocketCompat.econnrefused: return .refused
+            case SocketCompat.enetunreach, SocketCompat.ehostunreach: return .unreachable
+            default: return .error(errno: pending)
             }
         }
 
-        let start = DispatchTime.now().uptimeNanoseconds
-        let deadlineMs = max(1, Int(timeout * 1000))
-        while true {
-            let spentMs = Int(Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
-            let remainingMs = deadlineMs - spentMs
-            if remainingMs <= 0 { close(fd); return .timedOut }
-            // macOS 的 OM5P 实网 RST 下 poll(POLLOUT 可能不醒；select 的写/异常集合能可靠返回。
-            var writeSet = fd_set()
-            var errorSet = fd_set()
-            bzero(&writeSet, MemoryLayout<fd_set>.size)
-            bzero(&errorSet, MemoryLayout<fd_set>.size)
-            __darwin_fd_set(fd, &writeSet)
-            __darwin_fd_set(fd, &errorSet)
-            var wait = timeval(tv_sec: remainingMs / 1000, tv_usec: Int32((remainingMs % 1000) * 1000))
-            let prc = select(fd + 1, nil, &writeSet, &errorSet, &wait)
-            if prc > 0 { break }
-            if prc < 0, errno == EINTR { continue }
-            if prc < 0 { let e = errno; close(fd); return .error(errno: e) }
-            close(fd)
+        switch SocketCompat.waitForConnect(fd, timeoutMs: max(1, Int(timeout * 1000))) {
+        case .ready:
+            break
+        case .timedOut:
+            SocketCompat.closeSocket(fd)
             return .timedOut
+        case .failed(let code):
+            SocketCompat.closeSocket(fd)
+            return .error(errno: code)
         }
-        var soError: Int32 = 0
-        var len = socklen_t(MemoryLayout<Int32>.size)
-        _ = getsockopt(fd, SOL_SOCKET, SO_ERROR, &soError, &len)
+        guard let soError = SocketCompat.getSocketError(fd) else {
+            let e = SocketCompat.lastError
+            SocketCompat.closeSocket(fd)
+            return .error(errno: e)
+        }
         switch soError {
         case 0:
             return .connected(fd: fd)
-        case ECONNREFUSED:
-            close(fd); return .refused
-        case ETIMEDOUT:
-            close(fd); return .timedOut
-        case ENETUNREACH, EHOSTUNREACH:
-            close(fd); return .unreachable
+        case SocketCompat.econnrefused:
+            SocketCompat.closeSocket(fd); return .refused
+        case SocketCompat.etimedout:
+            SocketCompat.closeSocket(fd); return .timedOut
+        case SocketCompat.enetunreach, SocketCompat.ehostunreach:
+            SocketCompat.closeSocket(fd); return .unreachable
         default:
-            close(fd); return .error(errno: soError)
+            SocketCompat.closeSocket(fd); return .error(errno: soError)
         }
     }
 
     private func closeTCPLocked() {
-        if tcpSock >= 0 { close(tcpSock) }
+        if tcpSock >= 0 { SocketCompat.closeSocket(tcpSock) }
         tcpSock = -1
         tcpConnected = false
         tcpBuffer = Data()
@@ -811,7 +777,7 @@ public final class DSClient {
         guard tcpSock >= 0 else { return }
         var buffer = [UInt8](repeating: 0, count: 16384)
         while true {
-            let n = recv(tcpSock, &buffer, buffer.count, 0)
+            let n = SocketCompat.receive(tcpSock, &buffer, buffer.count)
             if n > 0 {
                 tcpBuffer.append(Data(buffer[0 ..< n]))
                 if n < buffer.count { break }
@@ -820,7 +786,7 @@ public final class DSClient {
                 closeTCPLocked()
                 return
             } else {
-                if errno == EAGAIN || errno == EWOULDBLOCK { break }
+                if SocketCompat.wouldBlock(SocketCompat.lastError) { break }
                 closeTCPLocked()
                 return
             }
@@ -873,10 +839,7 @@ public final class DSClient {
     private func tcpSend(_ data: Data) -> Bool {
         guard tcpSock >= 0, tcpConnected else { return false }
         recordSink?(.tcpOut, data)
-        let ok = data.withUnsafeBytes { raw -> Bool in
-            guard let base = raw.baseAddress else { return false }
-            return send(tcpSock, base, raw.count, 0) == raw.count
-        }
+        let ok = SocketCompat.sendData(tcpSock, data) == data.count
         if !ok {
             emit(.log("tcp send failed, channel closed"))
             closeTCPLocked()

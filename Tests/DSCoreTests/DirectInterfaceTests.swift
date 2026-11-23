@@ -1,7 +1,15 @@
-// MARK: 直连出口选择（Clash Verge TUN 全模式）：纯函数选路 + 真实 lo0 绑定/清除
+// MARK: 直连出口选择（Clash Verge TUN 全模式）：纯函数选路 + 真实回环接口绑定/清除
 
-import Darwin
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
 import DSCore
 
 private func directIPv4(_ string: String) -> UInt32 {
@@ -129,106 +137,64 @@ func directInterfaceSelectionTests() {
 }
 
 private func directReceiverOnLoopback() -> (fd: Int32, port: UInt16)? {
-    let fd = socket(AF_INET, SOCK_DGRAM, 0)
+    let fd = SocketCompat.udpSocket()
     guard fd >= 0 else { return nil }
-    var timeout = timeval(tv_sec: 1, tv_usec: 0)
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-
-    var addr = sockaddr_in()
-    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = 0
-    addr.sin_addr.s_addr = UInt32(0x7F00_0001).bigEndian
-    let bound = withUnsafePointer(to: &addr) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            bind(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard bound == 0 else { close(fd); return nil }
-
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let named = withUnsafeMutablePointer(to: &addr) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            getsockname(fd, sa, &length)
-        }
-    }
-    guard named == 0 else { close(fd); return nil }
-    return (fd, UInt16(bigEndian: addr.sin_port))
+    SocketCompat.setReceiveTimeout(fd, seconds: 1)
+    var addr = SocketCompat.loopbackAddress(port: 0)
+    guard SocketCompat.bindSocket(fd, &addr) == 0 else { SocketCompat.closeSocket(fd); return nil }
+    guard let local = SocketCompat.localAddress(fd) else { SocketCompat.closeSocket(fd); return nil }
+    return (fd, SocketCompat.port(of: local))
 }
 
 private func directWildcardListener() -> (fd: Int32, port: UInt16)? {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    let fd = SocketCompat.tcpSocket()
     guard fd >= 0 else { return nil }
-    var reuse: Int32 = 1
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
-
-    var addr = sockaddr_in()
-    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = 0
-    addr.sin_addr.s_addr = 0
-    let bound = withUnsafePointer(to: &addr) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            bind(fd, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
+    SocketCompat.setReuseAddress(fd)
+    var addr = SocketCompat.anyAddress(port: 0)
+    guard SocketCompat.bindSocket(fd, &addr) == 0, SocketCompat.listenSocket(fd, backlog: 1) == 0 else {
+        SocketCompat.closeSocket(fd); return nil
     }
-    guard bound == 0, listen(fd, 1) == 0 else { close(fd); return nil }
-
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let named = withUnsafeMutablePointer(to: &addr) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            getsockname(fd, sa, &length)
-        }
-    }
-    guard named == 0 else { close(fd); return nil }
-    return (fd, UInt16(bigEndian: addr.sin_port))
+    guard let local = SocketCompat.localAddress(fd) else { SocketCompat.closeSocket(fd); return nil }
+    return (fd, SocketCompat.port(of: local))
 }
 
 func directInterfaceLoopbackBindingTests() {
-    let fd = socket(AF_INET, SOCK_DGRAM, 0)
+    // 回环接口名与钉绑能力因平台而异：Darwin lo0 / Linux lo 支持钉绑；Windows 不实现（按系统路由）
+    let loName = SocketCompat.loopbackInterfaceName
+    let supportsBinding = SocketCompat.supportsInterfaceBinding
+    let fd = SocketCompat.udpSocket()
     check(fd >= 0, "创建 UDP 套接字")
     guard fd >= 0 else { return }
-    defer { close(fd) }
+    defer { SocketCompat.closeSocket(fd) }
 
-    let loIndex = if_nametoindex("lo0")
-    check(loIndex != 0, "系统存在 lo0")
+    let loIndex = SocketCompat.interfaceIndex(named: loName)
+    if supportsBinding { check(loIndex != 0, "系统存在 \(loName)") }
     check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "新套接字未绑定接口")
 
     let bound = DirectInterface.bind(fd: fd, target: "127.0.0.1")
-    check(bound == .bound(name: "lo0", index: loIndex), "绑定 127.0.0.1 选中 lo0（得到 \(bound)）")
-    check(DirectInterface.boundInterfaceIndex(fd: fd) == loIndex, "IP_BOUND_IF 回读 lo0 索引")
+    if supportsBinding {
+        check(bound == .bound(name: loName, index: loIndex), "绑定 127.0.0.1 选中 \(loName)（得到 \(bound)）")
+        check(DirectInterface.boundInterfaceIndex(fd: fd) == loIndex, "接口钉绑回读 \(loName) 索引")
+    } else {
+        check(bound == .noMatch, "平台不实现接口钉绑：按系统路由（得到 \(bound)）")
+        check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "不支持钉绑的平台回读 nil")
+    }
 
     if let receiver = directReceiverOnLoopback() {
         let payload: [UInt8] = [0x47, 0x48, 0x44, 0x53]
-        var dest = sockaddr_in()
-        dest.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        dest.sin_family = sa_family_t(AF_INET)
-        dest.sin_port = receiver.port.bigEndian
-        dest.sin_addr.s_addr = UInt32(0x7F00_0001).bigEndian
-        let sent = withUnsafePointer(to: &dest) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                payload.withUnsafeBytes { raw in
-                    sendto(fd, raw.baseAddress, raw.count, 0, sa,
-                           socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-        }
-        check(sent == payload.count, "绑定 lo0 后可向 127.0.0.1 发送（sent \(sent)）")
+        var dest = SocketCompat.loopbackAddress(port: receiver.port)
+        let sent = SocketCompat.sendDatagram(fd, Data(payload), &dest)
+        check(sent == payload.count, "绑定 \(loName) 后可向 127.0.0.1 发送（sent \(sent)）")
 
         var buffer = [UInt8](repeating: 0, count: 32)
-        var source = sockaddr_in()
-        var sourceLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let received = withUnsafeMutablePointer(to: &source) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                recvfrom(receiver.fd, &buffer, buffer.count, 0, sa, &sourceLength)
-            }
-        }
+        var source = SocketCompat.emptyAddress()
+        let received = SocketCompat.receiveFrom(receiver.fd, &buffer, buffer.count, &source)
         if received == payload.count {
             check(Array(buffer[0..<received]) == payload, "回环接收内容一致")
         } else {
             check(false, "回环接收字节数（got \(received)）")
         }
-        close(receiver.fd)
+        SocketCompat.closeSocket(receiver.fd)
     } else {
         check(false, "创建 127.0.0.1 接收套接字")
     }
@@ -238,76 +204,80 @@ func directInterfaceLoopbackBindingTests() {
     check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "无匹配时清除旧绑定")
 
     let rebound = DirectInterface.bind(fd: fd, target: "127.8.9.10")
-    check(rebound == .bound(name: "lo0", index: loIndex), "127/8 重新绑定 lo0")
-    check(DirectInterface.boundInterfaceIndex(fd: fd) == loIndex, "重新绑定回读 lo0")
+    if supportsBinding {
+        check(rebound == .bound(name: loName, index: loIndex), "127/8 重新绑定 \(loName)（得到 \(rebound)）")
+        check(DirectInterface.boundInterfaceIndex(fd: fd) == loIndex, "重新绑定回读 \(loName)")
+    } else {
+        check(rebound == .noMatch, "不支持钉绑的平台仍返回 .noMatch（得到 \(rebound)）")
+    }
     let invalid = DirectInterface.bind(fd: fd, target: "not-an-ip")
     check(invalid == .noMatch, "非法目标返回 .noMatch（得到 \(invalid)）")
     check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "非法目标也清除旧绑定")
 
-    check(DirectInterface.bind(fd: -1, target: "127.0.0.1") == .failed(errno: EBADF),
+    check(DirectInterface.bind(fd: -1, target: "127.0.0.1") == .failed(errno: SocketCompat.ebadf),
           "无效 fd 返回 EBADF")
     check(DirectInterface.boundInterfaceIndex(fd: -1) == nil, "无效 fd 回读返回 nil")
 
     if let listener = directWildcardListener() {
-        let client = socket(AF_INET, SOCK_STREAM, 0)
+        let client = SocketCompat.tcpSocket()
         check(client >= 0, "创建回环 TCP 客户端")
         if client >= 0 {
-            var dest = sockaddr_in()
-            dest.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-            dest.sin_family = sa_family_t(AF_INET)
-            dest.sin_port = listener.port.bigEndian
-            dest.sin_addr.s_addr = UInt32(0x7F00_0001).bigEndian
-            let connected = withUnsafePointer(to: &dest) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    connect(client, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
+            var dest = SocketCompat.loopbackAddress(port: listener.port)
+            let connected = SocketCompat.connectSocket(client, &dest)
             check(connected == 0, "回环 TCP 连接建立")
             if connected == 0 {
-                let accepted = accept(listener.fd, nil, nil)
+                let accepted = SocketCompat.acceptSocket(listener.fd)
                 check(accepted >= 0, "accept 回环 TCP 连接")
                 if accepted >= 0 {
                     check(DirectInterface.boundInterfaceIndex(fd: accepted) == nil,
                           "accepted 套接字初始未绑定接口")
                     let result = DirectInterface.bindAccepted(fd: accepted)
-                    check(result == .bound(name: "lo0", index: loIndex),
-                          "accepted 本机 127.0.0.1 精确绑定 lo0（得到 \(result)）")
-                    check(DirectInterface.boundInterfaceIndex(fd: accepted) == loIndex,
-                          "accepted 套接字 IP_BOUND_IF 回读 lo0")
-                    close(accepted)
+                    if supportsBinding {
+                        check(result == .bound(name: loName, index: loIndex),
+                              "accepted 本机 127.0.0.1 精确绑定 \(loName)（得到 \(result)）")
+                        check(DirectInterface.boundInterfaceIndex(fd: accepted) == loIndex,
+                              "accepted 套接字钉绑回读 \(loName)")
+                    } else {
+                        check(result == .noMatch, "不支持钉绑的平台 bindAccepted 返回 .noMatch（得到 \(result)）")
+                    }
+                    SocketCompat.closeSocket(accepted)
                 }
             }
-            close(client)
+            SocketCompat.closeSocket(client)
         }
-        close(listener.fd)
+        SocketCompat.closeSocket(listener.fd)
     } else {
         check(false, "创建回环 TCP 监听套接字")
     }
 
-    let wildcard = socket(AF_INET, SOCK_DGRAM, 0)
+    let wildcard = SocketCompat.udpSocket()
     check(wildcard >= 0, "创建未绑定 UDP 套接字")
     if wildcard >= 0 {
         let prebound = DirectInterface.bind(fd: wildcard, target: "127.0.0.1")
-        check(prebound == .bound(name: "lo0", index: loIndex),
-              "未绑定 UDP 先人为绑定 lo0（得到 \(prebound)）")
-        check(DirectInterface.boundInterfaceIndex(fd: wildcard) == loIndex,
-              "人为绑定后回读 lo0")
+        if supportsBinding {
+            check(prebound == .bound(name: loName, index: loIndex),
+                  "未绑定 UDP 先人为绑定 \(loName)（得到 \(prebound)）")
+            check(DirectInterface.boundInterfaceIndex(fd: wildcard) == loIndex,
+                  "人为绑定后回读 \(loName)")
+        } else {
+            check(prebound == .noMatch, "不支持钉绑的平台未绑定 UDP 返回 .noMatch（得到 \(prebound)）")
+        }
         let result = DirectInterface.bindAccepted(fd: wildcard)
         check(result == .noMatch, "未绑定套接字本地 0.0.0.0 返回 .noMatch（得到 \(result)）")
         check(DirectInterface.boundInterfaceIndex(fd: wildcard) == nil,
               "bindAccepted 无匹配时清除旧绑定")
-        close(wildcard)
+        SocketCompat.closeSocket(wildcard)
     }
 
-    let notSocket = open("/dev/null", O_RDONLY)
-    check(notSocket >= 0, "打开 /dev/null 获取非套接字 fd")
+    let notSocket = SocketCompat.openNullDevice()
+    check(notSocket >= 0, "打开空设备获取非套接字 fd")
     if notSocket >= 0 {
         let result = DirectInterface.bindAccepted(fd: notSocket)
-        check(result == .failed(errno: ENOTSOCK),
+        check(result == .failed(errno: SocketCompat.enotsock),
               "非套接字 getsockname 失败返回 ENOTSOCK（得到 \(result)）")
-        close(notSocket)
+        SocketCompat.closeFileHandle(notSocket)
     }
 
-    check(DirectInterface.bindAccepted(fd: -1) == .failed(errno: EBADF),
+    check(DirectInterface.bindAccepted(fd: -1) == .failed(errno: SocketCompat.ebadf),
           "bindAccepted 无效 fd 返回 EBADF")
 }

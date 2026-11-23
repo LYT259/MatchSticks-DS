@@ -1,5 +1,4 @@
 import Foundation
-import CoreFoundation
 
 // MARK: - SettingsStore：偏好持久化（UserDefaults 封装，可注入 suite 供测试隔离）
 //
@@ -69,33 +68,46 @@ public final class SettingsStore {
     }
 
     // MARK: 类型解码
+    //
+    // 以「持久化形态」判定数字种类：UserDefaults 本身按 plist 落盘，布尔 NSNumber 写成 <true/>/<false/>，
+    // 整数 <integer>，浮点 <real>。旧实现查 CoreFoundation 的 CFBoolean/CFNumber 类型 ID，
+    // Linux/Windows 无此 API；改为看同一 plist 序列化结果，语义不变（布尔不当整数读、整数不当布尔读、
+    // 浮点不截断成整数），且三平台同一代码路径。
+
+    private enum NumberKind {
+        case boolean, integer, real, other
+    }
+
+    private static func numberKind(_ raw: Any) -> NumberKind {
+        guard let number = raw as? NSNumber,
+              let data = try? PropertyListSerialization.data(fromPropertyList: number, format: .xml, options: 0),
+              let xml = String(data: data, encoding: .utf8)
+        else { return .other }
+        if xml.contains("<true/>") || xml.contains("<false/>") { return .boolean }
+        if xml.contains("<integer>") { return .integer }
+        if xml.contains("<real>") { return .real }
+        return .other
+    }
 
     private static func decodeString(_ raw: Any) -> String? {
         raw as? String
     }
 
     private static func decodeInt(_ raw: Any) -> Int? {
-        guard let number = raw as? NSNumber,
-              CFGetTypeID(number as CFTypeRef) == CFNumberGetTypeID() else { return nil }
-        switch CFNumberGetType(number) {
-        case .sInt8Type, .sInt16Type, .sInt32Type, .sInt64Type,
-             .charType, .shortType, .intType, .longType, .longLongType,
-             .nsIntegerType, .cfIndexType:
-            return number.intValue
-        default:
-            return nil
-        }
+        guard let number = raw as? NSNumber, numberKind(number) == .integer else { return nil }
+        return number.intValue
     }
 
     private static func decodeDouble(_ raw: Any) -> Double? {
-        guard let number = raw as? NSNumber,
-              CFGetTypeID(number as CFTypeRef) == CFNumberGetTypeID() else { return nil }
-        return number.doubleValue
+        guard let number = raw as? NSNumber else { return nil }
+        switch numberKind(number) {
+        case .integer, .real: return number.doubleValue
+        case .boolean, .other: return nil
+        }
     }
 
     private static func decodeBool(_ raw: Any) -> Bool? {
-        guard let number = raw as? NSNumber,
-              CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() else { return nil }
+        guard let number = raw as? NSNumber, numberKind(number) == .boolean else { return nil }
         return number.boolValue
     }
 
@@ -222,7 +234,7 @@ public final class RadioProbe {
         // （2026-10-31 断线漏报 ~75s 的直接原因）。
         switch DSClient.boundedTCPConnect(to: target.host, port: target.port, timeout: configuration.timeout) {
         case .connected(let fd):
-            close(fd)
+            SocketCompat.closeSocket(fd)
             setResult(true)
         case .refused:
             setResult(true)

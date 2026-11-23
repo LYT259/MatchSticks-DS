@@ -1,7 +1,17 @@
 
 // MARK: 回环集成测试：真 DSClient ↔ 极简 roboRIO 应答器（UDP 1110 → 1150）
 
+import Foundation
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+import DSCore
 
 final class LoopbackResponder {
     var rxSock: Int32 = -1
@@ -13,9 +23,9 @@ final class LoopbackResponder {
     private var stopFlag = false
 
     func start() {
-        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
-        txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
+        rxSock = SocketCompat.udpSocket()
+        txSock = SocketCompat.udpSocket()
+        _ = SocketCompat.setNonBlocking(rxSock)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "回环应答器 控制口") else { return }
         _ = bindChecked(txSock, port: NICodec.udpResponsePort, soft: true,
                         what: "回环应答器 应答口（soft 恒不绑 1150，避免占用 DS 监听端口）")
@@ -26,13 +36,8 @@ final class LoopbackResponder {
         var buf = [UInt8](repeating: 0, count: 2048)
         var seq: UInt16 = 0
         while !stopFlag {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let n = withUnsafeMutablePointer(to: &src) { p in
-                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
-                }
-            }
+            var src = SocketCompat.emptyAddress()
+            let n = SocketCompat.receiveFrom(rxSock, &buf, buf.count, &src)
             if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             guard let packet = NICodec.decodeControl(Data(buf[0..<n])) else { continue }
             packetsSeen += 1
@@ -56,21 +61,14 @@ final class LoopbackResponder {
             var disk = ByteWriter(); disk.u32be(3)
             NICodec.appendTag(0x04, disk.data, to: &w)
 
-            let sent = withUnsafePointer(to: &src) { dst in
-                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    w.data.withUnsafeBytes { raw in
-                        sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-            }
-            _ = sent
+            _ = SocketCompat.sendDatagram(txSock, w.data, &src)
         }
     }
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
-        if txSock >= 0 { close(txSock) }
+        if rxSock >= 0 { SocketCompat.shutdownReadWrite(rxSock); SocketCompat.closeSocket(rxSock) }
+        if txSock >= 0 { SocketCompat.closeSocket(txSock) }
     }
 }
 
@@ -123,9 +121,6 @@ func loopbackIntegrationTest() {
     check(responder.sawEnabled, "responder observed enable command")
     check(sink.statsLoss >= 0 && sink.statsLoss < 5, "packet loss low (\(sink.statsLoss)%)")
 }
-
-import Foundation
-import DSCore
 
 // MARK: - NI 协议回归测试（金样本 + 往返 + 容错）
 // CLT 工具链无 XCTest / TestingMacros，自带 runner：swift run DSCoreTests
@@ -358,7 +353,9 @@ func axisEncodingSaturation() {
 
 // MARK: runner
 
-setvbuf(stdout, nil, _IOLBF, 0) // 行缓冲：崩溃前也能看到进度
+#if !os(Windows)
+setvbuf(stdout, nil, _IOLBF, 0) // 行缓冲：崩溃前也能看到进度（Windows UCRT 无等价行缓冲语义）
+#endif
 print("DSCore 协议回归测试")
 runTest("controlPacketGoldenMin", controlPacketGoldenMin)
 runTest("controlPacketGoldenJoystick", controlPacketGoldenJoystick)
@@ -387,6 +384,16 @@ runAllPhase2Tests()
 runTest("timeoutSequencerTests", timeoutSequencerTests)
 runAllPhase4Tests()
 runAllOM5PReadinessTests()
+// 三平台移植（Darwin / Linux / Windows 同一套断言：握手 SHA-1、IPv4 纯解析、.strings 解析、设置类型、套接字薄层往返）
+runTest("websocketAcceptKeyVectors", websocketAcceptKeyVectorTests)
+runTest("socketCompatIPv4", socketCompatIPv4Tests)
+runTest("socketCompatAddress", socketCompatAddressTests)
+runTest("openStepStringsTable", openStepStringsTableTests)
+runTest("settingsStoreTypeKind", settingsStoreTypeKindTests)
+runTest("socketCompatLoopbackRoundTrip", socketCompatLoopbackRoundTripTests)
+runTest("socketCompatExclusiveBind", socketCompatExclusiveBindTests)
+runTest("socketCompatUDPPortUnreachable", socketCompatUDPPortUnreachableTests)
+runTest("socketCompatBoundary", socketCompatBoundaryTests)
 // 手柄造型（GamepadProfile：识别/映射/容错；轴序样本锚定 2026-11-18 真机实测）
 runTest("gamepadProfileDetection", gamepadProfileDetectionTests)
 runTest("gamepadFamilySupport", gamepadFamilySupportTests)

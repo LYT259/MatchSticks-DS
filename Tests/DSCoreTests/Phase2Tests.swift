@@ -1,7 +1,7 @@
 
 // MARK: Phase 3/4：msgpack + protobuf-lite + NT4 server 往返
 
-import Network
+import Foundation
 
 func msgPackTests() {
     // 正负整数 / bool / double / string / bin / 数组 的 pack→unpack 往返
@@ -62,26 +62,20 @@ func nt4ServerTests() {
     Thread.sleep(forTimeInterval: 0.3)
 
     // 裸 WebSocket 客户端（RFC6455；服务器要求 Upgrade 握手）
-    let sock = socket(AF_INET, SOCK_STREAM, 0)
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = UInt16(18_767).bigEndian
-    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let connected = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(sock, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-    }
+    let sock = SocketCompat.tcpSocket()
+    var addr = SocketCompat.loopbackAddress(port: 18_767)
+    let connected = SocketCompat.connectSocket(sock, &addr)
     check(connected == 0, "NT4：TCP 连接")
-    var tv = timeval(tv_sec: 3, tv_usec: 0)
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+    SocketCompat.setReceiveTimeout(sock, seconds: 3)
     let handshake = "GET /nt/test HTTP/1.1\r\nHost: 127.0.0.1:18767\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
         + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
     let handshakeData = Data(handshake.utf8)
-    _ = handshakeData.withUnsafeBytes { raw in send(sock, raw.baseAddress, raw.count, 0) }
+    _ = SocketCompat.sendData(sock, handshakeData)
     // 读握手响应头（至 \r\n\r\n）
     var headerData = Data()
     var byte: UInt8 = 0
     while headerData.count < 4096 {
-        let n = recv(sock, &byte, 1, 0)
+        let n = SocketCompat.receive(sock, &byte, 1)
         guard n == 1 else { break }
         headerData.append(byte)
         if [UInt8](headerData.suffix(4)) == [0x0D, 0x0A, 0x0D, 0x0A] { break }
@@ -104,7 +98,7 @@ func nt4ServerTests() {
         var masked = [UInt8](payload)
         for i in 0..<masked.count { masked[i] ^= mask[i % 4] }
         frame.append(contentsOf: masked)
-        frame.withUnsafeBytes { raw in _ = send(sock, raw.baseAddress, raw.count, 0) }
+        _ = SocketCompat.sendData(sock, frame)
     }
 
     func recvServerFrame() -> (opcode: UInt8, payload: Data)? {
@@ -154,7 +148,7 @@ func nt4ServerTests() {
         }
         Thread.sleep(forTimeInterval: 0.1)
     }
-    close(sock)
+    SocketCompat.closeSocket(sock)
     server.stop()
 }
 
@@ -368,17 +362,11 @@ func settingsStoreTests() {
 
 func radioProbeTests() {
     // 监听 127.0.0.1:18123（可达）
-    let listener = socket(AF_INET, SOCK_STREAM, 0)
-    var yes: Int32 = 1
-    setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = UInt16(18_123).bigEndian
-    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let bound = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-    }
-    guard bound == 0, listen(listener, 4) == 0 else {
+    let listener = SocketCompat.tcpSocket()
+    SocketCompat.setReuseAddress(listener)
+    var addr = SocketCompat.loopbackAddress(port: 18_123)
+    let bound = SocketCompat.bindSocket(listener, &addr)
+    guard bound == 0, SocketCompat.listenSocket(listener, backlog: 4) == 0 else {
         check(false, "radio 测试监听失败")
         return
     }
@@ -392,7 +380,7 @@ func radioProbeTests() {
     // ECONNREFUSED 证明 radio 主机在线，必须仍判可达；黑洞/超时路径的不可达判定
     // 由 OM5PReadinessTests.radioProbeClassification 覆盖。
     let attemptsBeforeClose = probe.probeAttempts
-    close(listener)
+    SocketCompat.closeSocket(listener)
     check(waitUntil(8.0) { probe.probeAttempts >= attemptsBeforeClose + 2 }, "关闭后新探测已运行")
     check(probe.isReachable, "监听关闭（RST）→ radio 主机仍在线")
     probe.stop()
@@ -549,7 +537,6 @@ func recordReplayScenario() {
 }
 
 import Foundation
-import Darwin
 import DSCore
 
 // MARK: - Phase 2 验证套件：安全逻辑单测 + 场景级集成测试
@@ -564,19 +551,15 @@ func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: 
     guard sock >= 0 else { check(false, "\(what)：套接字创建失败"); return false }
     // DS 现在按真机要求 bind 1150；测试应答器保持临时源端口，避免同机抢端口。
     if soft && port == NICodec.udpResponsePort { return true }
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = port.bigEndian
-    addr.sin_addr = in_addr(s_addr: inet_addr(host))
-    let rc = withUnsafePointer(to: &addr) { ptr in
-        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            bind(sock, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
+    guard var addr = SocketCompat.address(host, port: port) else {
+        check(false, "\(what)：非数字主机 \(host)")
+        return false
     }
+    let rc = SocketCompat.bindSocket(sock, &addr)
     if rc != 0 {
         guard soft else {
             let held = portInUse(port)
-            check(false, "\(what)：bind \(host):\(port) 失败（errno \(errno)）"
+            check(false, "\(what)：bind \(host):\(port) 失败（errno \(SocketCompat.lastError)）"
                 + (held ? " —— 端口被占用，先 `pgrep -lf MatchSticksDS` 清残留进程"
                         : "（端口探测空闲，可能是权限问题）"))
             return false
@@ -586,21 +569,13 @@ func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: 
     return true
 }
 
-/// 端口是否已被别的进程占用（用一次性 bind 探测，EADDRINUSE = 占用）
+/// 端口是否已被别的进程占用（用一次性 bind 探测，失败 = 占用）
 func portInUse(_ port: UInt16) -> Bool {
-    let s = socket(AF_INET, SOCK_DGRAM, 0)
+    let s = SocketCompat.udpSocket()
     guard s >= 0 else { return false }
-    defer { close(s) }
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = port.bigEndian
-    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let rc = withUnsafePointer(to: &addr) { ptr in
-        ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            bind(s, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    return rc != 0
+    defer { SocketCompat.closeSocket(s) }
+    var addr = SocketCompat.loopbackAddress(port: port)
+    return SocketCompat.bindSocket(s, &addr) != 0
 }
 
 final class MRCResponder {
@@ -614,9 +589,9 @@ final class MRCResponder {
     private var seq: UInt16 = 0
 
     func start() {
-        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
-        txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
+        rxSock = SocketCompat.udpSocket()
+        txSock = SocketCompat.udpSocket()
+        _ = SocketCompat.setNonBlocking(rxSock)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "MRC 应答器 控制口") else { return }
         // soft 恒不绑 1150（DS 按真机要求占用该口）；应答器从临时源端口回送 DS 1150，语义不变
         _ = bindChecked(txSock, port: NICodec.udpResponsePort, soft: true,
@@ -627,13 +602,8 @@ final class MRCResponder {
     private func loop() {
         var buf = [UInt8](repeating: 0, count: 2048)
         while !stopFlag {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let n = withUnsafeMutablePointer(to: &src) { p in
-                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
-                }
-            }
+            var src = SocketCompat.emptyAddress()
+            let n = SocketCompat.receiveFrom(rxSock, &buf, buf.count, &src)
             if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             rawPackets += 1
             guard let packet = MRCPackets.decodeControl(Data(buf[0..<n])) else { continue }
@@ -649,20 +619,14 @@ final class MRCResponder {
                                                enabled: packet.control.enabled && !packet.control.estop,
                                                batteryVolts: 12.1,
                                                payload: payload)
-            withUnsafePointer(to: &src) { dst in
-                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    reply.withUnsafeBytes { raw in
-                        _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-            }
+            _ = SocketCompat.sendDatagram(txSock, reply, &src)
         }
     }
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
-        if txSock >= 0 { close(txSock) }
+        if rxSock >= 0 { SocketCompat.shutdownReadWrite(rxSock); SocketCompat.closeSocket(rxSock) }
+        if txSock >= 0 { SocketCompat.closeSocket(txSock) }
     }
 }
 
@@ -699,11 +663,10 @@ final class ScenarioServer {
 
     @discardableResult
     func start() -> Bool {
-        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
-        txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
-        var reuse: Int32 = 1
-        setsockopt(rxSock, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        rxSock = SocketCompat.udpSocket()
+        txSock = SocketCompat.udpSocket()
+        _ = SocketCompat.setNonBlocking(rxSock)
+        SocketCompat.setReuseAddress(rxSock)
         guard bindChecked(rxSock, port: controlPort, what: "场景应答器 控制口") else { return false }
         // 应答口绑不上时用内核临时源端口：DS 只按源地址/源端口收应答，语义不变
         _ = bindChecked(txSock, port: responsePort, soft: true, what: "场景应答器 应答口")
@@ -715,13 +678,8 @@ final class ScenarioServer {
         var buf = [UInt8](repeating: 0, count: 2048)
         var seq: UInt16 = 0
         while !stopFlag {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let n = withUnsafeMutablePointer(to: &src) { p in
-                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
-                }
-            }
+            var src = SocketCompat.emptyAddress()
+            let n = SocketCompat.receiveFrom(rxSock, &buf, buf.count, &src)
             if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             guard let packet = NICodec.decodeControl(Data(buf[0..<n])) else { continue }
             lock.lock()
@@ -760,22 +718,16 @@ final class ScenarioServer {
             NICodec.appendTag(0x06, ram.data, to: &w)
             lock.unlock()
 
-            withUnsafePointer(to: &src) { dst in
-                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    for _ in 0 ..< max(1, repliesPerPacket) {
-                        w.data.withUnsafeBytes { raw in
-                            _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                        }
-                    }
-                }
+            for _ in 0 ..< max(1, repliesPerPacket) {
+                _ = SocketCompat.sendDatagram(txSock, w.data, &src)
             }
         }
     }
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
-        if txSock >= 0 { close(txSock) }
+        if rxSock >= 0 { SocketCompat.shutdownReadWrite(rxSock); SocketCompat.closeSocket(rxSock) }
+        if txSock >= 0 { SocketCompat.closeSocket(txSock) }
     }
 }
 
@@ -1272,29 +1224,27 @@ final class PositiveTCPServer {
 
     @discardableResult
     func start(port: UInt16) -> Bool {
-        listenSock = socket(AF_INET, SOCK_STREAM, 0)
+        listenSock = SocketCompat.tcpSocket()
         guard listenSock >= 0 else { check(false, "TCP 正向场景：socket 创建失败"); return false }
-        var reuse: Int32 = 1
-        setsockopt(listenSock, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+        SocketCompat.setReuseAddress(listenSock)
         guard bindChecked(listenSock, port: port, what: "TCP 正向场景 监听口") else { return false }
-        guard listen(listenSock, 4) == 0 else { check(false, "TCP 正向场景：listen 失败"); return false }
+        guard SocketCompat.listenSocket(listenSock, backlog: 4) == 0 else { check(false, "TCP 正向场景：listen 失败"); return false }
         Thread.detachNewThread { [weak self] in self?.run() }
         return true
     }
 
     private func run() {
-        let fd = accept(listenSock, nil, nil)
+        let fd = SocketCompat.acceptSocket(listenSock)
         guard fd >= 0 else { return }
         lock.lock(); accepted = true; lock.unlock()
-        var tv = timeval(tv_sec: 0, tv_usec: 150_000)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        SocketCompat.setReceiveTimeout(fd, seconds: 0, microseconds: 150_000)
         for frame in Self.robotFrames() {
-            frame.withUnsafeBytes { raw in _ = send(fd, raw.baseAddress, raw.count, 0) }
+            _ = SocketCompat.sendData(fd, frame)
         }
         var buf = [UInt8](repeating: 0, count: 4096)
         var pending = Data()
         while !stopped {
-            let n = recv(fd, &buf, buf.count, 0)
+            let n = SocketCompat.receive(fd, &buf, buf.count)
             if n > 0 {
                 pending.append(Data(buf[0 ..< n]))
                 let (frames, remainder) = NICodec.extractTCPFrames(from: pending)
@@ -1302,11 +1252,11 @@ final class PositiveTCPServer {
                 lock.lock(); dsFrameIDs.append(contentsOf: frames.map(\.id)); lock.unlock()
             } else if n == 0 {
                 break
-            } else if errno != EAGAIN && errno != EWOULDBLOCK {
+            } else if !SocketCompat.wouldBlock(SocketCompat.lastError) {
                 break
             }
         }
-        close(fd)
+        SocketCompat.closeSocket(fd)
     }
 
     var keepAliveCount: Int { lock.lock(); defer { lock.unlock() }; return dsFrameIDs.filter { $0 == 0 }.count }
@@ -1314,7 +1264,7 @@ final class PositiveTCPServer {
 
     func stop() {
         stopped = true
-        if listenSock >= 0 { close(listenSock) }
+        if listenSock >= 0 { SocketCompat.closeSocket(listenSock) }
     }
 
     /// robot → DS 慢速帧（布局依 docs/protocol/ds-protocol-2026.md 已核查条目）
