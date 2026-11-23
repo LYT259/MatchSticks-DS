@@ -72,5 +72,6 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
   Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
+  Tests/MatchSticksDSUITests/PracticeProgressTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests

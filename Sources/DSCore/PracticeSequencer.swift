@@ -189,18 +189,35 @@ public struct PracticeSequencer: Sendable, Equatable {
         return events
     }
 
-    /// 周期推进（建议 0.1s）；返回本 tick 累积的控制意图。
+    /// 周期推进（建议 0.1s；dt 取真实经过时间）；返回本 tick 累积的控制意图。
     /// 5ms 容差：抵消浮点累加误差与定时器抖动，避免阶段切换晚一拍。
+    /// 大 dt 跨阶段时把超出阶段末尾的余量带入下一阶段继续推进（主 runloop 停顿后一次追上），
+    /// 事件顺序与逐 tick 推进一致：先 entered 再 enable/disable，全程结束才 finished。
     public mutating func tick(_ dt: TimeInterval) -> [Event] {
         guard phase.isActive else { return [] }
-        remaining -= dt
         var events: [Event] = []
-        if phase == .teleoperated, let warning = config.teleopWarningTime,
-           remaining + dt > warning + 0.005, remaining <= warning + 0.005 {
-            events.append(.endgameWarning)
-        }
-        if remaining > 0.005 { return events }
+        var carry = max(0, dt)
+        repeat {
+            remaining -= carry
+            if phase == .teleoperated, let warning = config.teleopWarningTime,
+               remaining + carry > warning + 0.005, remaining <= warning + 0.005 {
+                events.append(.endgameWarning)
+            }
+            guard remaining <= 0.005 else { break }
+            carry = overshoot
+            events += advance()
+        } while carry > 0 && phase.isActive
+        return events
+    }
 
+    /// 超出当前阶段末尾的时间（负 remaining）；小于 1ns 视为浮点累加噪声，不带入下一阶段
+    private var overshoot: TimeInterval {
+        let over = max(0, -remaining)
+        return over < 1e-9 ? 0 : over
+    }
+
+    /// 当前阶段结束：切到下一阶段并把 remaining 置为下一阶段全长（余量由 tick 扣回）
+    private mutating func advance() -> [Event] {
         switch phase {
         case .delayBeforeAuto:
             phase = .autonomous
@@ -218,7 +235,7 @@ public struct PracticeSequencer: Sendable, Equatable {
         case .teleoperated:
             phase = .finished
             remaining = 0
-            return events + [.disable, .finished]
+            return [.disable, .finished]
         case .transitionShift:
             phase = .allianceShift1
             remaining = config.teleopBreakdown?.allianceShift ?? 0
