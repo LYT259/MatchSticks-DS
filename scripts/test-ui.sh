@@ -49,6 +49,10 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
   Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
   Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
+  Sources/MatchSticksDS/UpdateChannel.swift Sources/MatchSticksDS/UpdateCheckScheduler.swift \
+  Sources/MatchSticksDS/UpdateReachability.swift Sources/MatchSticksDS/UpdateProbeTransport.swift \
+  Sources/MatchSticksDS/UpdateRequestRouting.swift Sources/MatchSticksDS/UpdateRequestTransport.swift \
+  Sources/MatchSticksDS/Views/UpdateBadge.swift \
   .build/uitest/BundleModuleShim.swift Sources/MatchSticksDS/Shortcuts.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputReport.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
@@ -64,5 +68,10 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
+  Tests/MatchSticksDSUITests/UpdateChannelTests.swift \
+  Tests/MatchSticksDSUITests/UpdateSchedulerTests.swift \
+  Tests/MatchSticksDSUITests/UpdateReachabilityTests.swift \
+  Tests/MatchSticksDSUITests/UpdateRequestRoutingTests.swift \
+  Tests/MatchSticksDSUITests/UpdateBadgeBehaviorTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests

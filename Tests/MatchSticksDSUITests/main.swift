@@ -420,6 +420,11 @@ struct UIStateTests {
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         appIconAppearanceTests(check)
+        updateChannelTests(check)
+        updateSchedulerTests(check)
+        updateReachabilityTests(check)
+        updateRequestRoutingTests(check)
+        updateBadgeBehaviorTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()

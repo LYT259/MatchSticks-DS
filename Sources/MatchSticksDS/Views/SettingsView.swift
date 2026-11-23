@@ -10,6 +10,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 20) {
                 generalPanel
                 iconPanel
+                updatePanel
                 dashboardPanel
                 audioPanel
                 matchPanel
@@ -116,6 +117,26 @@ struct SettingsView: View {
             }
             settingsSeparator
             Text(tr("运行中的 Dock 图标立即使用所选图稿；Finder 与启动台图标由应用包提供、始终随系统深浅显示，固定浅色/深色只影响运行中的 Dock。"))
+                .font(.system(size: 11))
+                .foregroundStyle(DSTheme.textSecondary)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // 软件更新：stable / beta 渠道（Sparkle 原生渠道过滤，每次加载 appcast 时重读 allowedChannels）。
+    // 切换即时生效并持久化；UpdateCenter 在 GitHub 可达时立即重新检查（不可达则退避重试，见 ADR-0004）。
+    private var updatePanel: some View {
+        settingsGroup(tr("软件更新")) {
+            settingsRow(tr("更新渠道")) {
+                DSSegmentedControl(title: tr("更新渠道"), selection: $model.updateChannel, options: [
+                    DSSelectOption(value: UpdateChannel.stable, label: tr("稳定版")),
+                    DSSelectOption(value: UpdateChannel.beta, label: tr("测试版")),
+                ])
+                .frame(width: 360)
+            }
+            settingsSeparator
+            Text(tr("测试版会同时接收稳定版与测试版更新；切换渠道后在 GitHub 可达时立即重新检查。"))
                 .font(.system(size: 11))
                 .foregroundStyle(DSTheme.textSecondary)
                 .padding(.horizontal, 16).padding(.vertical, 10)

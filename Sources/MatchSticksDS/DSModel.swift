@@ -404,6 +404,19 @@ final class DSModel {
     }
     let appIconCenter = AppIconCenter()
 
+    // MARK: 更新渠道（stable / beta；UpdateCenter 映射为 Sparkle allowedChannels）
+
+    /// 渠道偏好：didSet 即时落盘（键 updateChannel，新旧键规则由 SettingsStore 统一处理）；
+    /// 真实变化时通知 UpdateCenter（attach 注入），由其在 GitHub 可达时重新检查。
+    var onUpdateChannelChange: ((UpdateChannel) -> Void)?
+    var updateChannel: UpdateChannel = .stable {
+        didSet {
+            guard updateChannel != oldValue else { return }
+            settings.set("updateChannel", updateChannel.rawValue)
+            onUpdateChannelChange?(updateChannel)
+        }
+    }
+
     // MARK: 事件日志
 
     var dsEvents: [LogLine] = []
@@ -476,6 +489,10 @@ final class DSModel {
         }
         if let raw = settings.string("appIconAppearance"), let appearance = AppearanceMode(rawValue: raw) {
             iconAppearance = appearance
+        }
+        // 更新渠道与语言 / 外观 / 图标同属偏好：门控前恢复（AUTO_SIM 会话同样按上次选择检查更新）
+        if let raw = settings.string("updateChannel"), let channel = UpdateChannel(rawValue: raw) {
+            updateChannel = channel
         }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }

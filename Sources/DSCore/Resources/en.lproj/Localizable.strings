@@ -398,6 +398,7 @@
 /* ===== UpdateBadge / UpdateFlow / UpdateCenter ===== */
 "正在检查更新（后台静默，不影响使用）" = "Checking for updates (silent background, no disruption)";
 "正在后台下载新版本 %d%%（低优先级，可忽略，不影响使用）" = "Downloading the new version in the background: %d%% (low priority, ignorable)";
+"正在下载更新" = "Downloading update";
 "正在安装更新，应用即将重启…" = "Installing the update; the app will restart…";
 "重启更新" = "Restart to Update";
 "暂不能重启更新：%@。角标保留；满足条件后即可点击。" = "Can't restart for update: %@. The badge stays; click once conditions allow.";
@@ -405,7 +406,7 @@
 "驾驶台状态未接入（安全门保守阻断）" = "Driver station state not wired (safety gate blocking conservatively)";
 "更新组件已禁用（MATCHSTICKS_DS_DISABLE_UPDATE=1）" = "Updater disabled (MATCHSTICKS_DS_DISABLE_UPDATE=1)";
 "未配置" = "not configured";
-"更新组件就绪（当前版本 %@，feed %@）" = "Updater ready (version %@, feed %@)";
+"更新组件就绪（当前版本 %@，feed %@，渠道 %@）" = "Updater ready (version %@, feed %@, channel %@)";
 "更新组件未启动：%@（不影响使用）" = "Updater not started: %@ (app still works)";
 "重启更新被安全门阻断：%@" = "Restart-for-update blocked by safety gate: %@";
 "重启更新：安全门放行（%@ → %@），立即安装并重启" = "Restart for update: safety gate open (%@ → %@), installing and restarting now";
@@ -414,8 +415,21 @@
 "AUTOTAP：%ds 后替操作员点击重启更新（安全门照常现场求值）" = "AUTOTAP: clicking restart-for-update for the operator in %d s (safety gate evaluated live)";
 "AUTOTAP：替操作员点击重启更新（安全门照常现场求值）" = "AUTOTAP: clicked restart-for-update for the operator (safety gate evaluated live)";
 "更新检查完成：已是最新版本" = "Update check complete: up to date";
-"更新检查/下载失败（静默跳过，下次启动再试）%@" = "Update check/download failed (skipped silently, retried next launch) %@";
+"更新检查失败（静默跳过，%d 秒后重试）：%@" = "Update check failed (silent; retrying in %d s): %@";
 "更新：应用即将重启（安装器接管）" = "Update: app restarting now (installer taking over)";
+"GitHub 可达，开始检查更新（渠道 %@）" = "GitHub reachable; checking for updates (channel %@)";
+"默认路由不可达，经有线 Ethernet 连通 GitHub：%@" = "Default route unreachable; GitHub reached over wired Ethernet: %@";
+"GitHub 不可达，%d 秒后重试（第 %d 次）：%@" = "GitHub unreachable; retrying in %d s (attempt %d): %@";
+"网络路径变化，立即重新探测 GitHub" = "Network path changed; probing GitHub again now";
+"更新渠道切换为 %@（GitHub 可达时重新检查）" = "Update channel switched to %@ (re-checking when GitHub is reachable)";
+"检查触发被 Sparkle 拒绝（已有检查进行中），稍后重试" = "Check trigger refused by Sparkle (another check in progress); retrying shortly";
+
+/* ===== Settings：软件更新渠道 ===== */
+"软件更新" = "Software Updates";
+"更新渠道" = "Update Channel";
+"稳定版" = "Stable";
+"测试版" = "Beta";
+"测试版会同时接收稳定版与测试版更新；切换渠道后在 GitHub 可达时立即重新检查。" = "Beta receives both stable and beta updates. Switching channels re-checks immediately once GitHub is reachable.";
 
 /* ===== CameraView ===== */
 "摄像头画面（模拟器图像源）" = "Camera feed (simulator source)";
