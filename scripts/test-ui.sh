@@ -59,6 +59,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
   Sources/MatchSticksDS/AppIconAppearance.swift \
+  Sources/MatchSticksDS/Views/DriverStationBrand.swift \
   Sources/MatchSticksDS/Views/PermissionsView.swift \
   Tests/MatchSticksDSUITests/main.swift Tests/MatchSticksDSUITests/F310XInputReportTests.swift \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
@@ -66,6 +67,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
+  Tests/MatchSticksDSUITests/DriverStationBrandTests.swift \
   Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
   -o .build/MatchSticksDSUIStateTests
-.build/MatchSticksDSUIStateTests
+.build/MatchSticksDSUIStateTests "$@"

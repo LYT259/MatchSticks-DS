@@ -149,6 +149,7 @@ final class DSModel {
     init(settingsDefaults: UserDefaults? = nil, persistenceEnabled: Bool? = nil) {
         settings = SettingsStore(defaults: settingsDefaults ?? Self.resolvedSettingsDefaults())
         persistenceAllowed = persistenceEnabled ?? !Self.isAutoSim
+        restoreIconPreferences()
     }
 
     // MARK: 连接与配置
@@ -465,6 +466,15 @@ final class DSModel {
 
     var persistenceEnabled: Bool { persistenceAllowed }
 
+    private func restoreIconPreferences() {
+        if let raw = settings.string("appIconStyle"), let style = IconStyle(rawValue: raw) {
+            iconStyle = style
+        }
+        if let raw = settings.string("appIconAppearance"), let appearance = AppearanceMode(rawValue: raw) {
+            iconAppearance = appearance
+        }
+    }
+
     func loadPersistedSettings() {
         // 语言 / 外观不受 AUTO_SIM 门控影响：模拟器会话同样按上次选择显示（写入侧 didSet 本就不设门控）
         if let raw = settings.string("language"), let mode = LanguageMode(rawValue: raw) {
@@ -474,12 +484,7 @@ final class DSModel {
             appearanceMode = mode
         }
         // 图标偏好与语言/外观同属 UI 偏好：门控前恢复（AUTO_SIM 会话同样按上次选择显示图标）
-        if let raw = settings.string("appIconStyle"), let style = IconStyle(rawValue: raw) {
-            iconStyle = style
-        }
-        if let raw = settings.string("appIconAppearance"), let appearance = AppearanceMode(rawValue: raw) {
-            iconAppearance = appearance
-        }
+        restoreIconPreferences()
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }

@@ -27,6 +27,13 @@ struct UIStateTests {
             if !condition() { failures.append(name) }
         }
 
+        if CommandLine.arguments.contains("--brand-only") {
+            driverStationBrandTests(check)
+            print("MatchSticks DS brand state: \(checks) checks, \(failures.count) failures")
+            for failure in failures { print("FAIL: \(failure)") }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
@@ -420,6 +427,7 @@ struct UIStateTests {
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         appIconAppearanceTests(check)
+        driverStationBrandTests(check)
         localNetworkDiscoveryTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进

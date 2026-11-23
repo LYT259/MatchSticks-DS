@@ -234,7 +234,7 @@ func appIconAppearanceTests(_ check: @MainActor (@autoclosure () -> Bool, String
     check(model.appIconCenter.pushedFileNames.last == "app-icon-day",
           "pinning the icon appearance re-resolves immediately")
 
-    // 重启恢复 + 启动即设置（loadPersistedSettings 即启动恢复路径；干测试不调 start()）
+    // 初始化已恢复一次图标；显式再次加载仍应应用同一固定浅色图稿（干测试不调 start()）
     let restored = DSModel(settingsDefaults: suite, persistenceEnabled: true)
     restored.appIconCenter.artworkLoader = { _ in stubArtwork }
     restored.appIconCenter.systemDarkProvider = { true }
@@ -243,8 +243,8 @@ func appIconAppearanceTests(_ check: @MainActor (@autoclosure () -> Bool, String
     restored.loadPersistedSettings()
     check(restored.iconStyle == .color && restored.iconAppearance == .light,
           "icon preferences restore across restart")
-    check(restored.appIconCenter.pushedFileNames == ["app-icon-night", "app-icon-day"],
-          "startup restore applies the resolved artwork")
+    check(restored.appIconCenter.pushedFileNames == ["app-icon-day", "app-icon-day"],
+          "an explicit settings reload reapplies the restored light icon")
 
     // 损坏 / 未知值安全回默认
     let corruptSuite = makeIconSuite(iconSuiteNames[1])

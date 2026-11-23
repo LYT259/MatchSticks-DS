@@ -56,9 +56,10 @@ enum AppIconArtwork {
     }
 }
 
-/// 运行时图标中心：把两维偏好解析为图稿并推给 NSApplication.applicationIconImage。
+/// 运行时图标中心：解析两维偏好，向 Dock 与侧栏品牌区提供同一份图稿。
 /// artworkLoader / systemDarkProvider / applier 可注入（UI 干测试不触碰真实 Dock 与
 /// 真实系统外观；图稿缺失时静默 no-op，绝不把图标置空）。
+@Observable
 @MainActor
 final class AppIconCenter {
     /// 系统深浅切换的分布式通知名（Apple 惯用名，非 AppKit API；机制见文件头注释）。
@@ -73,15 +74,16 @@ final class AppIconCenter {
     }
 
     private(set) var pushedFileNames: [String] = []
+    private(set) var artwork: NSImage?
 
     var style: IconStyle = .color
     var mode: AppearanceMode = .system
 
-    var artworkLoader: (String) -> NSImage? = { AppIconArtwork.image(fileName: $0) }
-    var systemDarkProvider: () -> Bool = { AppIconCenter.systemPrefersDark() }
-    var applier: (NSImage) -> Void = { NSApplication.shared.applicationIconImage = $0 }
+    @ObservationIgnored var artworkLoader: (String) -> NSImage? = { AppIconArtwork.image(fileName: $0) }
+    @ObservationIgnored var systemDarkProvider: () -> Bool = { AppIconCenter.systemPrefersDark() }
+    @ObservationIgnored var applier: (NSImage) -> Void = { NSApplication.shared.applicationIconImage = $0 }
 
-    private var distributedObserver: NSObjectProtocol?
+    @ObservationIgnored private var distributedObserver: NSObjectProtocol?
 
     /// 偏好变化入口（设置页 didSet / 启动恢复后各调一次）：更新两维并立即重推。
     func update(style: IconStyle, mode: AppearanceMode) {
@@ -96,6 +98,7 @@ final class AppIconCenter {
         let name = AppIconArtwork.fileName(style: style, dark: dark)
         guard let image = artworkLoader(name) else { return }
         pushedFileNames.append(name)
+        artwork = image
         applier(image)
     }
 
