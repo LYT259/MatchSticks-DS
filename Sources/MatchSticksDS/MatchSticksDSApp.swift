@@ -122,6 +122,7 @@ struct RootView: View {
                     }
                     .buttonStyle(DSActionStyle())
                     UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
+                    GitHubStarButton()
                 }
             }
         }

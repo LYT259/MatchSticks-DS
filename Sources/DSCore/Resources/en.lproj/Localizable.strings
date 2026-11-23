@@ -52,6 +52,10 @@
 "使能机器人（需已连接且无急停）" = "Enable the robot (requires connection and no E-Stop)";
 "迷你驾驶台" = "Mini Driver Station";
 
+/* ===== GitHub Star（Views/GitHubStarButton，主窗口工具栏可访问名称与帮助）===== */
+"在 GitHub 上给 MatchSticks DS 点 Star" = "Star MatchSticks DS on GitHub";
+"在默认浏览器中打开 MatchSticks DS 的 GitHub 仓库页面" = "Opens the MatchSticks DS repository on GitHub in your default browser";
+
 /* ===== 侧栏与页面导航（MatchSticksDSApp）===== */
 "驾驶" = "Drive";
 "连接" = "Connection";
