@@ -7,6 +7,7 @@ import DSCore
 // 全部走假浏览器——不建真实套接字，也不触发系统本地网络弹窗；真实弹窗留给控制器验收。
 // 覆盖：包装器一次启动 / 重复 start 不重启 / cancel 到达假浏览器且可重复；
 // 策略拒绝（kDNSServiceErr_PolicyDenied）与普通失败、瞬态等待区分，无结果≠拒绝；
+// 终态即取消浏览器（isRunning 变 false），同一终态只报一次，取消后重启仍可用；
 // DSModel 默认队号 0、空手动地址也启动且重复启动只开一次，AUTO_SIM 不启动；
 // 浏览结果只进日志，永不改连接配置 / 发送候选；start() 调用顺序与 Info.plist 声明守卫。
 
@@ -75,7 +76,7 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     check(revived.startCount == 2 && revived.cancelCount == 1,
           "start after cancel starts a browser again exactly once")
 
-    // ===== C. 状态回调：策略拒绝 / 普通失败 / 等待 / 就绪 =====
+    // ===== C. 状态回调：就绪 / 瞬态等待；终态即取消浏览器 =====
     let stateFake = FakeLocalNetworkBrowser()
     let stateDiscovery = LocalNetworkDiscovery(makeBrowser: { stateFake })
     var stateEvents: [LocalNetworkDiscoveryEvent] = []
@@ -87,20 +88,63 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     check(stateEvents == [.ready], "ready is reported without inventing results")
     check(!stateEvents.contains(.policyDenied), "no results at all is not permission denial")
     stateFake.onState?(.waiting(NWError.posix(.ENETDOWN)))
-    check(isWaiting(stateEvents.last) && stateEvents.last != .policyDenied,
-          "waiting on a network error is a transient wait, not permission denial")
-    stateFake.onState?(.waiting(policyDenied))
-    check(stateEvents.last == .policyDenied, "policy denial reported through waiting is still policy denial")
-    stateFake.onState?(.failed(ordinaryFailure))
-    check(failedReason(stateEvents.last) != nil && !failedReason(stateEvents.last)!.isEmpty &&
-          stateEvents.last != .policyDenied,
-          "an ordinary failure is reported as a failure with its reason, not as policy denial")
-    stateFake.onState?(.failed(policyDenied))
-    check(stateEvents.last == .policyDenied && failedReason(stateEvents.last) == nil,
-          "policy denial is reported as policy denial, not as an ordinary failure")
+    check(isWaiting(stateEvents.last) && stateEvents.last != .policyDenied &&
+          stateDiscovery.isRunning && stateFake.cancelCount == 0,
+          "waiting on a network error is a transient wait that keeps browsing")
     let eventCount = stateEvents.count
     stateFake.onState?(.cancelled)
     check(stateEvents.count == eventCount, "cancelled is silent")
+
+    // ===== C2. 终态（权限被拒 / 失败）：报一次并取消浏览器；同一终态不重复报 =====
+    let deniedFake = FakeLocalNetworkBrowser()
+    let denied = LocalNetworkDiscovery(makeBrowser: { deniedFake })
+    var deniedEvents: [LocalNetworkDiscoveryEvent] = []
+    denied.onEvent = { deniedEvents.append($0) }
+    denied.start()
+    deniedFake.onState?(.failed(policyDenied))
+    check(deniedEvents == [.policyDenied] && !denied.isRunning && deniedFake.cancelCount == 1,
+          "policy denial is reported once and stops the browser")
+    deniedFake.onState?(.failed(policyDenied))
+    deniedFake.onServices?(["roboRIO-2590-FRC"])
+    check(deniedEvents == [.policyDenied] && deniedFake.cancelCount == 1,
+          "a terminated browser delivers nothing more")
+    // 重启后再次命中同一终态：不再报第二次（网络变化不刷重复拒绝日志），浏览器同样被取消
+    denied.start()
+    deniedFake.onState?(.failed(policyDenied))
+    check(deniedEvents == [.policyDenied] && !denied.isRunning && deniedFake.cancelCount == 2,
+          "an identical terminal event after a restart is suppressed and still stops the browser")
+    // 不同终态仍要报：去重只针对同一事件
+    denied.start()
+    deniedFake.onState?(.failed(ordinaryFailure))
+    check(deniedEvents.count == 2 && failedReason(deniedEvents.last) != nil && !denied.isRunning,
+          "a different terminal failure after a restart is still reported and stops the browser")
+
+    let failedFake = FakeLocalNetworkBrowser()
+    let failed = LocalNetworkDiscovery(makeBrowser: { failedFake })
+    var failedEvents: [LocalNetworkDiscoveryEvent] = []
+    failed.onEvent = { failedEvents.append($0) }
+    failed.start()
+    failedFake.onState?(.failed(ordinaryFailure))
+    check(failedEvents.count == 1 && failedReason(failedEvents.last) != nil &&
+          !failedReason(failedEvents.last)!.isEmpty && failedEvents.last != .policyDenied &&
+          !failed.isRunning && failedFake.cancelCount == 1,
+          "an ordinary terminal failure is reported once with its reason, not as policy denial, and stops the browser")
+
+    let waitingDeniedFake = FakeLocalNetworkBrowser()
+    let waitingDenied = LocalNetworkDiscovery(makeBrowser: { waitingDeniedFake })
+    var waitingDeniedEvents: [LocalNetworkDiscoveryEvent] = []
+    waitingDenied.onEvent = { waitingDeniedEvents.append($0) }
+    waitingDenied.start()
+    waitingDeniedFake.onState?(.waiting(policyDenied))
+    check(waitingDeniedEvents == [.policyDenied] && !waitingDenied.isRunning && waitingDeniedFake.cancelCount == 1,
+          "policy denial reported through waiting is still policy denial and stops the browser")
+    // 安全取消 / 重启不受终态影响：取消后再 start 仍可正常浏览并交付结果
+    waitingDeniedFake.onServices?(["roboRIO-2590-FRC"])
+    check(waitingDeniedEvents == [.policyDenied], "a terminated browser drops late results")
+    waitingDenied.start()
+    waitingDeniedFake.onServices?(["roboRIO-2590-FRC"])
+    check(waitingDenied.isRunning && waitingDeniedEvents.last == .services(["roboRIO-2590-FRC"]),
+          "a browser started after a terminal state browses again")
 
     // ===== D. 结果：只在集合变化时交付 =====
     let resultFake = FakeLocalNetworkBrowser()

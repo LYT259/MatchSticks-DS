@@ -66,11 +66,14 @@ final class NIBonjourBrowser: LocalNetworkBrowsing {
 /// NWBrowser 的薄封装：一次启动、可取消、幂等。回调在主队列交付（start 传 .main），
 /// 事件同步送达 onEvent（主线程）。首次 start 即触发系统本地网络授权询问——这是真实服务发现，
 /// 不是伪造弹窗；浏览结果仅作诊断，不进发送轮转。
+/// 终态（权限被拒 / 浏览失败）即取消浏览器；同一终态事件只报一次，重启后也不重复。
 @MainActor
 final class LocalNetworkDiscovery {
     private let makeBrowser: () -> LocalNetworkBrowsing
     private var browser: LocalNetworkBrowsing?
     private var discovered: [String] = []
+    /// 最近一次已上报的终态事件（跨重启保留：同一会话内同一拒绝 / 失败不刷第二条日志）
+    private var lastTerminalEvent: LocalNetworkDiscoveryEvent?
     var onEvent: ((LocalNetworkDiscoveryEvent) -> Void)?
 
     init(makeBrowser: @escaping () -> LocalNetworkBrowsing = { NIBonjourBrowser() }) {
@@ -110,12 +113,25 @@ final class LocalNetworkDiscovery {
         case .ready:
             onEvent?(.ready)
         case .waiting(let error):
-            onEvent?(Self.isPolicyDenied(error) ? .policyDenied : .waiting(String(describing: error)))
+            guard Self.isPolicyDenied(error) else {
+                onEvent?(.waiting(String(describing: error)))
+                return
+            }
+            finish(.policyDenied)
         case .failed(let error):
-            onEvent?(Self.isPolicyDenied(error) ? .policyDenied : .failed(String(describing: error)))
+            finish(Self.isPolicyDenied(error) ? .policyDenied : .failed(String(describing: error)))
         @unknown default:
             break
         }
+    }
+
+    /// 终态：先取消浏览器（NWBrowser 的 failed 不可恢复；权限被拒不该随网络变化反复报），
+    /// 再上报——同一终态事件只报一次。
+    private func finish(_ event: LocalNetworkDiscoveryEvent) {
+        cancel()
+        guard lastTerminalEvent != event else { return }
+        lastTerminalEvent = event
+        onEvent?(event)
     }
 
     private func handle(_ names: [String]) {

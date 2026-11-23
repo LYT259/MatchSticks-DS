@@ -445,7 +445,7 @@ final class DSModel {
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
     /// NI 服务发现（`_ni._tcp` Bonjour 浏览，start() 启动）：默认真实 NWBrowser，测试注入假浏览器（无套接字）。
-    var makeLocalNetworkDiscovery: () -> LocalNetworkDiscovery = { LocalNetworkDiscovery() }
+    var makeLocalNetworkDiscovery: @MainActor () -> LocalNetworkDiscovery = { LocalNetworkDiscovery() }
     private var localNetworkDiscovery: LocalNetworkDiscovery?
     private let nt4Server = NT4Server(port: 6767)
     private var webUI: WebUIServer?
