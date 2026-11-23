@@ -46,6 +46,13 @@
 "机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。" = "The robot still reports E-Stop; Enable is unavailable. Wait for the reset to take effect or restart robot code from Diagnostics.";
 "使能机器人（需已连接且无急停）" = "Enable the robot (requires connection and no E-Stop)";
 "迷你驾驶台" = "Mini Driver Station";
+"切换到迷你驾驶台；主窗口将隐藏，关闭迷你窗口即可返回。" = "Switch to the mini driver station; the main window hides and returns when the mini window closes.";
+"返回完整驾驶台" = "Return to Full Station";
+"隐藏迷你驾驶台并恢复完整主窗口。" = "Hides the mini driver station and restores the full main window.";
+"刷新机器人连接" = "Refresh Robot Connection";
+"已请求重新搜索机器人" = "Robot re-search requested";
+"已连接机器人，无需刷新；刷新仅在未连接时重新搜索。" = "The robot is already connected; refresh only re-searches while disconnected.";
+"失能机器人" = "Disable the robot";
 
 /* ===== 侧栏与页面导航（MatchSticksDSApp）===== */
 "驾驶" = "Drive";

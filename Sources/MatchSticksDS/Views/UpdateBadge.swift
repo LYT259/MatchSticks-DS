@@ -1,7 +1,7 @@
 import SwiftUI
 import DSCore
 
-// MARK: - 更新角标（主窗口原生统一工具栏 .primaryAction 区，紧邻「迷你驾驶台」按钮）
+// MARK: - 更新角标（主窗口 trailing（.confirmationAction）工具区，紧邻「迷你驾驶台」按钮）
 //
 // 下载中 = 进度环；就绪 = 可点「重启更新」；安全门阻断期间角标可见但点击无效，
 // tooltip 说明原因。idle / failed 完全隐藏（无更新无感、失败静默跳过）。
