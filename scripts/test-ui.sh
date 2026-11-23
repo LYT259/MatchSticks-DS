@@ -58,6 +58,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
   Sources/MatchSticksDS/AppIconAppearance.swift \
+  Sources/MatchSticksDS/Views/PermissionsView.swift \
   Tests/MatchSticksDSUITests/main.swift Tests/MatchSticksDSUITests/F310XInputReportTests.swift \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
   Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
