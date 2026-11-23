@@ -402,6 +402,7 @@ runTest("gamepadProfileDualshock4State", gamepadProfileDualshock4StateTests)
 runTest("gamepadDirectionAndPolarity", gamepadDirectionAndPolarityTests)
 runTest("gamepadProfileGenericState", gamepadProfileGenericStateTests)
 runTest("gamepadProfileRobustness", gamepadProfileRobustnessTests)
+runTest("gamepadDisplayName", gamepadDisplayNameTests)
 // 品牌改名迁移（env 兼容 / 设置前缀 / 数据目录 / 旧录制魔数）
 runTest("environmentCompatibility", environmentCompatibilityTests)
 runTest("settingsLegacyMigration", settingsMigrationTests)
