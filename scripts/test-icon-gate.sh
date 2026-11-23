@@ -39,6 +39,8 @@ RS=$(grep -n '^for ICON_SRC in' "$BUILD_SH" | head -1 | cut -d: -f1)
 RE=$(awk -v s="$RS" 'NR>s && /^done$/ {print NR; exit}' "$BUILD_SH")
 GS=$(grep -n '硬检查：深色变体必须' "$BUILD_SH" | head -1 | cut -d: -f1)
 GE=$(grep -n '^cp "\$ICON_WORK/actool-out/Assets.car"' "$BUILD_SH" | head -1 | cut -d: -f1)
+FS=$( { grep -n 'FULLBLEED-SEGMENT-START' "$BUILD_SH" || true; } | head -1 | cut -d: -f1)
+FE=$( { grep -n '^cat "\$ICON_WORK/fullbleed/icon-night.png"' "$BUILD_SH" || true; } | head -1 | cut -d: -f1)
 if [ -z "${RS:-}" ] || [ -z "${RE:-}" ] || [ -z "${GS:-}" ] || [ -z "${GE:-}" ] || \
    [ "$RS" -ge "$RE" ] || [ "$GS" -ge "$GE" ]; then
   echo "test-icon-gate.sh: 无法在 $BUILD_SH 定位资源循环（${RS}-${RE}）或硬门段落（${GS}-${GE}）" >&2
@@ -75,6 +77,7 @@ compile_car() { # <name> <icon.json>
       --minimum-deployment-target 14.0 --platform macosx --target-device mac \
       >"$d/actool.log" 2>&1 || [ ! -s "$d/actool-out/Assets.car" ]; then
     echo "test-icon-gate.sh: actool 编译 $name 失败（$d/actool.log）" >&2
+    tail -20 "$d/actool.log" >&2
     return 1
   fi
 }
@@ -188,6 +191,53 @@ for NAME in pos invert broken; do
     broken)  [ "$CODE" -ne 0 ] && ok "纯日间：门拒绝（exit=${CODE}）" || bad "纯日间竟放行（exit=0）" ;;
   esac
 done
+
+# ════ G3 Icon Composer 全幅输入门 ════
+echo "▶ G3 全幅输入门：actool 图稿必须由全幅派生段生成（全幅不透明、无透明边距）"
+# build-app.sh 的 FULLBLEED 段负责把仓库圆角图稿派生成全幅日/夜间输入并喂给 actool——
+# 带透明边距/圆角的图稿直接编译，系统底板会从透明区透出，即 Stage Manager/侧边白圈
+if [ -z "${FS:-}" ] || [ -z "${FE:-}" ] || [ "$FS" -ge "$FE" ]; then
+  bad "build-app.sh 缺少全幅输入段（FULLBLEED-START..cat fullbleed/icon-night.png）——圆角图稿被直接喂给 Icon Composer（白边输入）"
+else
+  ok "定位全幅输入段（行 ${FS}-${FE}）"
+  sed -n "${FS},${FE}p" "$BUILD_SH" > "$TMP/fullbleed-snippet.sh"
+  FB="$TMP/fb-run"
+  mkdir -p "$FB/pkg/Assets" "$FB/fullbleed"
+  CODE=0
+  ( set -euo pipefail
+    ICON_WORK="$FB" ICON_PKG="$FB/pkg" ICON_SRC_DIR="$ICON_SRC" source "$TMP/fullbleed-snippet.sh" ) \
+    >"$TMP/fb.out" 2>"$TMP/fb.err" || CODE=$?
+  if [ "$CODE" -eq 0 ]; then
+    ok "全幅输入段独立运行成功"
+  else
+    bad "全幅输入段运行失败（exit=${CODE}：$(tail -1 "$TMP/fb.err" 2>/dev/null || true)）"
+  fi
+  GEO_SH="$ROOT/scripts/icon-geometry.swift"
+  for FBPNG in icon-day.png icon-night.png; do
+    TARGET="$FB/pkg/Assets/$FBPNG"
+    if [ ! -s "$TARGET" ]; then bad "actool 输入未由全幅段产出：缺 $TARGET"; continue; fi
+    if swift "$GEO_SH" measure "$TARGET" >"$TMP/fbm.json" 2>/dev/null; then
+      OP="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["opaqueFraction"])' "$TMP/fbm.json")"
+      BW="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bbox"]["w"])' "$TMP/fbm.json")"
+      OPOK="$(python3 -c "print(1 if ${OP} >= 0.999999 else 0)")"
+      if [ "$OPOK" = "1" ] && [ "$BW" = "1024" ]; then
+        ok "$FBPNG 为全幅输入（opaque=1.0，宽 1024）"
+      else
+        bad "$FBPNG 非全幅（opaque=${OP} bbox 宽=${BW}）——带透明边距的 actool 输入就是白边"
+      fi
+    else
+      bad "$FBPNG 无法测量"
+    fi
+    REF_FB="$TMP/fb-direct"
+    mkdir -p "$REF_FB"
+    swift "$ROOT/scripts/calibrate-icon.swift" full-bleed --out "$REF_FB" >/dev/null 2>&1
+    if cmp -s "$TARGET" "$REF_FB/$FBPNG"; then
+      ok "$FBPNG 与 full-bleed 脚本直出逐字节一致（actool 真正消费全幅派生结果）"
+    else
+      bad "$FBPNG 与 full-bleed 脚本直出不一致——actool 输入绕过了全幅派生"
+    fi
+  done
+fi
 
 echo
 echo "结果：$PASS 通过 / $FAIL 失败"
