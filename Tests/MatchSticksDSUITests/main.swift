@@ -1439,6 +1439,18 @@ struct UIStateTests {
             teleopTime: 0, transitionShift: 10, allianceShift: 25, endgame: 30
         )
 
+        // 值级回归：m:ss 纯函数与时长卡取自 live configuration 的正确字段。
+        check(practiceClock(20) == "0:20" && practiceClock(140) == "2:20" &&
+              practiceClock(0) == "0:00" && practiceClock(59.6) == "1:00",
+              "the m:ss formatter renders 20 s → 0:20 and 140 s → 2:20 with rounding")
+        check(timelineModel.practiceTimingConfiguration.durationCardValues.auto == 20 &&
+              timelineModel.practiceTimingConfiguration.durationCardValues.teleop == 140,
+              "duration cards read Auto and Teleop totals from the live configuration")
+        timelineModel.practiceTransitionShiftTime = 12
+        check(timelineModel.practiceTimingConfiguration.durationCardValues.teleop == 142,
+              "duration card Teleop follows live sub-phase edits")
+        timelineModel.practiceTransitionShiftTime = 10
+
         // 独立渲染时间线：宽窗（1000）与较窄窗口（560）下轨道都占满全宽、
         // 区段落在比例位置，Transition / Transition Shift 等区段内真实画出了文字。
         for timelineWidth in [1000, 560] {
@@ -1452,25 +1464,32 @@ struct UIStateTests {
                 check(false, "match timeline renders a proportional segment track at \(timelineWidth) points wide")
                 continue
             }
-            let fillRow = track.rows.lowerBound + 10
             let layout = PracticeTimeline.layout(for: timelineConfiguration, totalWidth: Double(timelineWidth))
             check(layout.items.first?.segment.kind == .autonomous,
                   "zero start delay puts Autonomous first on the timeline")
+            let probeRow = track.rows.lowerBound + 4
             for item in layout.items {
                 let start = Int(item.x.rounded())
                 let end = Int((item.x + item.width).rounded()) - 1
                 let fill = segmentFill(item.segment.kind)
-                check(colorNear(bitmap, x: start + 2, y: fillRow, hex: fill) &&
-                      colorNear(bitmap, x: end - 2, y: fillRow, hex: fill),
-                      "\(item.segment.kind.rawValue) renders at its proportional bounds at \(timelineWidth) points")
-                if item.width >= 16 {
+                if let run = fillRunEdges(bitmap, y: probeRow, middleX: (start + end) / 2, hex: fill) {
+                    check(abs(run.start - start) <= 2 && abs(run.end - end) <= 2,
+                          "\(item.segment.kind.rawValue) renders at its proportional bounds at \(timelineWidth) points")
+                } else {
+                    check(false, "\(item.segment.kind.rawValue) renders at its proportional bounds at \(timelineWidth) points")
+                }
+                if item.width >= 8 {
                     check(segmentShowsText(bitmap, track: track, start: start, end: end, fill: fill),
-                          "\(item.segment.kind.rawValue) shows its title with seconds at \(timelineWidth) points")
+                          "\(item.segment.kind.rawValue) shows its title with fully rendered seconds at \(timelineWidth) points")
                 }
             }
-            check(colorNear(bitmap, x: 1, y: fillRow, hex: segmentFill(.autonomous)) &&
-                  colorNear(bitmap, x: timelineWidth - 2, y: fillRow, hex: segmentFill(.endgame)),
-                  "the timeline track spans the full width at \(timelineWidth) points")
+            if let autoRun = fillRunEdges(bitmap, y: probeRow, middleX: 4, hex: segmentFill(.autonomous)),
+               let endRun = fillRunEdges(bitmap, y: probeRow, middleX: timelineWidth - 5, hex: segmentFill(.endgame)) {
+                check(autoRun.start <= 2 && endRun.end >= timelineWidth - 3,
+                      "the timeline track spans the full width at \(timelineWidth) points")
+            } else {
+                check(false, "the timeline track spans the full width at \(timelineWidth) points")
+            }
         }
 
         // 两张时长卡独立渲染：Autonomous 深蓝 + Teleop 蓝并排等宽，无 Transition Shift 黄卡。
@@ -1795,19 +1814,37 @@ private func rowsContaining(_ bitmap: NSBitmapImageRep, hex: UInt32) -> [Int] {
     }
 }
 
-/// 区段内真实画出文字：与填充色的距离足够远的像素 ≥ 6 个（标题 + 秒数）。
+/// 轨道顶部无文字行上的填充色连续游程：两端即该区段的实际渲染边界（圆角只影响首末段 ≤2px）。
+private func fillRunEdges(_ bitmap: NSBitmapImageRep, y: Int, middleX: Int, hex: UInt32) -> (start: Int, end: Int)? {
+    guard colorNear(bitmap, x: middleX, y: y, hex: hex) else { return nil }
+    var start = middleX
+    while start > 0 && colorNear(bitmap, x: start - 1, y: y, hex: hex) { start -= 1 }
+    var end = middleX
+    while end < bitmap.pixelsWide - 1 && colorNear(bitmap, x: end + 1, y: y, hex: hex) { end += 1 }
+    return (start, end)
+}
+
+/// 区段内真实画出文字且秒数可见：标题区（上半）有文字像素；秒数必须在标题块下方
+/// （相对轨道顶 ≥40 行）以真实字形呈现——≥3 个墨迹行、≥8 像素。
+/// 实测基线：560 宽灰色 Transition 段单行秒数被裁剪后仅剩 1 行 3 像素残迹，此规则必须拦下。
 private func segmentShowsText(_ bitmap: NSBitmapImageRep, track: (rows: ClosedRange<Int>, midRow: Int),
                               start: Int, end: Int, fill: UInt32) -> Bool {
-    var contrasting = 0
-    for y in stride(from: track.rows.lowerBound + 6, through: min(track.rows.lowerBound + 58, bitmap.pixelsHigh - 1), by: 2) {
-        for x in stride(from: max(start + 1, 0), through: min(end - 1, bitmap.pixelsWide - 1), by: 2) {
-            if colorDistance(bitmap, x: x, y: y, hex: fill) > 0.3 {
-                contrasting += 1
-                if contrasting >= 6 { return true }
-            }
+    let top = track.rows.lowerBound
+    var upper = 0
+    var deepRows = 0
+    var deepPixels = 0
+    for y in max(top + 8, 0)...min(top + 56, bitmap.pixelsHigh - 1) {
+        var rowInk = 0
+        for x in max(start + 1, 0)...min(end - 1, bitmap.pixelsWide - 1) where colorDistance(bitmap, x: x, y: y, hex: fill) > 0.3 {
+            rowInk += 1
+            if y <= top + 31 { upper += 1 }
+        }
+        if y >= top + 40 && rowInk > 0 {
+            deepRows += 1
+            deepPixels += rowInk
         }
     }
-    return false
+    return upper >= 3 && deepRows >= 3 && deepPixels >= 8
 }
 
 private func segmentPixel(_ bitmap: NSBitmapImageRep, y: Int, last: Bool) -> Int? {

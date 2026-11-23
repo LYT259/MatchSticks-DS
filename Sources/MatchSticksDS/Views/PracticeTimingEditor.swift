@@ -76,6 +76,19 @@ extension DSModel {
     }
 }
 
+extension PracticeTimingConfiguration {
+    /// Practice Match 时长卡取值：Autonomous 原始时长 + Teleop 总时长（随滑杆即时变化）。
+    var durationCardValues: (auto: TimeInterval, teleop: TimeInterval) {
+        (autoTime, teleopTotal)
+    }
+}
+
+/// m:ss 时钟格式（时长卡与时间线共用；纯函数便于值级测试）。
+func practiceClock(_ seconds: TimeInterval) -> String {
+    let value = Int(seconds.rounded())
+    return String(format: "%d:%02d", value / 60, value % 60)
+}
+
 /// Drive 页全宽比赛时间线：真实比例轨道，区段位置与宽度只由时长占比决定，标签不参与几何计算。
 /// 标签是轨道的派生层：每个区段都渲染「标题 + 秒数」，靠缩放与裁剪保证可见且不溢出。
 struct PracticeMatchTimeline: View {
@@ -87,7 +100,7 @@ struct PracticeMatchTimeline: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Spacer(minLength: 12)
-                Text(clock(configuration.totalDuration))
+                Text(practiceClock(configuration.totalDuration))
                     .font(.system(size: 20, weight: .semibold).monospacedDigit())
             }
             GeometryReader { geometry in
@@ -119,7 +132,7 @@ struct PracticeMatchTimeline: View {
                             .minimumScaleFactor(0.5)
                         Text(tr("%d 秒", Int(item.segment.duration)))
                             .font(.system(size: 11, weight: .medium).monospacedDigit())
-                            .lineLimit(1)
+                            .lineLimit(2)
                             .minimumScaleFactor(0.5)
                     }
                     .foregroundStyle(presentation.textColor)
@@ -141,7 +154,7 @@ struct PracticeMatchTimeline: View {
     private func timelineClocks(_ layout: PracticeTimeline.Layout) -> some View {
         ZStack(alignment: .topLeading) {
             ForEach(PracticeTimeline.labels(in: layout, minimumWidth: Self.clockMinimumWidth)) { item in
-                Text("\(clock(item.segment.start))–\(clock(item.segment.end))")
+                Text("\(practiceClock(item.segment.start))–\(practiceClock(item.segment.end))")
                     .font(.system(size: 9).monospacedDigit())
                     .foregroundStyle(DSTheme.textSecondary)
                     .lineLimit(1)
@@ -168,11 +181,6 @@ struct PracticeMatchTimeline: View {
         }
     }
 
-    private func clock(_ seconds: TimeInterval) -> String {
-        let value = Int(seconds.rounded())
-        return String(format: "%d:%02d", value / 60, value % 60)
-    }
-
     private var configuration: PracticeTimingConfiguration { model.practiceTimingConfiguration }
 }
 
@@ -181,10 +189,11 @@ struct PracticeDurationCards: View {
     let model: DSModel
 
     var body: some View {
-        HStack(spacing: 12) {
-            durationCard(tr("自动阶段"), value: model.practiceTimingConfiguration.autoTime,
+        let values = model.practiceTimingConfiguration.durationCardValues
+        return HStack(spacing: 12) {
+            durationCard(tr("自动阶段"), value: values.auto,
                          background: .matchNavy, foreground: .white)
-            durationCard("Teleop", value: model.practiceTimingConfiguration.teleopTotal,
+            durationCard("Teleop", value: values.teleop,
                          background: .matchBlue, foreground: .white)
         }
         .frame(maxWidth: .infinity)
@@ -198,7 +207,7 @@ struct PracticeDurationCards: View {
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(clock(value))
+            Text(practiceClock(value))
                 .font(.system(size: 20, weight: .semibold).monospacedDigit())
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -209,11 +218,6 @@ struct PracticeDurationCards: View {
         .frame(maxWidth: .infinity, minHeight: 74, alignment: .leading)
         .background(background, in: RoundedRectangle(cornerRadius: 8))
         .accessibilityElement(children: .combine)
-    }
-
-    private func clock(_ seconds: TimeInterval) -> String {
-        let value = Int(seconds.rounded())
-        return String(format: "%d:%02d", value / 60, value % 60)
     }
 }
 
