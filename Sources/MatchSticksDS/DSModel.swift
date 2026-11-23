@@ -388,6 +388,22 @@ final class DSModel {
         }
     }
 
+    // MARK: 应用图标（运行中 Dock 图标；独立两维偏好：样式 × 外观，与界面主题互不影响）
+
+    var iconStyle = IconStyle.color {
+        didSet {
+            settings.set("appIconStyle", iconStyle.rawValue)
+            appIconCenter.update(style: iconStyle, mode: iconAppearance)
+        }
+    }
+    var iconAppearance = AppearanceMode.system {
+        didSet {
+            settings.set("appIconAppearance", iconAppearance.rawValue)
+            appIconCenter.update(style: iconStyle, mode: iconAppearance)
+        }
+    }
+    let appIconCenter = AppIconCenter()
+
     // MARK: 事件日志
 
     var dsEvents: [LogLine] = []
@@ -454,6 +470,13 @@ final class DSModel {
         if let raw = settings.string("appearance"), let mode = AppearanceMode(rawValue: raw) {
             appearanceMode = mode
         }
+        // 图标偏好与语言/外观同属 UI 偏好：门控前恢复（AUTO_SIM 会话同样按上次选择显示图标）
+        if let raw = settings.string("appIconStyle"), let style = IconStyle(rawValue: raw) {
+            iconStyle = style
+        }
+        if let raw = settings.string("appIconAppearance"), let appearance = AppearanceMode(rawValue: raw) {
+            iconAppearance = appearance
+        }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }
@@ -519,6 +542,10 @@ final class DSModel {
             options: [.latencyCritical],
             reason: "MatchSticks DS 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
         loadPersistedSettings()
+        // 启动恢复后显式设置运行时图标（默认安装也在此时首次推送日间图稿），
+        // 并开始监听系统深浅（跟随系统模式随系统重推；固定模式不受影响）
+        appIconCenter.update(style: iconStyle, mode: iconAppearance)
+        appIconCenter.startObservingSystemAppearance()
         installTimers()
         networkMonitor.start()
         macStatusSampler.start()

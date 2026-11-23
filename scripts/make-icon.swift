@@ -1,74 +1,82 @@
-// MatchSticks DS 应用图标生成器（CoreGraphics 直绘，无外部依赖）
-// 用法：swift scripts/make-icon.swift <输出目录>
+// MatchSticks DS 应用图标生成器：从用户原稿派生全尺寸 iconset（不再程序绘制）
+// 用法：swift scripts/make-icon.swift <输出目录> [母版 PNG]
+//       母版默认 Sources/MatchSticksDS/Resources/AppIcons/app-icon-day.png（按脚本位置解析）
+// 行为契约（scripts/test-icon.sh 固化）：
+//   - 母版必须是 1024×1024 可解码图片；缺失/损坏/尺寸不符 → 报错点名路径并以非零码退出
+//   - 每次运行整体重建 <输出目录>/AppIcon.iconset（先删旧目录，不留任何陈旧产物）
+//   - icon_512x512@2x.png 为母版逐字节副本；其余 9 个尺寸由母版高质量缩放
 import Foundation
 import CoreGraphics
-import CoreText
 import ImageIO
 import UniformTypeIdentifiers
 
-let outDir = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
-let S = 1024
+let args = CommandLine.arguments
+let outDir = args.count > 1 ? args[1] : "."
+// 脚本路径先 absoluteURL 再解析符号链接：args[0] 是调用方给的原始形式（可能是
+// 相对路径），标准化为绝对路径后按脚本位置反推仓库根——任意 cwd / 相对路径调用
+// 都解析到同一份仓库母版（scripts/test-icon.sh T8 锁定该行为）
+let scriptDir = URL(fileURLWithPath: args[0]).absoluteURL.resolvingSymlinksInPath().deletingLastPathComponent()
+let defaultMaster = scriptDir.deletingLastPathComponent()
+    .appendingPathComponent("Sources/MatchSticksDS/Resources/AppIcons/app-icon-day.png")
+let masterURL = URL(fileURLWithPath: args.count > 2 ? args[2] : defaultMaster.path)
 
-let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-let ctx = CGContext(data: nil, width: S, height: S, bitsPerComponent: 8, bytesPerRow: 0,
-                    space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-
-// 背景：深海军蓝，微弱对角渐变
-let bgColors = [CGColor(srgbRed: 0.055, green: 0.086, blue: 0.153, alpha: 1),
-                CGColor(srgbRed: 0.024, green: 0.035, blue: 0.070, alpha: 1)] as CFArray
-let gradient = CGGradient(colorsSpace: colorSpace, colors: bgColors, locations: [0, 1])!
-ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: CGFloat(S)), end: CGPoint(x: CGFloat(S), y: 0), options: [])
-
-// 信号弧线（驾驶台遥测意象）：三段同心弧，绿色渐淡
-let center = CGPoint(x: CGFloat(S) / 2, y: CGFloat(S) / 2 + 60)
-for (radius, alpha, width) in [(300.0, 0.95, 64.0), (420.0, 0.55, 48.0), (540.0, 0.28, 36.0)] {
-    ctx.setStrokeColor(CGColor(srgbRed: 0.20, green: 0.86, blue: 0.45, alpha: alpha))
-    ctx.setLineWidth(width)
-    ctx.setLineCap(.round)
-    ctx.addArc(center: center, radius: radius, startAngle: .pi * 1.18, endAngle: .pi * 1.82, clockwise: false)
-    ctx.strokePath()
-}
-
-// 中心节点：绿色实心圆
-ctx.setFillColor(CGColor(srgbRed: 0.20, green: 0.86, blue: 0.45, alpha: 1))
-ctx.fillEllipse(in: CGRect(x: center.x - 90, y: center.y - 90, width: 180, height: 180))
-
-// 底部字标 "MATCHSTICKS DS"
-let font = CTFontCreateWithName("SFProDisplay-Bold" as CFString, 88, nil)
-let attrs: [CFString: Any] = [
-    kCTFontAttributeName: font,
-    kCTForegroundColorAttributeName: CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.92),
+let entries: [(name: String, side: Int)] = [
+    ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
+    ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
+    ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
+    ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512),
+    ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024),
 ]
-let attrStr = CFAttributedStringCreate(nil, "MATCHSTICKS DS" as CFString, attrs as CFDictionary)!
-let line = CTLineCreateWithAttributedString(attrStr)
-let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
-ctx.textPosition = CGPoint(x: (CGFloat(S) - bounds.width) / 2, y: 120)
-CTLineDraw(line, ctx)
 
-let image = ctx.makeImage()!
-
-// 多尺寸 iconset
-let iconset = URL(fileURLWithPath: "\(outDir)/AppIcon.iconset", isDirectory: true)
-try? FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
-let dest = CGImageDestinationCreateWithURL(iconset.appendingPathComponent("icon_512x512@2x.png") as CFURL,
-                                           UTType.png.identifier as CFString, 1, nil)!
-CGImageDestinationAddImage(dest, image, nil)
-CGImageDestinationFinalize(dest)
-
-// 缩放出其他尺寸
-for (name, side) in [("icon_16x16.png", 16), ("icon_16x16@2x.png", 32), ("icon_32x32.png", 32),
-                     ("icon_32x32@2x.png", 64), ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
-                     ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512), ("icon_512x512.png", 512)] {
-    let scaled = ctx.makeImage()!
-    let w = side, h = side
-    let sctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                         space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    sctx.interpolationQuality = .high
-    sctx.draw(scaled, in: CGRect(x: 0, y: 0, width: w, height: h))
-    let small = sctx.makeImage()!
-    let d = CGImageDestinationCreateWithURL(iconset.appendingPathComponent(name) as CFURL,
-                                            UTType.png.identifier as CFString, 1, nil)!
-    CGImageDestinationAddImage(d, small, nil)
-    CGImageDestinationFinalize(d)
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data(("✗ make-icon: \(message)\n").utf8))
+    exit(1)
 }
-print("iconset written to \(iconset.path)")
+
+guard let source = CGImageSourceCreateWithURL(masterURL as CFURL, nil) else {
+    fail("无法读取母版：\(masterURL.path)（文件不存在或不是可识别的图片）")
+}
+guard let master = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+    fail("母版解码失败：\(masterURL.path)")
+}
+guard master.width == 1024, master.height == 1024 else {
+    fail("母版必须是 1024×1024（当前 \(master.width)×\(master.height)）：\(masterURL.path)")
+}
+
+let fm = FileManager.default
+let outDirURL = URL(fileURLWithPath: outDir, isDirectory: true)
+let iconset = outDirURL.appendingPathComponent("AppIcon.iconset", isDirectory: true)
+do {
+    try fm.createDirectory(at: outDirURL, withIntermediateDirectories: true)
+    if fm.fileExists(atPath: iconset.path) {
+        try fm.removeItem(at: iconset)
+    }
+    try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
+    try fm.copyItem(at: masterURL, to: iconset.appendingPathComponent("icon_512x512@2x.png"))
+} catch {
+    fail("重建 iconset 失败：\(error)")
+}
+
+let colorSpace = master.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+for entry in entries where entry.side != 1024 {
+    let side = entry.side
+    guard let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: colorSpace,
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+        fail("创建 \(side)×\(side) 位图上下文失败")
+    }
+    ctx.interpolationQuality = .high
+    ctx.draw(master, in: CGRect(x: 0, y: 0, width: side, height: side))
+    guard let scaled = ctx.makeImage() else {
+        fail("缩放到 \(side)×\(side) 失败")
+    }
+    let url = iconset.appendingPathComponent(entry.name)
+    guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
+        fail("创建 PNG 写出目标失败：\(url.path)")
+    }
+    CGImageDestinationAddImage(dest, scaled, nil)
+    guard CGImageDestinationFinalize(dest) else {
+        fail("写出 PNG 失败：\(url.path)")
+    }
+}
+print("iconset written to \(iconset.path)（母版：\(masterURL.lastPathComponent)）")

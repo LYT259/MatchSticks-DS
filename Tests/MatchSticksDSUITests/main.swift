@@ -419,6 +419,7 @@ struct UIStateTests {
         gamepadSkinPickerInteractionTests(check)
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
+        appIconAppearanceTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
@@ -1202,6 +1203,8 @@ struct UIStateTests {
         let beforeRestart = DSModel(settingsDefaults: restartSuite, persistenceEnabled: true)
         beforeRestart.languageMode = .english
         beforeRestart.appearanceMode = .dark
+        beforeRestart.iconStyle = .monochrome
+        beforeRestart.iconAppearance = .dark
         beforeRestart.practiceSeasonYear = 2022
         beforeRestart.dashboardSelection = [.elastic, .shuffleboard]
         beforeRestart.soundsEnabled = false
@@ -1216,6 +1219,8 @@ struct UIStateTests {
         var restartMismatch: [String] = []
         if afterRestart.languageMode != .english { restartMismatch.append("language") }
         if afterRestart.appearanceMode != .dark { restartMismatch.append("appearance") }
+        if afterRestart.iconStyle != .monochrome { restartMismatch.append("icon style") }
+        if afterRestart.iconAppearance != .dark { restartMismatch.append("icon appearance") }
         if afterRestart.practiceSeasonYear != 2022 { restartMismatch.append("season") }
         if afterRestart.dashboardSelection != [.elastic, .shuffleboard] { restartMismatch.append("dashboards") }
         if afterRestart.soundsEnabled { restartMismatch.append("phase sounds") }
