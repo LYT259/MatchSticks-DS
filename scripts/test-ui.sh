@@ -55,6 +55,8 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
   Sources/MatchSticksDS/GamepadInputManager.swift \
+  Sources/MatchSticksDS/Views/OperationView.swift \
+  Sources/MatchSticksDS/Views/PracticeTimingEditor.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
