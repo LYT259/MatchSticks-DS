@@ -175,7 +175,7 @@ enum GamepadArtworkCatalog {
             .share: CGRect(x: 476, y: 615, width: 53, height: 127),
             .backR: CGRect(x: 930, y: 364, width: 67, height: 72),
         ],
-        movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 797, y: 662))
+        movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 765.5, y: 710))
 
     private static let direwolf4 = GamepadArtworkSpec(
         imageName: "direwolf4", referenceSize: CGSize(width: 492, height: 341),

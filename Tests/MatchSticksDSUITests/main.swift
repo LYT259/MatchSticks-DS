@@ -419,6 +419,7 @@ struct UIStateTests {
         gamepadSkinPickerInteractionTests(check)
         thumbstickMotionTests(check)
         thumbstickSceneTests(check)
+        flightStickSceneTests(check)
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         appIconAppearanceTests(check)

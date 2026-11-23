@@ -62,6 +62,8 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/GamepadInputManager.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickMotion.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickSceneView.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/ArtworkContour.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/FlightStickSceneView.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
@@ -72,6 +74,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/ThumbstickMotionTests.swift \
   Tests/MatchSticksDSUITests/ThumbstickSceneTests.swift \
+  Tests/MatchSticksDSUITests/FlightStickSceneTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
   -o .build/MatchSticksDSUIStateTests
