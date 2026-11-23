@@ -11,6 +11,7 @@
 "默认跟随系统语言；手动选择立即生效。" = "Follows the system language by default; a manual choice takes effect immediately.";
 
 /* ===== 应用图标（运行时 Dock 图标：样式 × 外观；卡片选择器见 AppIconAppearanceCards.swift）===== */
+"应用图标" = "App Icon";
 "图标样式" = "Icon Style";
 "图标外观" = "Icon Appearance";
 "彩色" = "Color";
