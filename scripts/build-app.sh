@@ -108,7 +108,9 @@ fi
 #    是唯一能让两张原图都真实编入且按外观翻转的写法。其余要点沿用 PathBlender 实测：
 #    glass:false 禁 Liquid Glass、组级 shadow 键整体省略（kind:"none" 会让 actool
 #    静默零产出）、translucency 置 false——不改变用户图稿、不加边圈
-ICON_WORK=".build/icon-work"
+# ICON_WORK 必须是绝对路径：actool 经 XPC 守护进程执行，相对 --compile 路径按守护进程
+# 自身 cwd（可能是别的 worktree）解析——会把产物写进别处、本地零 Assets.car
+ICON_WORK="$PWD/.build/icon-work"
 rm -rf "$ICON_WORK"
 ICON_PKG="$ICON_WORK/AppIcon.icon"
 mkdir -p "$ICON_PKG/Assets" "$ICON_WORK/actool-out"

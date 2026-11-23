@@ -295,7 +295,7 @@
 "练习赛" = "Practice Match";
 "按设定时序依次运行自动与遥控阶段。" = "Runs the autonomous and teleoperated phases in sequence.";
 "停止练习（A-Stop）" = "Stop Practice (A-Stop)";
-"开始自动练习" = "Start Auto Practice";
+"开始练习赛" = "Start Practice Match";
 "开始后将按时序自动请求使能。阶段间延迟 %d 秒。" = "After starting, enables are requested automatically per the schedule. %d s delay between phases.";
 "调整练习时长" = "Adjust Practice Durations";
 "SystemCore 程序" = "SystemCore Program";
@@ -339,6 +339,14 @@
 "打开防火墙设置" = "Open Firewall Settings";
 "无法直接打开对应页面，请从「系统设置」按上方路径进入。" = "Couldn't open the pane directly; follow the path above from System Settings.";
 "已打开系统设置；若未跳转到对应页面，请按上方路径进入。" = "System Settings opened; if the right pane didn't come up, follow the path above.";
+
+/* ===== NI 服务发现（首次启动本地网络授权触发） ===== */
+"本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。" = "Local network access was denied: allow MatchSticks DS under System Settings → Privacy & Security → Local Network, then reopen the app.";
+"NI 服务发现：%@" = "NI service discovery: %@";
+"NI 服务发现：当前没有 NI 设备" = "NI service discovery: no NI devices are currently visible";
+"NI 服务发现失败：%@" = "NI service discovery failed: %@";
+"NI 服务发现等待：%@" = "NI service discovery waiting: %@";
+"NI 服务发现已就绪" = "NI service discovery ready";
 
 /* ===== ChartsView ===== */
 "当前读数" = "Current Readings";

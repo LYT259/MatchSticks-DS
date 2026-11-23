@@ -51,6 +51,15 @@ python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$TMP/icon-pos.json" 
   || { echo "test-icon-gate.sh: 抽取的 icon.json 不是合法 JSON" >&2; exit 1; }
 ok "从 build-app.sh 抽取资源循环（行 ${RS}-${RE}）、硬门（行 ${GS}-${GE}）与 icon.json"
 
+# 守卫：build-app.sh 的 ICON_WORK 必须是基于 $PWD 的绝对路径——actool 经 XPC 守护进程执行，
+# 相对 --compile 路径按守护进程自身 cwd（可能是别的 worktree）解析，会把产物写进别处、
+# 本地零 Assets.car；回归成相对路径时在此拦截
+if grep -q '^ICON_WORK="\$PWD/' "$BUILD_SH"; then
+  ok "ICON_WORK 为 \$PWD 绝对路径（actool 守护进程 cwd 免疫）"
+else
+  bad "ICON_WORK 不是 \$PWD 绝对路径——actool 会把 Assets.car 写进别的 worktree"
+fi
+
 # ── 通用：编译 .icon 包为 Assets.car ──
 # PNG 用 cat 重定向新写（不用 cp）：用户原稿带下载隔离属性，cp 的 clonefile 拷贝
 # 会让本机 actool 的 IconStudio 导出间歇性报「image does not exist」（实测 3/3 复现；
