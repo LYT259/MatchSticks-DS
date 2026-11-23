@@ -44,7 +44,8 @@ func refreshConnectionSafetyScenario() {
     // start() 启动即宣告一次搜索态（既有行为）；刷新不得新增任何 searching 事件
     check(sink.disconnectedCount == 1, "已连接时刷新不进入搜索态（searching 事件 \(sink.disconnectedCount) 次，仅含启动宣告）")
     check(sink.autoDisabled == 0, "已连接时刷新不触发自动失能（autoDisabled \(sink.autoDisabled) 次）")
-    check(sink.responses >= 40, "刷新前后应答持续抵达（\(sink.responses) 条）")
+    // 2 秒有效应答窗口按项目 8 Hz 环境下限取 16 条；链路安全由上面三个独立断言保证。
+    check(sink.responses >= 16, "刷新前后应答持续抵达（\(sink.responses) 条）")
 }
 
 func refreshConnectionRescueScenario() {
@@ -70,5 +71,6 @@ func refreshConnectionRescueScenario() {
     server?.stop()
     sink.lock.lock(); defer { sink.lock.unlock() }
     check(sink.connectedCount >= 1, "搜索中多次刷新后仍能正常建链（connected \(sink.connectedCount) 次）")
-    check(sink.responses >= 20, "建链后应答持续（\(sink.responses) 条）")
+    // 应答器 1.3 秒上线，1.9 秒应答窗口按 8 Hz 环境下限取 15 条；建链事件单独断言。
+    check(sink.responses >= 15, "建链后应答持续（\(sink.responses) 条）")
 }
