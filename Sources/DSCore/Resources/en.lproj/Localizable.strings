@@ -10,16 +10,11 @@
 "深色" = "Dark";
 "默认跟随系统语言；手动选择立即生效。" = "Follows the system language by default; a manual choice takes effect immediately.";
 
-/* ===== 应用图标（运行时 Dock 图标：样式 × 外观）===== */
-"应用图标" = "App Icon";
+/* ===== 应用图标（运行时 Dock 图标：样式 × 外观；卡片选择器见 AppIconAppearanceCards.swift）===== */
 "图标样式" = "Icon Style";
 "图标外观" = "Icon Appearance";
 "彩色" = "Color";
 "单色" = "Monochrome";
-"运行中的 Dock 图标立即使用所选图稿；Finder 与启动台图标由应用包提供、始终随系统深浅显示，固定浅色/深色只影响运行中的 Dock。" = "The running Dock tile uses the chosen artwork immediately; Finder and Launchpad icons come from the app bundle and always follow the system appearance — fixed Light/Dark only affects the running Dock.";
-"图标预览：浅色与深色图稿" = "Icon preview: light and dark artwork";
-"浅色图稿预览" = "Light artwork preview";
-"深色图稿预览" = "Dark artwork preview";
 
 /* ===== 全局状态与安全控制条（DSStyle / MiniView）===== */
 "使能" = "Enable";
