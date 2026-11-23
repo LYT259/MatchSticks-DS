@@ -58,7 +58,7 @@ struct MiniConsoleBar: View {
             footnote
         }
         .padding(16)
-        .frame(minWidth: 560, minHeight: 128, alignment: .leading)
+        .frame(minWidth: 768, minHeight: 128, alignment: .leading)
         .background(DSTheme.canvas)
         .tint(DSTheme.accent)
         .foregroundStyle(DSTheme.textPrimary)
