@@ -419,6 +419,8 @@ struct UIStateTests {
         gamepadSkinPickerInteractionTests(check)
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
+        joystickSlotOrderingTests(check)
+        joystickSlotDragBoundaryTests(check)
         appIconAppearanceTests(check)
         miniDriverStationTests(check)
         localNetworkDiscoveryTests(check)

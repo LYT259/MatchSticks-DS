@@ -91,6 +91,36 @@ func gamepadFamilySupportTests() {
           "罗技与冰原狼提供英文搜索别名")
 }
 
+// MARK: 槽位标题型号显示名（当前生效造型/配置：自动显示检测到的具体型号，手动显示所选型号）
+
+func gamepadDisplayNameTests() {
+    // 自动检测：Sony DS4 自报名只是「Wireless Controller」，须显示检测到的具体型号
+    check(GamepadProfile.displayName(vendorID: 0x054C, productID: 0x05C4, name: "Wireless Controller", override: nil)
+            == GamepadSkin.dualshock4.displayName, "DS4 V1 自报名 → PS4 DualShock 4")
+    check(GamepadProfile.displayName(vendorID: 0x054C, productID: 0x09CC, name: "Wireless Controller", override: nil)
+            == GamepadSkin.dualshock4.displayName, "DS4 V2 PID → PS4 DualShock 4")
+    check(GamepadProfile.displayName(vendorID: 0x054C, productID: 0x0CE6, name: "DualSense Wireless Controller", override: nil)
+            == GamepadSkin.dualsense.displayName, "DualSense → PS5 DualSense")
+    check(GamepadProfile.displayName(vendorID: 0x046D, productID: 0xC216, name: "Logitech Dual Action", override: nil)
+            == GamepadSkin.f310.displayName, "F310 D 档 → 罗技 F310")
+    check(GamepadProfile.displayName(vendorID: 0x045E, productID: 0x0B12, name: "Xbox Wireless Controller", override: nil)
+            == GamepadSkin.xboxSeries.displayName, "Xbox Series PID → Xbox Series 手柄")
+
+    // 手动选择：显示所选型号，即使与自动检测结果不同
+    check(GamepadProfile.displayName(vendorID: 0x054C, productID: 0x05C4, name: "Wireless Controller", override: .xboxSeries)
+            == GamepadSkin.xboxSeries.displayName, "手动覆盖优先于识别结果")
+    check(GamepadProfile.displayName(vendorID: 0x1234, productID: 0x5678, name: "Cool Pad", override: .generic)
+            == GamepadSkin.generic.displayName, "手动选「通用手柄」显示所选型号")
+
+    // 未识别型号：保留真实设备名，不泛化成「通用手柄」
+    check(GamepadProfile.displayName(vendorID: 0x1234, productID: 0x5678, name: "Cool Pad", override: nil)
+            == "Cool Pad", "未识别设备保留真实设备名")
+    check(GamepadProfile.displayName(vendorID: 0x045E, productID: 0x028E, name: "Xbox 360 Controller", override: nil)
+            == "Xbox 360 Controller", "不再支持的 Xbox 360 显示真实设备名")
+    check(GamepadProfile.displayName(vendorID: 0x1234, productID: 0x5678, name: "   ", override: nil)
+            == GamepadSkin.generic.displayName, "设备名为空白时才退回「通用手柄」")
+}
+
 // MARK: 冰原狼 4（XInput 归一后语义；轴=已核查，按键=惯例种子待实测）
 
 /// 归一后 usage 序（XInputAxisOrder 重排）：[X, Y, Z, Rz, Rx, Ry]

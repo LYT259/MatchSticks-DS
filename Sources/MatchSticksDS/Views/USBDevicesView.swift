@@ -1,9 +1,64 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import DSCore
+
+/// 槽位卡拖放载荷：私有 UTI 承载槽位 uniqueID。落点用 onDrop(of: [type]) 只认该类型——
+/// 外部文本 / 文本选择拖动都不包含它，根本不会成为落点，更不会被接受。
+/// 注意：该 UTI 不在 Info.plist 声明（UTType(exportedAs:) 为动态类型）。真实指针验证（2026-11-23）：
+/// ① 只带私有 UTI 的拖拽能起手，但落点永远不会被 target（AppKit 不把仅含动态 UTI 的粘贴板项当有效载荷），
+///    所以同一份数据再注册一份 public.data（标准类型，不泄露纯文本）；
+/// ② 落点闭包拿到的 NSItemProvider 不暴露该私有类型，数据只在拖拽粘贴板上，解码必须带粘贴板兜底。
+enum JoystickSlotDrag {
+    static let typeIdentifier = "org.ghfrc.driverstation.joystick-slot"
+    static let type = UTType(exportedAs: typeIdentifier)
+
+    static func provider(uniqueID: String) -> NSItemProvider {
+        let provider = NSItemProvider()
+        let payload = Data(uniqueID.utf8)
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .all) { completion in
+            completion(payload, nil)
+            return nil
+        }
+        provider.registerDataRepresentation(forTypeIdentifier: UTType.data.identifier, visibility: .all) { completion in
+            completion(payload, nil)
+            return nil
+        }
+        return provider
+    }
+
+    static func uniqueID(from provider: NSItemProvider, completion: @escaping (String?) -> Void) {
+        guard provider.registeredTypeIdentifiers.contains(typeIdentifier) else {
+            completion(draggedUniqueID())
+            return
+        }
+        provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
+            completion(data.flatMap { String(data: $0, encoding: .utf8) } ?? draggedUniqueID())
+        }
+    }
+
+    /// drop 闭包内同步读取拖拽粘贴板上的私有 UTI。
+    static func draggedUniqueID(pasteboard: NSPasteboard = NSPasteboard(name: .drag)) -> String? {
+        pasteboard.data(forType: NSPasteboard.PasteboardType(typeIdentifier))
+            .flatMap { String(data: $0, encoding: .utf8) }
+    }
+}
+
+private extension View {
+    /// 条件应用修饰符：VoiceOver 自定义操作只在有效时提供（首槽不展示「上移」、末槽不展示「下移」）。
+    @ViewBuilder func `when`<Transform: View>(_ condition: Bool, _ transform: (Self) -> Transform) -> some View {
+        if condition { transform(self) } else { self }
+    }
+}
 
 // Input presentation only. Slot order, locking and polling stay in DSModel.
 struct USBDevicesView: View {
     let model: DSModel
+    /// 拖动悬停中的落点（摘要卡或详情卡），用于高亮。
+    @State private var dropTarget: DropArea?
+
+    private enum DropArea: Hashable {
+        case summary(Int), detail(Int)
+    }
 
     var body: some View {
         ScrollViewReader { reader in
@@ -27,16 +82,15 @@ struct USBDevicesView: View {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
                         ForEach(0..<6, id: \.self) { index in
                             let slot = model.joystickSlots.indices.contains(index) ? model.joystickSlots[index] : nil
-                            Button {
-                                if let slot { reader.scrollTo(slot.id, anchor: .top) }
-                            } label: {
-                                slotSummary(index: index, slot: slot)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(slot == nil)
-                            .accessibilityLabel(tr("槽位 %d，%@", index, slot?.name ?? tr("空闲")))
-                            .help(slot.map { tr("查看 %@ 的实时输入", $0.name) } ?? tr("连接手柄后自动分配槽位"))
+                            let title = slot.map { model.gamepadDisplayName(for: $0) } ?? tr("空闲")
+                            let hint = slot == nil ? tr("将手柄拖到此处即移到末尾") : tr("点按查看详情；拖动右上角把手调整顺序")
+                            slotCard(index: index, slot: slot, title: title, hint: hint, reader: reader)
                         }
+                    }
+                    if model.joystickSlots.count > 1 {
+                        Label(tr("拖动槽位卡右上角的把手可调整座次：拖到占用卡即占该槽位，拖到空闲卡即移到末尾；顺序在重新扫描和插拔后保持不变。"),
+                              systemImage: "arrow.left.arrow.right")
+                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
                     }
 
                     if model.joystickSlots.isEmpty {
@@ -48,6 +102,16 @@ struct USBDevicesView: View {
                         }
                         ForEach(Array(model.joystickSlots.enumerated()), id: \.element.id) { index, slot in
                             JoystickCard(model: model, index: index, slot: slot)
+                                .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.detail(index))) { providers in
+                                    drop(providers, at: index)
+                                }
+                                .overlay {
+                                    if dropTarget == .detail(index) {
+                                        RoundedRectangle(cornerRadius: 10)
+                                            .strokeBorder(DSTheme.accent, lineWidth: 2)
+                                            .allowsHitTesting(false)
+                                    }
+                                }
                                 .id(slot.id)
                         }
                     }
@@ -57,26 +121,80 @@ struct USBDevicesView: View {
         }
     }
 
-    private func slotSummary(index: Int, slot: JoystickSlot?) -> some View {
+    /// 顶部槽位摘要卡：卡面是 Button（点按滚动到详情卡），右上角拖动把手是独立 sibling——
+    /// macOS 上 Button 会吞掉拖拽起手，把手不能是 Button 的子视图；整卡作落点（空闲卡 = 移到末尾）。
+    private func slotCard(index: Int, slot: JoystickSlot?, title: String, hint: String,
+                          reader: ScrollViewProxy) -> some View {
+        let targeted = dropTarget == .summary(index)
+        return ZStack(alignment: .topTrailing) {
+            Button {
+                if let slot { reader.scrollTo(slot.id, anchor: .top) }
+            } label: {
+                slotSummary(index: index, title: title, occupied: slot != nil, targeted: targeted)
+            }
+            .buttonStyle(.plain)
+            .disabled(slot == nil)
+            .accessibilityLabel(tr("槽位 %d，%@", index, title))
+            .accessibilityHint(hint)
+            .when(index > 0) {
+                $0.accessibilityAction(named: tr("上移一个槽位")) { model.moveSlot(index, up: true) }
+            }
+            .when(index < model.joystickSlots.count - 1) {
+                $0.accessibilityAction(named: tr("下移一个槽位")) { model.moveSlot(index, up: false) }
+            }
+            .help(hint)
+            if let slot {
+                SlotDragHandle(slot: slot).padding(4)
+            }
+        }
+        .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.summary(index))) { providers in
+            // 空闲摘要卡 = 移到末尾（落点钳到当前数量）
+            drop(providers, at: min(index, model.joystickSlots.count))
+        }
+    }
+
+    /// 落点：载荷只可能是私有 UTI（onDrop(of:) 已过滤外部文本），解码 uniqueID 找源槽位交给模型排序。
+    private func drop(_ providers: [NSItemProvider], at destination: Int) -> Bool {
+        guard let provider = providers.first else { return false }
+        JoystickSlotDrag.uniqueID(from: provider) { uniqueID in
+            guard let uniqueID else { return }
+            DispatchQueue.main.async {
+                guard let source = model.joystickSlots.firstIndex(where: { $0.uniqueID == uniqueID }) else { return }
+                model.moveSlot(from: source, to: destination)
+            }
+        }
+        return true
+    }
+
+    private func dropTargeted(_ area: DropArea) -> Binding<Bool> {
+        Binding(
+            get: { dropTarget == area },
+            // 退出竞态：从 A 移到 B 时 A 的 false 可能晚于 B 的 true 到达，只清除仍指向自己的高亮
+            set: { targeted in
+                if targeted { dropTarget = area } else if dropTarget == area { dropTarget = nil }
+            }
+        )
+    }
+
+    /// 摘要卡卡面：槽号 + 当前生效型号（空闲显示「空闲」）；拖动把手由 SlotDragHandle 单独叠加在右上角。
+    private func slotSummary(index: Int, title: String, occupied: Bool, targeted: Bool) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Text(tr("槽位 %d", index))
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                Spacer(minLength: 4)
-                Image(systemName: "gamecontroller")
-                    .font(.system(size: 12))
-                    .foregroundStyle(slot == nil ? DSTheme.textSecondary : DSTheme.accent)
+                Spacer(minLength: 20)
             }
-            Text(slot?.name ?? tr("空闲"))
+            Text(title)
                 .font(.system(size: 12))
-                .foregroundStyle(slot == nil ? DSTheme.textSecondary : DSTheme.textPrimary)
+                .foregroundStyle(occupied ? DSTheme.textPrimary : DSTheme.textSecondary)
                 .lineLimit(2)
                 .frame(height: 32, alignment: .topLeading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DSTheme.surface, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(DSTheme.line))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(targeted ? DSTheme.accent : DSTheme.line, lineWidth: targeted ? 2 : 1))
     }
 
     private var emptyState: some View {
@@ -88,6 +206,25 @@ struct USBDevicesView: View {
                 minHeight: 180
             )
         }
+    }
+}
+
+/// 摘要卡右上角的拖动把手（独立于卡面 Button 的 sibling）：只有占用卡才有，空闲卡不可拖。
+private struct SlotDragHandle: View {
+    let slot: JoystickSlot
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(hovering ? DSTheme.accent : DSTheme.textSecondary)
+            .frame(width: 24, height: 24)
+            .background(hovering ? DSTheme.card : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onDrag { JoystickSlotDrag.provider(uniqueID: slot.uniqueID) }
+            .help(tr("拖动把手调整座次"))
+            .accessibilityHidden(true)
     }
 }
 
@@ -240,44 +377,30 @@ struct JoystickCard: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        // 标题 = 当前生效型号（手动所选 / 自动识别的具体型号 / 未知则真实设备名）；
+        // 真实设备名与 VID/PID 保留在副标题，识别出手柄时不丢失原始自报名。
+        let title = model.gamepadDisplayName(for: slot)
+        let vidPID = String(format: "VID %04X · PID %04X", slot.vendorID, slot.productID)
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
                 Text("\(index)")
                     .font(.system(size: 22, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(index < 6 ? DSTheme.accent : DSTheme.textSecondary)
                     .frame(width: 44, height: 44)
                     .background(DSTheme.card, in: RoundedRectangle(cornerRadius: 10))
+                    .onDrag { JoystickSlotDrag.provider(uniqueID: slot.uniqueID) }
                     .accessibilityLabel(tr("槽位 %d", index))
+                    .accessibilityHint(tr("拖到其他槽位以调整顺序"))
+                    .help(tr("拖到其他槽位以调整顺序"))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(slot.name).font(.headline).textSelection(.enabled)
-                    Text(String(format: "VID %04X · PID %04X", slot.vendorID, slot.productID))
+                    Text(title).font(.headline).textSelection(.enabled)
+                    Text(title == slot.name ? vidPID : "\(slot.name) · \(vidPID)")
                         .font(.caption.monospaced()).foregroundStyle(DSTheme.textSecondary)
                 }
                 Spacer()
                 if slot.isXbox { DSBadge(text: "Xbox", symbol: "gamecontroller") }
                 if index >= 6 { DSBadge(text: tr("未发送"), color: .orange, symbol: "info.circle") }
             }
-
-            HStack(spacing: 8) {
-                Button {
-                    model.moveSlot(index, up: true)
-                } label: {
-                    Label(tr("上移"), systemImage: "arrow.up")
-                }
-                .disabled(index == 0)
-                .accessibilityLabel(tr("将 %@ 上移一个槽位", slot.name))
-                .help(tr("将手柄移到前一个槽位"))
-
-                Button {
-                    model.moveSlot(index, up: false)
-                } label: {
-                    Label(tr("下移"), systemImage: "arrow.down")
-                }
-                .disabled(index == model.joystickSlots.count - 1)
-                .accessibilityLabel(tr("将 %@ 下移一个槽位", slot.name))
-                .help(tr("将手柄移到后一个槽位"))
-            }
-            .buttonStyle(DSActionStyle())
         }
     }
 

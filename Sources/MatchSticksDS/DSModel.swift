@@ -1415,10 +1415,22 @@ final class DSModel {
         publishVisibleSlotsNow()
     }
 
+    /// 相邻步进（旧入口，等价于拖到前一/后一槽位）。拖放排序请用 moveSlot(from:to:)。
     func moveSlot(_ index: Int, up: Bool) {
-        let target = up ? index - 1 : index + 1
-        guard controlSlots.indices.contains(index), controlSlots.indices.contains(target) else { return }
-        controlSlots.swapAt(index, target)
+        moveSlot(from: index, to: up ? index - 1 : index + 1)
+    }
+
+    /// 任意 source→destination 座次调整（摘要卡/详情卡拖放）：被拖手柄占用目标槽位，
+    /// 其余顺延；destination == 当前数量表示移到末尾（落在第一张空闲卡上）。
+    /// 源越界、落点越界、原地不动，或末位拖到末尾（结果位置不变）一律忽略——
+    /// 不重写座次记忆，离线设备的记忆优先级不受无效果操作影响。
+    func moveSlot(from source: Int, to destination: Int) {
+        guard controlSlots.indices.contains(source), (0...controlSlots.count).contains(destination),
+              source != destination,
+              !(destination == controlSlots.count && source == controlSlots.count - 1) else { return }
+        let slot = controlSlots.remove(at: source)
+        // 移除源后数组少一位：落点 == 原数量（末尾）钳到最后，其余落点就是被拖者的新槽位。
+        controlSlots.insert(slot, at: min(destination, controlSlots.count))
         for i in controlSlots.indices { controlSlots[i].index = i }
         rewriteSeats()
         publishVisibleSlotsNow()
@@ -1431,6 +1443,12 @@ final class DSModel {
         GamepadProfile.effectiveSkin(
             sample: GamepadSample(slot: slot),
             override: gamepadSkinOverride(for: slot))
+    }
+
+    /// 槽位标题型号显示名：跟随当前生效造型/配置（手动选型号 / 自动识别具体型号 / 未知保留真实名）。
+    func gamepadDisplayName(for slot: JoystickSlot) -> String {
+        GamepadProfile.displayName(vendorID: slot.vendorID, productID: slot.productID,
+                                   name: slot.name, override: gamepadSkinOverride(for: slot))
     }
 
     /// 手动覆盖（nil = 回自动识别）。key 含 uniqueID：同款两只手柄可分别指定。

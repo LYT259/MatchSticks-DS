@@ -60,6 +60,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
+  Sources/MatchSticksDS/Views/USBDevicesView.swift \
   Sources/MatchSticksDS/AppIconAppearance.swift \
   Sources/MatchSticksDS/Views/AppIconAppearanceCards.swift \
   Sources/MatchSticksDS/Views/PermissionsView.swift \
@@ -68,6 +69,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
+  Tests/MatchSticksDSUITests/JoystickSlotOrderingTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
   Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
   Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
