@@ -288,7 +288,7 @@
 "练习赛" = "Practice Match";
 "按设定时序依次运行自动与遥控阶段。" = "Runs the autonomous and teleoperated phases in sequence.";
 "停止练习（A-Stop）" = "Stop Practice (A-Stop)";
-"开始自动练习" = "Start Auto Practice";
+"开始练习赛" = "Start Practice Match";
 "开始后将按时序自动请求使能。阶段间延迟 %d 秒。" = "After starting, enables are requested automatically per the schedule. %d s delay between phases.";
 "调整练习时长" = "Adjust Practice Durations";
 "SystemCore 程序" = "SystemCore Program";
