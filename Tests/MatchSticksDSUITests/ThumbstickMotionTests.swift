@@ -77,4 +77,16 @@ func thumbstickMotionTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
           "摇杆帽边缘也移除，不留下静态残影")
     check(pixel(0, 0) == (255, 255, 255, 255), "遮罩不改变手柄其他区域")
     check(pixel(17, 17) == (255, 0, 0, 255), "遮罩之外的原始纹理保持不变")
+
+    let sampledSide = ThumbstickTexture.sideColor(image: source, cap: CGRect(x: 16, y: 16, width: 16, height: 16))
+    check(sampledSide != nil, "摇杆侧面可以从原图边缘采样")
+    if let color = sampledSide?.usingColorSpace(.deviceRGB) {
+        check(abs(color.redComponent - 1) < 0.001 && abs(color.greenComponent) < 0.001 &&
+              abs(color.blueComponent) < 0.001,
+              "摇杆侧面保留原图边缘颜色而非任意配色，实际 RGB \(color.redComponent)/\(color.greenComponent)/\(color.blueComponent)")
+    }
+    let wellRegion = CGRect(x: 8, y: 8, width: 32, height: 32)
+    let sampledWell = ThumbstickTexture.wellColor(image: source, well: wellRegion,
+                                                  cap: CGRect(x: 16, y: 16, width: 16, height: 16))
+    check(sampledWell != nil, "井口内壁颜色可从原生环纹采样")
 }

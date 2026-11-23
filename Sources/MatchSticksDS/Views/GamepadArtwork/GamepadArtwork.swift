@@ -58,17 +58,6 @@ struct GamepadArtworkSpec {
             height: source.height * scale)
     }
 
-    func stickCapOffset(for stick: GamepadArtworkRegion,
-                        state: GamepadStickState, in size: CGSize) -> CGSize {
-        let cap = stick == .leftStick ? GamepadArtworkRegion.leftStickCap : .rightStickCap
-        let wellRect = region(stick, in: size)
-        let capRect = region(cap, in: size)
-        let travelX = max(0, (wellRect.width - capRect.width) / 2)
-        let travelY = max(0, (wellRect.height - capRect.height) / 2)
-        let x = min(1, max(-1, CGFloat(state.x.isFinite ? state.x : 0)))
-        let yUp = min(1, max(-1, CGFloat(state.yUp.isFinite ? state.yUp : 0)))
-        return CGSize(width: x * travelX, height: -yUp * travelY)
-    }
 }
 
 enum GamepadArtworkCatalog {
@@ -234,49 +223,6 @@ enum GamepadArtworkImageSource {
             region.width.isFinite && region.height.isFinite && region.width > 0 && region.height > 0 {
             context.fillEllipse(in: CGRect(x: region.minX, y: CGFloat(height) - region.maxY,
                                            width: region.width, height: region.height))
-        }
-        return context.makeImage()
-    }
-
-    static func imageWithoutStickCaps(named name: String, capRegions: [CGRect]) -> NSImage? {
-        let key = "\(name)#without-sticks-\(capRegions)" as NSString
-        if let cached = cache.object(forKey: key) { return cached }
-        guard let source = image(named: name)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              let base = imageWithoutStickCaps(source, capRegions: capRegions) else { return nil }
-        let result = NSImage(cgImage: base, size: NSSize(width: base.width, height: base.height))
-        cache.setObject(result, forKey: key)
-        return result
-    }
-
-    static func imageWithoutStickCaps(_ image: CGImage, capRegions: [CGRect]) -> CGImage? {
-        let width = image.width, height = image.height
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                      bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let capacity = width * height * 4
-        let original = Array(UnsafeBufferPointer(start: context.data!.bindMemory(to: UInt8.self, capacity: capacity), count: capacity))
-        let output = context.data!.bindMemory(to: UInt8.self, capacity: capacity)
-        for region in capRegions where region.width > 0 && region.height > 0 {
-            let clearing = region.insetBy(dx: -region.width * 0.08, dy: -region.height * 0.08)
-            let center = CGPoint(x: clearing.midX, y: clearing.midY)
-            let radiusX = clearing.width / 2, radiusY = clearing.height / 2
-            for y in max(0, Int(clearing.minY.rounded(.down)))...min(height - 1, Int(clearing.maxY.rounded(.up))) {
-                for x in max(0, Int(clearing.minX.rounded(.down)))...min(width - 1, Int(clearing.maxX.rounded(.up))) {
-                    let dx = (CGFloat(x) + 0.5 - center.x) / radiusX
-                    let dy = (CGFloat(y) + 0.5 - center.y) / radiusY
-                    guard dx * dx + dy * dy <= 1 else { continue }
-                    let sourceX = Int((center.x + dx * radiusX * 1.2).rounded())
-                    let sourceY = Int((center.y + dy * radiusY * 1.2).rounded())
-                    let destination = (y * width + x) * 4
-                    guard sourceX >= 0, sourceX < width, sourceY >= 0, sourceY < height else {
-                        output[destination + 3] = 0
-                        continue
-                    }
-                    let source = (sourceY * width + sourceX) * 4
-                    for channel in 0..<4 { output[destination + channel] = original[source + channel] }
-                }
-            }
         }
         return context.makeImage()
     }

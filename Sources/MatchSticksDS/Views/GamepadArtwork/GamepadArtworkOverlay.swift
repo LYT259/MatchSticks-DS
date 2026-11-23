@@ -25,8 +25,8 @@ struct GamepadArtworkOverlay: View {
             GeometryReader { geometry in
                 let container = geometry.size
                 ZStack(alignment: .topLeading) {
-                    artworkImage(spec.imageName, removingStickCaps: true)
                     if spec.movingImageName != nil {
+                        artworkImage(spec.imageName)
                         flightAssembly(in: container)
                         fixedFlightControls(in: container)
                     } else {
@@ -50,11 +50,8 @@ struct GamepadArtworkOverlay: View {
         }
     }
 
-    @ViewBuilder private func artworkImage(_ name: String, removingStickCaps: Bool = false) -> some View {
-        if let image = removingStickCaps ?
-            GamepadArtworkImageSource.imageWithoutStickCaps(
-                named: name, capRegions: [.leftStickCap, .rightStickCap].compactMap { spec.regions[$0] }) :
-            GamepadArtworkImageSource.image(named: name) {
+    @ViewBuilder private func artworkImage(_ name: String) -> some View {
+        if let image = GamepadArtworkImageSource.image(named: name) {
             Image(nsImage: image)
                 .resizable()
                 .interpolation(.high)
@@ -134,19 +131,15 @@ struct GamepadArtworkOverlay: View {
 
     @ViewBuilder private func stick(_ region: GamepadArtworkRegion, state: GamepadStickState,
                                     usage: (x: UInt32, y: UInt32?), press: Int?, in container: CGSize) -> some View {
-        let capRegion: GamepadArtworkRegion = region == .leftStick ? .leftStickCap : .rightStickCap
-        let cap = spec.region(capRegion, in: container)
-        if cap.width > 0, cap.height > 0,
-           let source = sourceImage?.cgImage(forProposedRect: nil, context: nil, hints: nil),
-           let crop = GamepadArtworkImageSource.crop(source, rect: spec.regions[capRegion] ?? .zero) {
-            let photo = NSImage(cgImage: crop, size: cap.size)
-            NativeStickCap(image: photo, rect: cap,
-                           offset: spec.stickCapOffset(for: region, state: state, in: container),
-                           pressed: state.pressed)
+        if let sourceImage {
+            ThumbstickScene(spec: spec, region: region, state: state, container: container, sourceImage: sourceImage)
                 .help(help.stick(usage.x, usage.y, press))
                 .accessibilityElement()
                 .accessibilityLabel(region == .leftStick ? tr("左摇杆") : tr("右摇杆"))
                 .accessibilityValue(state.pressed ? tr("已按下") : tr("X %+.2f，Y %+.2f", state.x, state.yUp))
+        } else {
+            Color.red
+                .accessibilityLabel(tr("手柄图片缺失：%@", spec.imageName))
         }
     }
 
@@ -271,24 +264,6 @@ struct GamepadArtworkOverlay: View {
             return CGRect(x: rect.midX, y: rect.midY - rect.height / 4,
                           width: rect.width / 2, height: rect.height / 2)
         }
-    }
-}
-
-struct NativeStickCap: View {
-    let image: NSImage
-    let rect: CGRect
-    let offset: CGSize
-    let pressed: Bool
-
-    var body: some View {
-        Image(nsImage: image)
-            .resizable()
-            .interpolation(.high)
-            .mask(Ellipse())
-            .frame(width: rect.width, height: rect.height)
-            .overlay(Ellipse().strokeBorder(Color.accentColor, lineWidth: 2).opacity(pressed ? 1 : 0))
-            .offset(offset)
-            .position(x: rect.midX, y: rect.midY)
     }
 }
 
