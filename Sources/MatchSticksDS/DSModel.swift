@@ -660,6 +660,27 @@ final class DSModel {
         }
     }
 
+    /// 机器人重搜动作：默认走真实 DSClient.refreshConnection()；测试注入记录闭包。
+    var robotConnectionRefresher: (() -> Void)?
+
+    /// 手动刷新机器人连接（迷你驾驶台刷新按钮）：未连接时执行真重搜
+    /// （清 mDNS 解析节流/缓存、重建发送候选）；已连接时拒绝——不打断活跃控制链路
+    /// （重建候选会触发 autoDisabled，等于误失能）。返回是否真的执行了重搜。
+    @discardableResult
+    func refreshRobotConnection() -> Bool {
+        guard !commConnected else {
+            log(tr("已连接机器人，无需刷新；刷新仅在未连接时重新搜索。"))
+            return false
+        }
+        if let robotConnectionRefresher {
+            robotConnectionRefresher()
+        } else {
+            client.refreshConnection()
+        }
+        log(tr("已请求重新搜索机器人"))
+        return true
+    }
+
     /// Radio 探测结果落库：仅真实翻转时写日志。
     /// RadioProbe.onResult 本身只在值变化时回调；这里再守一次，重复回调与直接调用都不刷。
     func applyRadioResult(_ reachable: Bool) {

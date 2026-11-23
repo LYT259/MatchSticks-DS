@@ -55,11 +55,14 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
   Sources/MatchSticksDS/GamepadInputManager.swift \
+  Sources/MatchSticksDS/Views/OperationView.swift \
+  Sources/MatchSticksDS/Views/PracticeTimingEditor.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
   Sources/MatchSticksDS/AppIconAppearance.swift \
   Sources/MatchSticksDS/Views/DriverStationBrand.swift \
+  Sources/MatchSticksDS/Views/AppIconAppearanceCards.swift \
   Sources/MatchSticksDS/Views/PermissionsView.swift \
   Tests/MatchSticksDSUITests/main.swift Tests/MatchSticksDSUITests/F310XInputReportTests.swift \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
@@ -68,6 +71,8 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
   Tests/MatchSticksDSUITests/DriverStationBrandTests.swift \
+  Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
+  Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests "$@"
