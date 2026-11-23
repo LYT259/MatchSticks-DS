@@ -1654,6 +1654,57 @@ struct UIStateTests {
               !controlsSource.contains("checkmark.square") && !controlsSource.contains("\"square\""),
               "neither Settings nor the shared multi-select control renders checkbox icons")
 
+        // 监测区导航放置守卫：侧栏 Diagnostics/Charts 换成 Mac / 机器人 / 摄像头 三个并列入口；
+        // 机器人页合并原诊断与三类历史曲线，Mac、摄像头独立成页，维护操作移入 Drive。
+        let robotSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/RobotView.swift"), encoding: .utf8)) ?? ""
+        let robotHistorySource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/RobotHistoryView.swift"), encoding: .utf8)) ?? ""
+        let macStatusSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/MacStatusView.swift"), encoding: .utf8)) ?? ""
+        let cameraSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/CameraView.swift"), encoding: .utf8)) ?? ""
+        check(!robotSource.isEmpty && !robotHistorySource.isEmpty && !macStatusSource.isEmpty &&
+              !cameraSource.isEmpty,
+              "monitor navigation test loads its source fixtures")
+        check(appSource.contains("pages: [.mac, .robot, .camera") &&
+              !appSource.contains("case .diagnostics") && !appSource.contains("case .charts") &&
+              !appSource.contains("DiagnosticsView(") && !appSource.contains("ChartsView("),
+              "the sidebar replaces Diagnostics and Charts with Mac, Robot and Camera entries")
+        check(appSource.contains("case .mac: MacStatusView(model: model)") &&
+              appSource.contains("case .robot: RobotView(model: model)") &&
+              appSource.contains("case .camera: CameraView(model: model)"),
+              "Mac, Robot and Camera route to their dedicated pages")
+        check(appSource.contains("tr(\"Mac\")") && appSource.contains("tr(\"机器人\")") &&
+              appSource.contains("tr(\"摄像头\")"),
+              "the three monitor pages are titled Mac, Robot and Camera")
+        check(robotSource.contains("连接检查") && robotSource.contains("机器人资源") &&
+              robotSource.contains("CAN 总线") && robotSource.contains("电源与故障计数") &&
+              robotSource.contains("设备版本"),
+              "Robot keeps the network, resources, CAN, power and versions diagnostics")
+        check(robotSource.contains("RobotHistoryView(model: model)"),
+              "Robot embeds the merged history charts")
+        check(!robotSource.contains("这台 Mac") && !robotSource.contains("CameraMockPanel") &&
+              !robotSource.contains("机器人维护"),
+              "Robot no longer hosts Mac status, the camera panel or maintenance")
+        check(robotHistorySource.contains("电池电压") && robotHistorySource.contains("机器人 CPU") &&
+              robotHistorySource.contains("通信质量"),
+              "history keeps the battery, CPU and link charts")
+        check(!robotHistorySource.contains("当前读数"),
+              "history drops the duplicated current-readings summary")
+        check(macStatusSource.contains("Mac 状态") && macStatusSource.contains("model.macStatus"),
+              "Mac status shows this-Mac readings from macStatus")
+        check(cameraSource.contains("CameraMockPanel()"),
+              "Camera keeps its own mock panel")
+        check(operationSource.contains("机器人维护") &&
+              operationSource.contains("model.restartRobotCode()") &&
+              operationSource.contains("model.rebootRoboRIO()") &&
+              operationSource.components(separatedBy: "confirmationDialog").count - 1 == 2 &&
+              operationSource.components(separatedBy: ".disabled(!model.commConnected)").count - 1 == 2,
+              "Drive hosts both restart actions behind confirmations and safety disables")
+        check(!robotSource.contains("restartRobotCode") && !robotSource.contains("rebootRoboRIO"),
+              "Robot no longer offers the restart actions")
+
         // ===== Permissions 页：权限状态呈现（2026-11-23）=====
         // 宽度与 Settings 一致：不再 1040 封顶，仍填满可用宽度
         let permissionsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(

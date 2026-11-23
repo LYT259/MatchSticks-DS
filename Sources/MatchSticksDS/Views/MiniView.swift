@@ -138,7 +138,7 @@ struct MiniConsoleBar: View {
             .buttonStyle(DSActionStyle(color: DSTheme.success, prominent: true))
             .disabled(!model.canEnable || model.remoteEstopReported)
             .help(model.remoteEstopReported
-                  ? tr("机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。")
+                  ? tr("机器人仍报告急停，使能不可用；等待复位生效或到驾驶页重启机器人程序。")
                   : tr("使能机器人（需已连接且无急停）"))
             Button { model.setEnabled(false) } label: {
                 Label(tr("失能"), systemImage: "stop.fill").frame(minWidth: 64, minHeight: 26)

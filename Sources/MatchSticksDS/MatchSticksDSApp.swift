@@ -61,14 +61,15 @@ struct RootView: View {
     @ObservedObject private var language = LanguageManager.shared
 
     enum Page: String, CaseIterable, Hashable {
-        case operation, setup, usb, diagnostics, charts, messages, permissions, settings
+        case operation, setup, usb, mac, robot, camera, messages, permissions, settings
         var title: String {
             switch self {
             case .operation: return tr("驾驶")
             case .setup: return tr("连接")
             case .usb: return tr("手柄")
-            case .diagnostics: return tr("诊断")
-            case .charts: return tr("数据图表")
+            case .mac: return tr("Mac")
+            case .robot: return tr("机器人")
+            case .camera: return tr("摄像头")
             case .messages: return tr("控制台")
             case .permissions: return tr("权限与帮助")
             case .settings: return tr("设置")
@@ -79,8 +80,9 @@ struct RootView: View {
             case .operation: return "steeringwheel"
             case .setup: return "network"
             case .usb: return "gamecontroller"
-            case .diagnostics: return "stethoscope"
-            case .charts: return "chart.xyaxis.line"
+            case .mac: return "desktopcomputer"
+            case .robot: return "stethoscope"
+            case .camera: return "video"
             case .messages: return "terminal"
             case .permissions: return "questionmark.circle"
             case .settings: return "gearshape"
@@ -157,7 +159,7 @@ struct RootView: View {
             }
             .padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 32)
             navGroup(tr("操作"), pages: [.operation, .setup, .usb])
-            navGroup(tr("监测"), pages: [.diagnostics, .charts, .messages])
+            navGroup(tr("监测"), pages: [.mac, .robot, .camera, .messages])
                 .padding(.top, 22)
             Spacer(minLength: 24)
             VStack(alignment: .leading, spacing: 5) {
@@ -208,8 +210,9 @@ struct RootView: View {
         case .setup: SetupView(model: model, simProcess: $simProcess, draft: connectionDraft)
         case .settings: SettingsView(model: model)
         case .usb: USBDevicesView(model: model)
-        case .diagnostics: DiagnosticsView(model: model)
-        case .charts: ChartsView(model: model)
+        case .mac: MacStatusView(model: model)
+        case .robot: RobotView(model: model)
+        case .camera: CameraView(model: model)
         case .messages: MessagesView(model: model)
         case .permissions: PermissionsView(model: model)
         }
@@ -235,7 +238,7 @@ struct SafetyControlBar: View {
                 }
                 .buttonStyle(DSActionStyle(color: DSTheme.success, prominent: true))
                 .disabled(!model.canEnable || model.remoteEstopReported)
-                .help(model.remoteEstopReported ? tr("机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。") : tr("使能机器人（需已连接且无急停）"))
+                .help(model.remoteEstopReported ? tr("机器人仍报告急停，使能不可用；等待复位生效或到驾驶页重启机器人程序。") : tr("使能机器人（需已连接且无急停）"))
                 // Intentionally no keyboardShortcut: only ShortcutManager's three-key chord enables.
                 Button { model.setEnabled(false) } label: {
                     controlLabel(tr("失能"), hint: "Return", symbol: "stop.fill")

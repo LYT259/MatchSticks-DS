@@ -428,7 +428,7 @@ final class DSModel {
     }
     private var dslogWriter: DSLogWriter?
 
-    // MARK: 图表历史（1Hz 采样，Charts 页真实时间序列）
+    // MARK: 图表历史（1Hz 采样，机器人页历史曲线的真实时间序列）
 
     var cpuHistory: [CPUPoint] = []
     var lossHistory: [LossPoint] = []

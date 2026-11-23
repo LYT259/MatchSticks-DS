@@ -12,18 +12,17 @@
 - **操作**：Teleop / Autonomous / Test 模式、Enable / Disable / **E-Stop**（协议位直发 + FMS 全场 Foghorn 音效）、E-Stop 复位（First DS 语义）、Alliance 站位（R1–B3）、使能计时、Practice 比赛时间线（2022–2026 官方预设与阶段音效 + 2026 Transition/Alliance Shifts/Endgame + 2022 八分钟 Timeout 提示 + 可拖动分段时长 + A-Stop）、远程 Reboot roboRIO / Restart Robot Code
 - **界面**：Apple 原生风格（实色自适应表面、无模糊/材质装饰）——侧栏导航（操作/监测两组，底部设置/权限）+ 每页常驻安全控制条（使能/失能/急停 + 状态解释）；状态条：机器人状态、通信/程序/手柄指示、电池电压（brownout 红字警示）；队伍号常驻侧栏；迷你驾驶台独立小窗（状态 + 三键 + 电池）
 - **手柄**：IOHIDManager 枚举所有 HID 设备（含 Attack3 / Extreme 3D Pro 等非游戏标准手柄）、槽位排序 + **槽位锁定**、轴 / 按键 / POV 实时显示
-- **诊断**：每核 CPU、内存、磁盘、CAN 总线指标（利用率 / BusOff / TxFull / 错误计数）、电源故障计数、TCP 版本信息、网络指示灯、丢包率
-- **图表**：电池电压曲线、每核 CPU、UDP 链路质量（Swift Charts 原生）
+- **机器人**：独立页——链路检查（通信 / 无线电指示灯、丢包率）、每核 CPU、内存、磁盘、CAN 总线指标（利用率 / BusOff / TxFull / 错误计数）、电源故障计数、TCP 版本信息；历史曲线（电池电压、每核 CPU、UDP 链路质量，Swift Charts 原生）——原诊断与图表两页的机器人内容合并于此
 - **消息**：robot stdout 控制台、错误消息（TCP 0x0B）、DS 事件流
 - **抓包录制/回放**：Settings 页一键录制收发包为 `.dsrec`（金样本回归基线）；模拟器 `--replay` 按录制的真机字节应答
 - **SystemCore（MRC V2 · 实验性）**：Connection 页切换机器人类型；UDP V2 控制环（CRC32C 应答校验）+ NT4 server（6767，OpMode 选择经 ControlData.CurrentOpMode 下发）+ TCP 0x13 OpMode 列表
 - **会话日志**：连接期间 1Hz 自动记录 `.dslog`（NI DS 格式）与 `.wpilog`（WPILib DataLog 2027 VarInt 格式）双文件，AdvantageScope 可直接打开复盘
-- **本机状态**：DS 电脑电池/交流供电、系统 CPU、进程内存、本机网络指示（WiFi/有线）
+- **Mac 状态**：独立页——DS 电脑电池/交流供电、系统 CPU、进程内存、本机网络指示（WiFi/有线）
 - **控制环稳定性**：统计窗口的收/发计数在浮点域求差并夹取（rx > tx 在真机可达——sendto 失败而先前应答在途、或机器人重复应答），避免旧实现的 UInt64 下溢把进程在控制环线程上打崩（2026-09-19 崩溃报告修复，回归测试 statsUnderflowScenario）；应用另声明 latency-critical 活动以抑制 App Nap 节流
 - **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能，`SafetyGate` 纯逻辑单测覆盖）
 - **应用内更新（Sparkle）**：启动静默查（GitHub Releases appcast）→ 静默后台下载 → 固定角落进度角标（可忽略、无弹窗）→ 点击一键重启安装；**安全门**：机器人使能中 / 通信活跃 / 急停锁存期间点击无效（tooltip 说明）——仅「失能 + 未连接 + 无锁存」放行；下载失败静默跳过下次再试
 - **内置 WebUI**：`http://127.0.0.1:6768`（仅本机）——日志文件列表与下载、设置查看/覆盖（逐键校验）、连接/使能/急停/更新门状态页
-- **摄像头（MOCK）**：诊断页显示槽位（点按刷新 + ≥1s 限流）；真实 SystemCore 流协议未核查（协议档案待实测），现由 MatchSticksDSSim 提供自定义 MOCK 图像源（:6769）
+- **摄像头（MOCK）**：独立页显示槽位（点按刷新 + ≥1s 限流）；真实 SystemCore 流协议未核查（协议档案待实测），现由 MatchSticksDSSim 提供自定义 MOCK 图像源（:6769）
 - **手柄输出（0x2E）**：MRC 应答中的 rumble/LED 输出实时呈现于手柄页（协议侧已核查——编码金样本 + 模拟器端到端同值；物理手柄震动映射待真机）
 - **快捷键**：`Space` = E-Stop · `Enter` = Disable · `[ + ] + \` = Enable · `Esc + I` = E-Stop 复位 · `F1` = 重扫手柄（应用前台；全局后台键属 Phase 4 + Input Monitoring 权限）
 
@@ -96,7 +95,7 @@ scripts/build-app.sh 0.1.0-alpha.1   # universal .app + ad-hoc 签名 + DMG + SH
 
 ```
 Sources/DSCore/               协议核心：NI 编解码、20ms 控制环、看门狗、连接管理（平台无关）
-Sources/MatchSticksDS/        SwiftUI 应用：DSModel 状态源、八页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
+Sources/MatchSticksDS/        SwiftUI 应用：DSModel 状态源、九页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
 Sources/MatchSticksDSSim/     roboRIO 模拟器（本机端到端验证）
 Tests/DSCoreTests/            协议回归测试（自带 runner）+ 回环集成测试
 Tests/MatchSticksDSUITests/   UI 状态干测试（无 socket/HID/定时器；scripts/test-ui.sh 运行）
