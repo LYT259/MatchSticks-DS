@@ -45,7 +45,8 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
-  Sources/MatchSticksDS/DSModel.swift Sources/MatchSticksDS/HIDInputManager.swift \
+  Sources/MatchSticksDS/DSModel.swift Sources/MatchSticksDS/LocalNetworkDiscovery.swift \
+  Sources/MatchSticksDS/HIDInputManager.swift \
   Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
   Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
   Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
@@ -65,5 +66,6 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
+  Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests

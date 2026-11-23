@@ -333,6 +333,14 @@
 "无法直接打开对应页面，请从「系统设置」按上方路径进入。" = "Couldn't open the pane directly; follow the path above from System Settings.";
 "已打开系统设置；若未跳转到对应页面，请按上方路径进入。" = "System Settings opened; if the right pane didn't come up, follow the path above.";
 
+/* ===== NI 服务发现（首次启动本地网络授权触发） ===== */
+"本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。" = "Local network access was denied: allow MatchSticks DS under System Settings → Privacy & Security → Local Network, then reopen the app.";
+"NI 服务发现：%@" = "NI service discovery: %@";
+"NI 服务发现：当前没有 NI 设备" = "NI service discovery: no NI devices are currently visible";
+"NI 服务发现失败：%@" = "NI service discovery failed: %@";
+"NI 服务发现等待：%@" = "NI service discovery waiting: %@";
+"NI 服务发现已就绪" = "NI service discovery ready";
+
 /* ===== ChartsView ===== */
 "当前读数" = "Current Readings";
 "来自机器人回传" = "from robot telemetry";
