@@ -64,5 +64,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
+  Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
+  Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests
