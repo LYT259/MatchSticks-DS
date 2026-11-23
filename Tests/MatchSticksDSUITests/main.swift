@@ -420,6 +420,8 @@ struct UIStateTests {
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         appIconAppearanceTests(check)
+        miniDriverStationTests(check)
+        localNetworkDiscoveryTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
@@ -1380,15 +1382,18 @@ struct UIStateTests {
               "Drive practice panel is titled Practice Match")
         check(englishTable.contains("\"练习赛\" = \"Practice Match\";"),
               "Practice Match has an English translation")
-        check(operationSource.contains("tr(\"开始自动练习\")"),
-              "Start Auto Practice wording is unchanged")
-        if let timingUse = operationSource.range(of: "practiceTimingPanel")?.lowerBound,
-           let timeoutIndex = operationSource.range(of: "if model.practiceSeasonYear == 2022")?.lowerBound {
-            check(timingUse < timeoutIndex,
-                  "practice timing sits in the drive right column after Practice Match and before 2022 Timeout")
-        } else {
-            check(false, "practice timing panel placement can be located")
-        }
+        check(operationSource.contains("tr(\"开始练习赛\")") &&
+              !operationSource.contains("tr(\"开始自动练习\")"),
+              "the practice start button says Start Practice Match and still starts the full practice")
+        check(englishTable.contains("\"开始练习赛\" = \"Start Practice Match\";") &&
+              !englishTable.contains("Start Auto Practice"),
+              "Start Practice Match is translated and the Auto wording is retired")
+        check(sourceOrder(["DSPanel(title: tr(\"驾驶模式\"))", "DSPanel(title: tr(\"练习赛\"))",
+                           "DSPanel(title: tr(\"联盟站位\"))", "DSPanel(title: tr(\"比赛时间线\"))",
+                           "PracticeMatchTimeline(model: model)", "practiceTimingPanel",
+                           "if model.practiceSeasonYear == 2022"], in: operationSource),
+              "drive stacks the Drive Mode / Practice Match row, then full-width Alliance Station, " +
+              "full-width Match Timeline, practice timing, and the 2022 timeout")
 
         check(timingSource.components(separatedBy: "compactSlider(tr(").count - 1 == 10,
               "all six modern and four legacy practice controls use compact sliders")
@@ -1403,14 +1408,187 @@ struct UIStateTests {
             timingSource.components(separatedBy: "$model.\($0.key)").count - 1 != $0.value
         }.map(\.key)
         check(lostBindings.isEmpty, "every practice timing binding survives in each season layout; lost: \(lostBindings)")
-        check(timingSource.contains("private static let labelMinimumWidth: Double = 56") &&
+        check(!timingSource.contains("labelMinimumWidth") &&
               timingSource.contains("private static let clockMinimumWidth: Double = 84"),
-              "timeline label thresholds stay unchanged")
+              "segment titles are no longer hidden behind a width gate; the clock ruler keeps its threshold")
+        check(timingSource.contains("struct PracticeMatchTimeline: View") &&
+              timingSource.contains("struct PracticeDurationCards: View") &&
+              operationSource.contains("PracticeDurationCards(model: model)") &&
+              !timingSource.contains("durationSummary") && !timingSource.contains("transitionTitle") &&
+              !timingSource.contains("transitionTotal"),
+              "the timeline and the two duration cards move out of the timing editor; " +
+              "the Transition Shift summary card is gone")
+        check(!operationSource.contains("arrow.right"),
+              "the old inline Auto → Teleop duration row is replaced by the two duration cards")
         check(["range: 0...30", "range: 1...60", "range: 0...60",
                "range: 15...600", "range: 1...120", "range: 0...120"].allSatisfy(timingSource.contains),
               "every practice slider range stays unchanged")
         check(timingSource.components(separatedBy: "Slider(value: value, in: range, step: 1)").count - 1 == 1,
               "practice sliders share one implementation with a one-second step")
+
+        // ===== Drive 时间线改造回归（2026-11-23）：真实渲染几何 / 像素 =====
+        // 固定 2026 比例：Auto 20 + 过渡 3 + Transition Shift 10 + 4×25 + Endgame 30 = 163 秒，开始等待 0。
+        let timelineModel = DSModel()
+        timelineModel.practiceSeasonYear = 2026
+        timelineModel.practiceStartDelay = 0
+        timelineModel.practiceAutoTime = 20
+        timelineModel.practiceDelayTime = 3
+        timelineModel.practiceTransitionShiftTime = 10
+        timelineModel.practiceAllianceShiftTime = 25
+        timelineModel.practiceEndgameTime = 30
+        let timelineConfiguration = PracticeTimingConfiguration(
+            seasonYear: 2026, startDelay: 0, autoTime: 20, delayTime: 3,
+            teleopTime: 0, transitionShift: 10, allianceShift: 25, endgame: 30
+        )
+
+        // 值级回归：m:ss 纯函数与时长卡取自 live configuration 的正确字段。
+        check(practiceClock(20) == "0:20" && practiceClock(140) == "2:20" &&
+              practiceClock(0) == "0:00" && practiceClock(59.6) == "1:00",
+              "the m:ss formatter renders 20 s → 0:20 and 140 s → 2:20 with rounding")
+        check(timelineModel.practiceTimingConfiguration.durationCardValues.auto == 20 &&
+              timelineModel.practiceTimingConfiguration.durationCardValues.teleop == 140,
+              "duration cards read Auto and Teleop totals from the live configuration")
+        timelineModel.practiceTransitionShiftTime = 12
+        check(timelineModel.practiceTimingConfiguration.durationCardValues.teleop == 142,
+              "duration card Teleop follows live sub-phase edits")
+        timelineModel.practiceTransitionShiftTime = 10
+
+        // 独立渲染时间线：宽窗（1000）与较窄窗口（560）下轨道都占满全宽、
+        // 区段落在比例位置，Transition / Transition Shift 等区段内真实画出了文字。
+        for timelineWidth in [1000, 560] {
+            guard let bitmap = renderedBitmap(PracticeMatchTimeline(model: timelineModel)
+                .frame(width: CGFloat(timelineWidth), height: 160),
+                width: timelineWidth, height: 160) else {
+                check(false, "match timeline renders a bitmap at \(timelineWidth) points wide")
+                continue
+            }
+            guard let track = timelineTrackBounds(bitmap) else {
+                check(false, "match timeline renders a proportional segment track at \(timelineWidth) points wide")
+                continue
+            }
+            let layout = PracticeTimeline.layout(for: timelineConfiguration, totalWidth: Double(timelineWidth))
+            check(layout.items.first?.segment.kind == .autonomous,
+                  "zero start delay puts Autonomous first on the timeline")
+            let probeRow = track.rows.lowerBound + 4
+            for item in layout.items {
+                let start = Int(item.x.rounded())
+                let end = Int((item.x + item.width).rounded()) - 1
+                let fill = segmentFill(item.segment.kind)
+                if let run = fillRunEdges(bitmap, y: probeRow, middleX: (start + end) / 2, hex: fill) {
+                    check(abs(run.start - start) <= 2 && abs(run.end - end) <= 2,
+                          "\(item.segment.kind.rawValue) renders at its proportional bounds at \(timelineWidth) points")
+                } else {
+                    check(false, "\(item.segment.kind.rawValue) renders at its proportional bounds at \(timelineWidth) points")
+                }
+                if item.width >= 8 {
+                    check(segmentShowsText(bitmap, track: track, start: start, end: end, fill: fill),
+                          "\(item.segment.kind.rawValue) shows its title with fully rendered seconds at \(timelineWidth) points")
+                }
+            }
+            if let autoRun = fillRunEdges(bitmap, y: probeRow, middleX: 4, hex: segmentFill(.autonomous)),
+               let endRun = fillRunEdges(bitmap, y: probeRow, middleX: timelineWidth - 5, hex: segmentFill(.endgame)) {
+                check(autoRun.start <= 2 && endRun.end >= timelineWidth - 3,
+                      "the timeline track spans the full width at \(timelineWidth) points")
+            } else {
+                check(false, "the timeline track spans the full width at \(timelineWidth) points")
+            }
+        }
+
+        // 两张时长卡独立渲染：Autonomous 深蓝 + Teleop 蓝并排等宽，无 Transition Shift 黄卡。
+        if let cardsBitmap = renderedBitmap(PracticeDurationCards(model: timelineModel)
+            .frame(width: 420, height: 96), width: 420, height: 96) {
+            let navyPixels = pixelsWhere(cardsBitmap, hex: 0x131F25, xRange: 0..<420, yRange: 0..<96)
+            let bluePixels = pixelsWhere(cardsBitmap, hex: 0x007BC0, xRange: 0..<420, yRange: 0..<96)
+            let yellowPixels = pixelsWhere(cardsBitmap, hex: 0xF2D14B, xRange: 0..<420, yRange: 0..<96)
+            check(!navyPixels.isEmpty && !bluePixels.isEmpty,
+                  "Practice Match renders the Autonomous and Teleop duration cards")
+            if let navyBox = boundingBox(navyPixels), let blueBox = boundingBox(bluePixels) {
+                check(navyBox.maxX < blueBox.minX,
+                      "the Autonomous card sits left of the Teleop card")
+                check(abs((navyBox.maxX - navyBox.minX) - (blueBox.maxX - blueBox.minX)) <= 12,
+                      "the two duration cards share one width")
+                check(navyBox.maxY - navyBox.minY >= 50 && blueBox.maxY - blueBox.minY >= 50,
+                      "the duration cards keep their card height")
+            }
+            check(yellowPixels.isEmpty, "no third Transition Shift card renders")
+        } else {
+            check(false, "duration cards render a bitmap")
+        }
+
+        // 练习时序面板只剩滑杆：黄色只以滑杆细条出现，摘要卡与时间线都已搬走。
+        if let editorBitmap = renderedBitmap(PracticeTimingEditor(model: timelineModel)
+            .frame(width: 700, height: 640), width: 700, height: 640) {
+            check(maxVerticalRun(editorBitmap, hex: 0xF2D14B) < 30,
+                  "the practice timing panel keeps only thin slider tints after the summary cards move out")
+        } else {
+            check(false, "practice timing editor renders a bitmap")
+        }
+
+        // 整页渲染：上排 Drive Mode / Practice Match，Alliance Station 全宽，
+        // Match Timeline 全宽紧随其下并与 Alliance Station 面板左右对齐。
+        // ScrollView 在 ImageRenderer 下不出内容，改走真实离屏窗口 + cacheDisplay。
+        for (driveWidth, driveHeight) in [(1200, 1150), (760, 1050)] {
+            guard let drive = windowRenderedBitmap(OperationView(model: timelineModel)
+                .frame(width: CGFloat(driveWidth), height: CGFloat(driveHeight))
+                .background(DSTheme.canvas),
+                width: driveWidth, height: driveHeight) else {
+                check(false, "drive page renders a bitmap at \(driveWidth) points wide")
+                continue
+            }
+            guard let track = timelineTrackBounds(drive) else {
+                check(false, "drive page renders the match timeline track at \(driveWidth) points wide")
+                continue
+            }
+            let fillRow = track.rows.lowerBound + 10
+            let allianceRows = rowsContaining(drive, hex: 0xFF3B30)
+            check(!allianceRows.isEmpty,
+                  "alliance station renders its red alliance group at \(driveWidth) points")
+            guard let allianceFirst = allianceRows.first, let allianceLast = allianceRows.last else { continue }
+            check(allianceLast < track.rows.lowerBound,
+                  "the full-width match timeline sits below Alliance Station at \(driveWidth) points")
+            check(track.rows.lowerBound - allianceLast > 4 && track.rows.lowerBound - allianceLast < 150,
+                  "the match timeline directly follows Alliance Station at \(driveWidth) points")
+            let panelRow = min(allianceLast + 8, track.rows.lowerBound - 5)
+            let alliance = whiteRun(drive, y: panelRow)
+            check(alliance.start <= 30 && alliance.end >= driveWidth - 31,
+                  "Alliance Station fills the content width at \(driveWidth) points")
+            if let trackStart = segmentPixel(drive, y: fillRow, last: false),
+               let trackEnd = segmentPixel(drive, y: fillRow, last: true) {
+                check(abs(trackStart - (alliance.start + 16)) <= 4,
+                      "the timeline track aligns its left edge with Alliance Station at \(driveWidth) points")
+                check(abs(trackEnd - (alliance.end - 16)) <= 4,
+                      "the timeline track reaches the content right edge at \(driveWidth) points")
+            } else {
+                check(false, "the timeline track extents can be measured at \(driveWidth) points")
+            }
+            check(maxVerticalRunOutsideRows(drive, hex: 0xF2D14B, rows: track.rows) < 30,
+                  "no leftover Transition Shift card renders outside the timeline at \(driveWidth) points")
+
+            // 上排右列 Practice Match：两张时长卡（Auto 深蓝 + Teleop 蓝），无黄色摘要卡。
+            let topRows = 0..<max(1, allianceFirst - 8)
+            let rightColumns = max(0, driveWidth / 2 - 60)..<driveWidth
+            let navyPixels = pixelsWhere(drive, hex: 0x131F25, xRange: rightColumns, yRange: topRows)
+            check(!navyPixels.isEmpty,
+                  "Practice Match shows the Autonomous duration card in the top row at \(driveWidth) points")
+            if let navyBox = boundingBox(navyPixels) {
+                check(navyBox.maxX - navyBox.minX >= 90 && navyBox.maxY - navyBox.minY >= 50,
+                      "the Autonomous card keeps its card size at \(driveWidth) points")
+                let blueY = max(0, navyBox.minY - 10)..<(min(driveHeight - 1, navyBox.maxY + 10) + 1)
+                let blueX = (navyBox.maxX + 1)..<driveWidth
+                let bluePixels = pixelsWhere(drive, hex: 0x007BC0, xRange: blueX, yRange: blueY)
+                check(!bluePixels.isEmpty,
+                      "the Teleop card sits beside the Autonomous card at \(driveWidth) points")
+                check(pixelsWhere(drive, hex: 0xF2D14B, xRange: rightColumns, yRange: topRows).isEmpty,
+                      "no Transition Shift summary card remains in the Practice Match panel at \(driveWidth) points")
+            }
+        }
+
+        // Accessibility：视效缩放/截断不影响语义，每个时间线区段保留「标题 + 秒数」的
+        // accessibilityLabel（本测试进程实测 NSHostingView 的 accessibilityChildren 不物化，
+        // 运行时 AX 树查询不可行，故以源级守卫 + 像素可见性共同覆盖无障碍信息）。
+        check(timingSource.contains(".accessibilityElement(children: .ignore)") &&
+              timingSource.contains(".accessibilityLabel(\"\\(presentation.title) \\(tr(\"%d 秒\", Int(item.segment.duration)))\")"),
+              "every timeline segment keeps its title-plus-seconds accessibility label")
 
         // Task 2 放置守卫：外观行与语言行同构（360 宽）；Dashboard 无复选框图标，Launch 与分段控件同排紧邻其右。
         let controlsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
@@ -1420,9 +1598,22 @@ struct UIStateTests {
            let generalEnd = settingsSource.range(of: "private var dashboardPanel")?.lowerBound {
             let general = String(settingsSource[generalStart..<generalEnd])
             check(general.components(separatedBy: "settingsRow(").count - 1 == 3,
-                  "General lists exactly Language, Appearance and Season rows")
-            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.practiceSeasonYear"], in: general),
-                  "Appearance row sits between Language and Season")
+                  "General keeps exactly Language, Appearance and Season as settingsRow rows")
+            check(general.contains("settingsSubgroup(tr(\"图标样式\")) {") &&
+                  general.contains("settingsSubgroup(tr(\"图标外观\")) {"),
+                  "app-icon settings render as full-width subgroups with titles above the cards")
+            check(!general.contains("settingsRow(tr(\"图标样式\"))") &&
+                  !general.contains("settingsRow(tr(\"图标外观\"))"),
+                  "icon subgroups are not squeezed into right-aligned rows")
+            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.practiceSeasonYear",
+                               "$model.iconStyle", "$model.iconAppearance"], in: general),
+                  "the app-icon subgroups sit after Season inside General")
+            check(general.contains("AppIconStyleCardPicker(title: tr(\"图标样式\"), selection: $model.iconStyle)") &&
+                  general.contains("AppIconAppearanceCardPicker(title: tr(\"图标外观\"), style: model.iconStyle, selection: $model.iconAppearance)"),
+                  "app-icon cards bind the model directly for immediate effect inside General")
+            check(!general.contains("settingsGroup(tr(\"应用图标\"))") &&
+                  !general.contains("Finder 与启动台图标由应用包提供"),
+                  "General absorbs the app-icon settings without a separate group or gray footnote")
             check(general.contains("DSSegmentedControl(title: tr(\"外观\"), selection: $model.appearanceMode, options: [") &&
                   general.contains("DSSelectOption(value: AppearanceMode.system, label: tr(\"跟随系统\"))") &&
                   general.contains("DSSelectOption(value: AppearanceMode.light, label: tr(\"浅色\"))") &&
@@ -1462,6 +1653,70 @@ struct UIStateTests {
         check(!settingsSource.contains("checkmark.square") && !settingsSource.contains("\"square\"") &&
               !controlsSource.contains("checkmark.square") && !controlsSource.contains("\"square\""),
               "neither Settings nor the shared multi-select control renders checkbox icons")
+
+        // ===== Permissions 页：权限状态呈现（2026-11-23）=====
+        // 宽度与 Settings 一致：不再 1040 封顶，仍填满可用宽度
+        let permissionsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Views/PermissionsView.swift"), encoding: .utf8)) ?? ""
+        check(!permissionsSource.isEmpty, "permissions source fixture loads")
+        check(!permissionsSource.contains("1040") && permissionsSource.contains(".frame(maxWidth: .infinity)"),
+              "Permissions content fills the available width like Settings instead of capping at 1040 points")
+
+        // 本地网络证据：连接记录不是权限查询。真实非回环机器人 → success（唯一绿色来源）；
+        // 回环模拟器 / 无连接 / 搜索中 → warning，不得显示为已授权
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")) == .verifiedRobot &&
+              LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")).tone == .success,
+              "a real robot connection is the only positive local network evidence")
+        check(LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "localhost")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "::1")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "127.255.255.254")) == .loopbackSimulator &&
+              LocalNetworkEvidence(commState: .connected(host: "128.0.0.1")) == .verifiedRobot,
+              "loopback simulator hosts (127/8, localhost, ::1) are not robot evidence; 128/8 is not loopback")
+        check(LocalNetworkEvidence(commState: .idle).tone == .warning &&
+              LocalNetworkEvidence(commState: .searching).tone == .warning &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")).tone == .warning,
+              "no connection, searching and loopback simulator are warnings rather than green")
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")).badge == "机器人通信正常" &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")).badge == "已连接本机模拟器" &&
+              LocalNetworkEvidence(commState: .idle).badge == "尚未通过连接验证",
+              "network badge wording stays with its evidence state")
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2"))
+                  .explanation(connectionDetail: "10.25.90.2") == tr("已与 %@ 建立通信，当前连接可用。", "10.25.90.2") &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1"))
+                  .explanation(connectionDetail: "127.0.0.1") == tr("本机连接正常，但它不能验证真实机器人所需的本地网络权限。") &&
+              LocalNetworkEvidence(commState: .idle)
+                  .explanation(connectionDetail: tr("尚未连接"))
+                  == tr("目前没有机器人连接记录可用于确认网络访问。连接失败时，可先检查本地网络权限。"),
+              "network explanations stay with their evidence state")
+        check(LocalNetworkEvidence(commState: .connected(host: "10.25.90.2")).symbol == "checkmark.circle.fill" &&
+              LocalNetworkEvidence(commState: .connected(host: "127.0.0.1")).symbol == "info.circle" &&
+              LocalNetworkEvidence(commState: .idle).symbol == "info.circle",
+              "network badge symbols stay with their evidence state")
+
+        // 色调语义：success / warning / neutral 分别映射主题语义色；neutral 即 textSecondary
+        check(PermissionTone.success.color == DSTheme.success &&
+              PermissionTone.warning.color == DSTheme.warning &&
+              PermissionTone.neutral.color == DSTheme.textSecondary,
+              "permission tones map to the theme's success, warning and neutral colors")
+
+        // 键盘快捷键：前台本地事件监听无需 Input Monitoring，徽章为 success；页面不得发起权限请求
+        check(permissionsSource.contains("DSBadge(text: tr(\"无需额外授权\"), color: DSTheme.success"),
+              "keyboard shortcuts badge uses the semantic success color")
+        check(!permissionsSource.contains("CGRequestListenEventAccess") &&
+              !permissionsSource.contains("CGRequestPostEventAccess"),
+              "permissions page never requests Input Monitoring or Post Event access")
+        let shortcutsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
+            "Sources/MatchSticksDS/Shortcuts.swift"), encoding: .utf8)) ?? ""
+        check(shortcutsSource.contains("addLocalMonitorForEvents") &&
+              !shortcutsSource.contains("addGlobalMonitorForEvents") &&
+              !shortcutsSource.contains("CGEvent.tapCreate"),
+              "keyboard shortcuts stay foreground-only local monitors that need no Input Monitoring")
+
+        // 防火墙：未检测配置 → 中性灰，不得暗示已授权或被拒绝
+        check(permissionsSource.contains(
+                  "DSBadge(text: tr(\"未检测系统防火墙配置\"), color: PermissionTone.neutral.color"),
+              "firewall badge stays explicitly neutral")
 
         print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
@@ -1542,4 +1797,213 @@ private func renderedAllianceSelectionMatches(_ station: AllianceStation, red: C
     return abs(color.redComponent - red) < tolerance
         && abs(color.greenComponent - green) < tolerance
         && abs(color.blueComponent - blue) < tolerance
+}
+
+// MARK: - Drive 时间线改造：像素/几何分析辅助（2026-11-23）
+//
+// 时间线区段的填充色与 PracticeTimingEditor 的私有配色一一对应：
+// 深蓝 Auto / 灰 Transition / 黄 Transition Shift·Endgame / 蓝·红 Alliance Shift。
+
+/// ImageRenderer 对 ScrollView 不出内容；整页用真实离屏窗口布局后 cacheDisplay 捕获（1 px = 1 pt）。
+@MainActor
+private func windowRenderedBitmap<V: View>(_ view: V, width: Int, height: Int) -> NSBitmapImageRep? {
+    let window = NSWindow(contentRect: NSRect(x: -20_000, y: -20_000, width: width, height: height),
+                          styleMask: [], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    // 强制浅色：窗口默认跟系统外观，深色下面板白底/画布色会污染像素断言。
+    window.appearance = NSAppearance(named: .aqua)
+    let hosting = NSHostingView(rootView: view)
+    window.contentView = hosting
+    window.orderFront(nil)
+    hosting.layoutSubtreeIfNeeded()
+    window.layoutIfNeeded()
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                     isPlanar: false, colorSpaceName: .deviceRGB,
+                                     bytesPerRow: 0, bitsPerPixel: 0) else {
+        window.orderOut(nil)
+        window.close()
+        return nil
+    }
+    rep.size = NSSize(width: width, height: height)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    hosting.cacheDisplay(in: NSRect(x: 0, y: 0, width: width, height: height), to: rep)
+    NSGraphicsContext.current = nil
+    NSGraphicsContext.restoreGraphicsState()
+    window.orderOut(nil)
+    window.close()
+    return rep
+}
+
+private func segmentFill(_ kind: PracticeTimeline.SegmentKind) -> UInt32 {
+    switch kind {
+    case .startDelay, .autoToTeleop: return 0xB9BEC4
+    case .autonomous: return 0x131F25
+    case .transitionShift, .endgame: return 0xF2D14B
+    case .allianceShift1, .allianceShift3, .teleoperated: return 0x007BC0
+    case .allianceShift2, .allianceShift4: return 0xC81623
+    }
+}
+
+private let timelineSegmentHexes: [UInt32] = [0x131F25, 0xB9BEC4, 0xF2D14B, 0xC81623, 0x007BC0]
+
+private func colorComponents(_ hex: UInt32) -> (Double, Double, Double) {
+    (Double((hex >> 16) & 0xFF) / 255, Double((hex >> 8) & 0xFF) / 255, Double(hex & 0xFF) / 255)
+}
+
+private func colorNear(_ bitmap: NSBitmapImageRep, x: Int, y: Int, hex: UInt32, tolerance: Double = 0.06) -> Bool {
+    guard let c = bitmap.colorAt(x: x, y: y) else { return false }
+    let expected = colorComponents(hex)
+    return abs(Double(c.redComponent) - expected.0) <= tolerance
+        && abs(Double(c.greenComponent) - expected.1) <= tolerance
+        && abs(Double(c.blueComponent) - expected.2) <= tolerance
+}
+
+private func colorDistance(_ bitmap: NSBitmapImageRep, x: Int, y: Int, hex: UInt32) -> Double {
+    guard let c = bitmap.colorAt(x: x, y: y) else { return 9 }
+    let expected = colorComponents(hex)
+    let dr = Double(c.redComponent) - expected.0
+    let dg = Double(c.greenComponent) - expected.1
+    let db = Double(c.blueComponent) - expected.2
+    return (dr * dr + dg * dg + db * db).squareRoot()
+}
+
+/// 时间线轨道行：同一行里同时出现深蓝 / 红 / 蓝 / 黄四种区段填充色（滑杆行最多只有一种色调）。
+private func timelineTrackBounds(_ bitmap: NSBitmapImageRep) -> (rows: ClosedRange<Int>, midRow: Int)? {
+    var rows: [Int] = []
+    for y in 0..<bitmap.pixelsHigh {
+        var seen: Set<UInt32> = []
+        for x in stride(from: 0, to: bitmap.pixelsWide, by: 3) {
+            for hex in timelineSegmentHexes where colorNear(bitmap, x: x, y: y, hex: hex) {
+                seen.insert(hex)
+            }
+        }
+        if seen.contains(0x131F25) && seen.contains(0xC81623) && seen.contains(0x007BC0) && seen.contains(0xF2D14B) {
+            rows.append(y)
+        }
+    }
+    guard let first = rows.first, let last = rows.last, last - first <= 100 else { return nil }
+    return (first...last, first + (last - first) / 2)
+}
+
+private func rowsContaining(_ bitmap: NSBitmapImageRep, hex: UInt32) -> [Int] {
+    (0..<bitmap.pixelsHigh).filter { y in
+        stride(from: 0, to: bitmap.pixelsWide, by: 3).contains { colorNear(bitmap, x: $0, y: y, hex: hex) }
+    }
+}
+
+/// 轨道顶部无文字行上的填充色连续游程：两端即该区段的实际渲染边界（圆角只影响首末段 ≤2px）。
+private func fillRunEdges(_ bitmap: NSBitmapImageRep, y: Int, middleX: Int, hex: UInt32) -> (start: Int, end: Int)? {
+    guard colorNear(bitmap, x: middleX, y: y, hex: hex) else { return nil }
+    var start = middleX
+    while start > 0 && colorNear(bitmap, x: start - 1, y: y, hex: hex) { start -= 1 }
+    var end = middleX
+    while end < bitmap.pixelsWide - 1 && colorNear(bitmap, x: end + 1, y: y, hex: hex) { end += 1 }
+    return (start, end)
+}
+
+/// 区段内真实画出文字且秒数可见：标题区（上半）有文字像素；秒数必须在标题块下方
+/// （相对轨道顶 ≥40 行）以真实字形呈现——≥3 个墨迹行、≥8 像素。
+/// 实测基线：560 宽灰色 Transition 段单行秒数被裁剪后仅剩 1 行 3 像素残迹，此规则必须拦下。
+private func segmentShowsText(_ bitmap: NSBitmapImageRep, track: (rows: ClosedRange<Int>, midRow: Int),
+                              start: Int, end: Int, fill: UInt32) -> Bool {
+    let top = track.rows.lowerBound
+    var upper = 0
+    var deepRows = 0
+    var deepPixels = 0
+    for y in max(top + 8, 0)...min(top + 56, bitmap.pixelsHigh - 1) {
+        var rowInk = 0
+        for x in max(start + 1, 0)...min(end - 1, bitmap.pixelsWide - 1) where colorDistance(bitmap, x: x, y: y, hex: fill) > 0.3 {
+            rowInk += 1
+            if y <= top + 31 { upper += 1 }
+        }
+        if y >= top + 40 && rowInk > 0 {
+            deepRows += 1
+            deepPixels += rowInk
+        }
+    }
+    return upper >= 3 && deepRows >= 3 && deepPixels >= 8
+}
+
+private func segmentPixel(_ bitmap: NSBitmapImageRep, y: Int, last: Bool) -> Int? {
+    if last {
+        return stride(from: bitmap.pixelsWide - 1, through: 0, by: -1)
+            .first { x in timelineSegmentHexes.contains { colorNear(bitmap, x: x, y: y, hex: $0) } }
+    }
+    return (0..<bitmap.pixelsWide)
+        .first { x in timelineSegmentHexes.contains { colorNear(bitmap, x: x, y: y, hex: $0) } }
+}
+
+private func pixelsWhere(_ bitmap: NSBitmapImageRep, hex: UInt32,
+                         xRange: Range<Int>, yRange: Range<Int>) -> [(x: Int, y: Int)] {
+    var result: [(x: Int, y: Int)] = []
+    for y in yRange {
+        for x in xRange where colorNear(bitmap, x: x, y: y, hex: hex) {
+            result.append((x, y))
+        }
+    }
+    return result
+}
+
+private func boundingBox(_ pixels: [(x: Int, y: Int)]) -> (minX: Int, maxX: Int, minY: Int, maxY: Int)? {
+    guard let first = pixels.first else { return nil }
+    var box = (minX: first.0, maxX: first.0, minY: first.1, maxY: first.1)
+    for pixel in pixels {
+        box.minX = min(box.minX, pixel.0)
+        box.maxX = max(box.maxX, pixel.0)
+        box.minY = min(box.minY, pixel.1)
+        box.maxY = max(box.maxY, pixel.1)
+    }
+    return box
+}
+
+/// 面板白底的最长横向白条（DSTheme.surface 浅色 = 0xFFFFFF）。
+private func whiteRun(_ bitmap: NSBitmapImageRep, y: Int) -> (start: Int, end: Int) {
+    var best = (start: 0, end: -1)
+    var runStart: Int? = nil
+    for x in 0..<bitmap.pixelsWide {
+        if colorNear(bitmap, x: x, y: y, hex: 0xFFFFFF, tolerance: 0.02) {
+            if runStart == nil { runStart = x }
+        } else if let start = runStart {
+            if x - 1 - start > best.end - best.start { best = (start, x - 1) }
+            runStart = nil
+        }
+    }
+    if let start = runStart, bitmap.pixelsWide - 1 - start > best.end - best.start {
+        best = (start, bitmap.pixelsWide - 1)
+    }
+    return best
+}
+
+private func maxVerticalRun(_ bitmap: NSBitmapImageRep, hex: UInt32) -> Int {
+    var best = 0
+    for x in 0..<bitmap.pixelsWide {
+        var run = 0
+        for y in 0..<bitmap.pixelsHigh {
+            if colorNear(bitmap, x: x, y: y, hex: hex) {
+                run += 1
+                best = max(best, run)
+            } else {
+                run = 0
+            }
+        }
+    }
+    return best
+}
+
+private func maxVerticalRunOutsideRows(_ bitmap: NSBitmapImageRep, hex: UInt32, rows: ClosedRange<Int>) -> Int {
+    var best = 0
+    for x in 0..<bitmap.pixelsWide {
+        var run = 0
+        for y in 0..<bitmap.pixelsHigh where !rows.contains(y) {
+            if colorNear(bitmap, x: x, y: y, hex: hex) {
+                run += 1
+                best = max(best, run)
+            } else {
+                run = 0
+            }
+        }
+    }
+    return best
 }

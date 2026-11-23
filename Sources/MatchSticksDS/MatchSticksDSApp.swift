@@ -6,6 +6,7 @@ struct MatchSticksDSApp: App {
     @State private var model = DSModel()
     @State private var shortcuts = ShortcutManager()
     @State private var updates = UpdateCenter()
+    @State private var windowFlow = DriverStationWindowFlow()
 
     init() {
         if !Bundle.main.bundlePath.hasSuffix(".app") {
@@ -15,7 +16,7 @@ struct MatchSticksDSApp: App {
 
     var body: some Scene {
         Window("MatchSticks DS", id: "main") {
-            RootView(model: model, updates: updates)
+            RootView(model: model, updates: updates, windowFlow: windowFlow)
                 .frame(minWidth: 1040, minHeight: 740)
                 .task {
                     shortcuts.install(model: model)
@@ -23,6 +24,7 @@ struct MatchSticksDSApp: App {
                     updates.attach(model: model)
                     updates.start()
                 }
+                .background(WindowIdentity(identifier: DriverStationWindowPresenter.mainWindowIdentifier))
         }
         .defaultSize(width: 1180, height: 820)
         .windowStyle(.hiddenTitleBar)
@@ -31,12 +33,16 @@ struct MatchSticksDSApp: App {
             CommandGroup(replacing: .newItem) {}
         }
 
+        // 标准标题栏：原生 standardWindowButton（红绿灯/缩放）位置与行为，
+        // 内容不自绘标题栏背景；宽横向驾驶台见 MiniConsoleBar。
         Window("Mini Driver Station", id: "mini") {
-            MiniView(model: model)
-                .frame(minWidth: 400, minHeight: 220)
+            MiniView(model: model, flow: windowFlow)
+                .frame(minWidth: 560, minHeight: 128)
+                .background(WindowIdentity(identifier: DriverStationWindowPresenter.miniWindowIdentifier))
+                .background(MiniWindowCloseObserver { windowFlow.send(.miniWindowClosed) })
         }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        .defaultSize(width: 720, height: 168)
+        .windowResizability(.contentMinSize)
     }
 }
 
@@ -46,6 +52,7 @@ struct MatchSticksDSApp: App {
 struct RootView: View {
     let model: DSModel
     let updates: UpdateCenter
+    let windowFlow: DriverStationWindowFlow
     @State private var selection: Page = .operation
     @State private var simProcess: Process?
     @State private var connectionDraft = ConnectionDraft()
@@ -114,17 +121,28 @@ struct RootView: View {
                 .allowsHitTesting(false)
         }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            // trailing 工具区（macOS 主流 App 右上角位置），不压侧栏与内容间竖线；
+            // 入口点击经窗口流：打开 Mini 并隐藏主窗（Mini 关闭即返回）。
+            ToolbarItem(placement: .confirmationAction) {
                 HStack(spacing: 10) {
-                    Button { openWindow(id: "mini") } label: {
+                    Button { windowFlow.send(.miniEntryTapped) } label: {
                         Label(tr("迷你驾驶台"), systemImage: "pip")
                             .labelStyle(.titleAndIcon)
                     }
                     .buttonStyle(DSActionStyle())
+                    .help(tr("切换到迷你驾驶台；主窗口将隐藏，关闭迷你窗口即可返回。"))
                     UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
                     GitHubStarButton()
                 }
             }
+        }
+        .onAppear { bindWindowFlow() }
+    }
+
+    /// 绑定窗口效果执行器：Mini 窗口不存在时经 SwiftUI openWindow 创建。
+    private func bindWindowFlow() {
+        windowFlow.perform = { effect in
+            DriverStationWindowPresenter.apply(effect, openMini: { openWindow(id: "mini") })
         }
     }
 
