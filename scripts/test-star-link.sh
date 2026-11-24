@@ -35,6 +35,10 @@ app_sources=(
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift
   Sources/MatchSticksDS/GamepadInputManager.swift
+  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickMotion.swift
+  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickSceneView.swift
+  Sources/MatchSticksDS/Views/GamepadArtwork/ArtworkContour.swift
+  Sources/MatchSticksDS/Views/GamepadArtwork/FlightStickSceneView.swift
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift
   Sources/MatchSticksDS/Views/GamepadSkinView.swift
