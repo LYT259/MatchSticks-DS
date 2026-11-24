@@ -28,7 +28,7 @@ echo "▶ SHA256 校验"
 EXPECT="$(curl -fL --retry 2 "$BASE/SHA256SUMS" | awk -v f="$DMG" '$2 == f {print $1}')"
 [ -n "$EXPECT" ] || { echo "✗ SHA256SUMS 中找不到 ${DMG}" >&2; exit 1; }
 GOT="$(shasum -a 256 "$TMP/$DMG" | awk '{print $1}')"
-[ "$GOT" = "$EXPECT" ] || { echo "✗ 校验失败（期望 $EXPECT，得到 $GOT）" >&2; exit 1; }
+[ "$GOT" = "$EXPECT" ] || { echo "✗ 校验失败（期望 ${EXPECT}，得到 ${GOT}）" >&2; exit 1; }
 
 echo "▶ 安装到 /Applications"
 hdiutil attach -quiet -nobrowse -readonly "$TMP/$DMG" -mountpoint "$TMP/mnt"
