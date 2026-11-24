@@ -1,4 +1,4 @@
-# MatchSticks DS
+# MatchSticks Driver Station
 
 **macOS 原生 FRC Driver Station** —— 同时支持 roboRIO 1.0 / roboRIO 2.0（NI 协议）与 SystemCore（MRCCOMM V2 协议，实验性）的驾驶台，严格遵循 Apple 设计语言（SwiftUI 原生）。应用本体只在 macOS 构建与分发；2026-11-23 起验证矩阵覆盖 macOS / Windows / Linux 三平台，但跨平台验证的对象仅是 `DSCore` 协议核心与回归测试（App / UI / E2E 只在 Mac 跑）——**不提供 Windows / Linux 版 App**（见[分支模型](#分支模型)）。协议核心可移植性 ADR：[ADR-0005](docs/decisions/0005-portable-dscore-validation.md)。
 
@@ -22,25 +22,25 @@
 - **安全机制**：UI 主线程心跳看门狗（冻结 >200ms 自动冻结使能输出，robot 侧失包自动 disable）；通信失联 >1.25s 自动失能；使能门禁（无连接 / E-Stop 锁存 / 看门狗异常时拒绝使能，`SafetyGate` 纯逻辑单测覆盖）
 - **应用内更新（Sparkle）**：**stable / beta 两条更新通道**；GitHub 不可达时按退避持续重试（不阻塞使用）→ 发现新版即后台下载 → 界面固定一隅的**圆形更新按钮**，点击展开为胶囊显示下载百分比 → 100% 后转为可点态，点击**经安全门放行**一键重启安装；**安全门**：机器人使能中 / 通信活跃 / 急停锁存期间点击无效（tooltip 说明）——仅「失能 + 未连接 + 无锁存」放行；无强制升级、无全屏弹窗
 - **内置 WebUI**：`http://127.0.0.1:6768`（仅本机）——日志文件列表与下载、设置查看/覆盖（逐键校验）、连接/使能/急停/更新门状态页
-- **摄像头（MOCK）**：独立页显示槽位（点按刷新 + ≥1s 限流）；真实 SystemCore 流协议未核查（协议档案待实测），现由 MatchSticksDSSim 提供自定义 MOCK 图像源（:6769）
+- **摄像头（MOCK）**：独立页显示槽位（点按刷新 + ≥1s 限流）；真实 SystemCore 流协议未核查（协议档案待实测），现由 MatchSticksDriverStaionSim 提供自定义 MOCK 图像源（:6769）
 - **手柄输出（0x2E）**：MRC 应答中的 rumble/LED 输出实时呈现于手柄页（协议侧已核查——编码金样本 + 模拟器端到端同值；物理手柄震动映射待真机）
 - **快捷键**：`Space` = E-Stop · `Enter` = Disable · `[ + ] + \` = Enable · `Esc + I` = E-Stop 复位 · `F1` = 重扫手柄（应用前台；全局后台键属 Phase 4 + Input Monitoring 权限）
 
 ## 内置 roboRIO 模拟器
 
-`MatchSticksDSSim` 在本机扮演 roboRIO（1110/1150/1740 全端口，模拟电池 / CPU / CAN / stdout / 错误流与 reboot / E-Stop / 重启代码时序），**无需实体机器人即可全流程联调**：
+`MatchSticksDriverStaionSim` 在本机扮演 roboRIO（1110/1150/1740 全端口，模拟电池 / CPU / CAN / stdout / 错误流与 reboot / E-Stop / 重启代码时序），**无需实体机器人即可全流程联调**：
 
 ```bash
 # 终端 A
-.build/debug/MatchSticksDSSim
-# 终端 B（MATCHSTICKS_DS_AUTO_SIM=1 自动连接 127.0.0.1）
-MATCHSTICKS_DS_AUTO_SIM=1 .build/debug/MatchSticksDS
+.build/debug/MatchSticksDriverStaionSim
+# 终端 B（MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1 自动连接 127.0.0.1）
+MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1 .build/debug/MatchSticksDriverStaion
 # SystemCore（MRC V2）模式
-.build/debug/MatchSticksDSSim --mrc
-MATCHSTICKS_DS_AUTO_SIM=1 MATCHSTICKS_DS_AUTO_MRC=1 .build/debug/MatchSticksDS
+.build/debug/MatchSticksDriverStaionSim --mrc
+MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1 MATCHSTICKS_DRIVER_STAION_AUTO_MRC=1 .build/debug/MatchSticksDriverStaion
 ```
 
-兼容：旧 `GHDS_AUTO_SIM` / `GHDS_AUTO_MRC` 环境变量仍会被读取；新脚本与文档统一使用 `MATCHSTICKS_DS_*`。
+兼容：旧 `MATCHSTICKS_DRIVER_STATION_AUTO_SIM` / `MATCHSTICKS_DRIVER_STATION_AUTO_MRC`（2026-11-23 中间形态）、更旧 `MATCHSTICKS_DS_AUTO_SIM` / `MATCHSTICKS_DS_AUTO_MRC` 与 `GHDS_AUTO_SIM` / `GHDS_AUTO_MRC` 环境变量仍会被读取；新脚本与文档统一使用 `MATCHSTICKS_DRIVER_STAION_*`。
 
 第三方异构联测：Compatibility Proxy 的 `robot_sim.py`（独立 Python 实现）可直接对接本 DS——实测 UDP V2 控制流、TCP 0x13 OpMode、NT4 26 主题发布/订阅与 45Hz ControlData 下发全部互通。
 
@@ -49,9 +49,9 @@ MATCHSTICKS_DS_AUTO_SIM=1 MATCHSTICKS_DS_AUTO_MRC=1 .build/debug/MatchSticksDS
 **回放模式**（Phase 0「录制即测试」）：
 
 ```bash
-# DS 侧开启抓包录制（Settings 页开关，存至 ~/Library/Application Support/MatchSticksDS/captures/）
+# DS 侧开启抓包录制（Settings 页开关，存至 ~/Library/Application Support/MatchSticksDriverStaion/captures/）
 # 然后用录制文件驱动模拟器应答——DS 端解析与真机逐字节一致：
-.build/debug/MatchSticksDSSim --replay capture-20260916-020000.dsrec
+.build/debug/MatchSticksDriverStaionSim --replay capture-20260916-020000.dsrec
 ```
 
 ## 从源码构建
@@ -64,16 +64,16 @@ MATCHSTICKS_DS_AUTO_SIM=1 MATCHSTICKS_DS_AUTO_MRC=1 .build/debug/MatchSticksDS
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer  # 完整 Xcode（本机已无 Xcode-beta；装了多版本时按实际路径调整）
 swift build
 scripts/test-core.sh    # 完整 DSCoreTests（协议金样本/容错 + 安全门禁/时序机/录制回放/迁移/双语/WebUI/SocketCompat；0 failures）
-scripts/test-ui.sh      # UI 状态干测试（不起 socket 与 HID；0 failures）
-swift run MatchSticksDS   # 运行驾驶台
-scripts/test-update.sh  # Sparkle 本地升级链路 E2E + 安全门双阻断（会启动 App，由主代理串行运行）
+scripts/test-ui.sh      # UI 状态干测试（状态文案/安全门禁/急停锁存与复位快照/连接草稿/设置隔离与地址警告/状态日志/更新流状态机与安全门联动语义；不起 socket 与 HID；0 failures）
+swift run MatchSticksDriverStaion   # 运行驾驶台
+scripts/test-update.sh  # Sparkle 本地升级链路 E2E + 安全门双阻断 + stable/beta 渠道与离线重试（会启动 App，由主代理串行运行）
 scripts/test-e2e.sh     # 打包版 E2E（会启动 App 与模拟器，由主代理串行运行）
 scripts/validate-all.sh # 三平台全量验证统一入口：Mac 全量 + Linux/Windows 完整 DSCoreTests（见「分支模型」）
 ```
 
 ## 安装（GitHub Releases）
 
-1. 从 [Releases](https://github.com/LYT259/MatchSticks-DS/releases) 下载 `MatchSticks-DS-<版本>.dmg`，打开并拖入 Applications；
+1. 从 [Releases](https://github.com/LYT259/MatchSticks-DriverStaion/releases) 下载 `MatchSticks-DriverStaion-<版本>.dmg`，打开并拖入 Applications；
 2. 首次启动：macOS 15+ 需到 **设置 → 隐私与安全性 → 「仍要打开」**（未公证分发的免费方案，每台机器一次性；详见报告 §5.5）；
 3. 连接机器人时允许「本地网络」权限（**机器人连不上第一嫌疑**）；终端 / SSH 启动豁免此权限；
 4. 应用内更新分 **stable** / **beta** 两条通道，读的是**同一个 appcast**（`releases/latest/download/appcast.xml`，即当前 Latest Release 的 `appcast.xml` 附件）：不带 `<sparkle:channel>` 的 stable 默认条目所有客户端可见，带 `<sparkle:channel>beta</sparkle:channel>` 的条目仅 beta 通道客户端可见；两条通道都经同一安全门安装。功能合入 `beta` 且三端全量通过后创建对应 beta Pre-release，并在**同一次 beta 发布操作**里把 beta 条目并入当前 Latest 的 appcast（stable 默认条目原样不动），未全绿不得发布；stable Latest 仍需用户批准 stable 链（合并与发版均须用户明确授权）。发布规则见 [发版工具包](docs/release-kit.md)。
@@ -86,32 +86,32 @@ scripts/validate-all.sh # 三平台全量验证统一入口：Mac 全量 + Linux
 
 ```bash
 # 终端下载（仓库现为 Public：直链可匿名 curl）
-curl -L <release-dmg-url> -o MatchSticks-DS.dmg && hdiutil attach MatchSticks-DS.dmg
+curl -L <release-dmg-url> -o MatchSticks-DriverStaion.dmg && hdiutil attach MatchSticks-DriverStaion.dmg
 # 校验
 shasum -a 256 -c SHA256SUMS
 ```
 
-> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-DS/<ref>/scripts/install.sh | bash`（发版后生效）。Homebrew tap（`LYT259/homebrew-matchsticks-ds`，cask `matchsticks-ds`）与国内镜像：**待建**（物料已备，见 packaging/ 与 mirror/）。
+> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-DriverStaion/<ref>/scripts/install.sh | bash`（发版后生效；远端仓库现已命名为 `LYT259/MatchSticks-DriverStaion`，旧名 URL 自动重定向，见 ADR-0006 §6）。Homebrew tap（`LYT259/homebrew-matchsticks-driver-staion`，cask `matchsticks-driver-staion`）与国内镜像（Cloudflare Pages 项目 `matchsticks-driver-staion-mirror`）：**待建立/验证**（发版前需完成的外部资源；物料已备，见 packaging/ 与 mirror/）。
 
 ## 打包发布
 
 ```bash
-scripts/build-app.sh 0.1.0-alpha.1   # universal .app + ad-hoc 签名 + DMG + SHA256SUMS
+scripts/build-app.sh 0.1.0-alpha.1   # 产出 dist/MatchSticks-DriverStaion-0.1.0-alpha.1.dmg（universal .app + ad-hoc 签名）+ SHA256SUMS
 ```
 
 ## 仓库结构
 
 ```
-Sources/DSCore/               协议核心：NI 编解码、20ms 控制环、看门狗、连接管理（平台无关）
-Sources/MatchSticksDS/        SwiftUI 应用：DSModel 状态源、九页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
-Sources/MatchSticksDSSim/     roboRIO 模拟器（本机端到端验证）
-Tests/DSCoreTests/            协议回归测试（自带 runner）+ 回环集成测试
-Tests/MatchSticksDSUITests/   UI 状态干测试（无 socket/HID/定时器；scripts/test-ui.sh 运行）
-scripts/             图标生成 + 打包/签名工具 + 安装脚本 + 自动发现的 test-*.sh（核心 / UI / 图标 / 文档 / 升级与打包 E2E）+ 三平台全量验证统一入口（validate-all.sh）
-.github/workflows/   仅 Windows 全量验证（GitHub Actions 在本项目的唯一用途）
-packaging/           Homebrew cask 模板（自维护 tap 用）
-mirror/              Cloudflare Pages 镜像（下载页 + appcast 镜像；部署待定）
-docs/                协议档案 / 发版操作单（release-kit）/ 真机台架手册（bench-checklist）/ 架构决策记录（decisions/）
+Sources/DSCore/                        协议核心：NI 编解码、20ms 控制环、看门狗、连接管理（平台无关）
+Sources/MatchSticksDriverStaion/      SwiftUI 应用：DSModel 状态源、九页 UI + 迷你驾驶台、DSStyle 设计系统、HID、快捷键
+Sources/MatchSticksDriverStaionSim/   roboRIO 模拟器（本机端到端验证）
+Tests/DSCoreTests/                     协议回归测试（自带 runner）+ 回环集成测试
+Tests/MatchSticksDriverStaionUITests/ UI 状态干测试（无 socket/HID/定时器；scripts/test-ui.sh 运行）
+scripts/                               图标生成 + 打包/签名工具 + 安装脚本 + 自动发现的 test-*.sh（核心 / UI / 图标 / 文档 / 升级与打包 E2E）+ 三平台全量验证统一入口（validate-all.sh）
+.github/workflows/                     仅 Windows 全量验证（GitHub Actions 在本项目的唯一用途）
+packaging/                             Homebrew cask 模板 `matchsticks-driver-staion`（自维护 tap `LYT259/homebrew-matchsticks-driver-staion` 用）
+mirror/                                Cloudflare Pages 镜像 `matchsticks-driver-staion-mirror`（下载页 + appcast 镜像；部署待定）
+docs/                                  协议档案 / 发版操作单（release-kit）/ 真机台架手册（bench-checklist）/ 架构决策记录（decisions/）
 ```
 
 ## 分支模型
@@ -140,16 +140,16 @@ docs/                协议档案 / 发版操作单（release-kit）/ 真机台�
 | Phase 3 | MRCCOMM V2 协议栈 ✅（金样本验证）+ NT4 server（6767，异构联测通过）+ OpMode 选择 ✅（Alerts/Display 待真机核对） | ✅ 协议层完成 |
 | Phase 4 | 迷你视图 ✅、权限引导页 ✅、应用内更新（Sparkle，含安全门与本地升级链路 E2E）✅、内置 WebUI ✅、摄像头 MOCK 通道 + DS 槽位 ✅（真实协议待真机）、0x2E 手柄输出协议侧 ✅（物理震动待真机）、打包版 E2E ✅、分发配套 ✅；余全局后台快捷键与真机联调项（[台架手册](docs/bench-checklist.md)） | ✅ 无硬件部分完成 |
 
-## 改名与兼容（2026-11-22）
+## 改名与兼容（2026-11-22 / 2026-11-23 / 2026-11-24）
 
-本仓库自 2026-11-22 起由 **GH Driver Station** 更名为 **MatchSticks DS**（仓库 `LYT259/MatchSticks-DS`）。兼容约定：
+本仓库自 2026-11-22 起由 **GH Driver Station** 更名为 **MatchSticks DS**，2026-11-23 二级更名为 **MatchSticks Driver Station**，2026-11-24 按用户指定把无空格名称修正为 **`MatchSticks-DriverStaion`**（"Staion" 少一个 o，属用户指定拼写，原样使用；仓库 `LYT259/MatchSticks-DriverStaion`）。带空格显示名仍为 **MatchSticks Driver Station**；2026-11-23 的中间形态 `MatchSticks-Driver-Station` / `MatchSticksDriverStation` / `MATCHSTICKS_DRIVER_STATION_*` 降级为兼容别名。兼容约定：
 
 - 应用 bundle ID 保持 `org.ghfrc.driverstation`，设置域与 Sparkle 更新链延续；旧版可直接用新版应用替换，旧数据按下方规则迁移；
-- 设置键使用新前缀 `matchsticks.`，新键缺失时回退读取旧 `ghds.*`；环境变量使用新前缀 `MATCHSTICKS_DS_`，旧 `GHDS_*` 继续兼容读取；
-- 数据目录改为 `~/Library/Application Support/MatchSticksDS`，启动时从旧 `GHDriverStation` 保留式迁移——旧目录与旧数据不删除、不覆盖；
+- 设置键前缀保持 `matchsticks.` 不变（新键缺失时回退读取旧 `ghds.*`；二级更名与拼写修正均有意不引入新设置前缀）；环境变量使用 `MATCHSTICKS_DRIVER_STAION_*`，缺失时依次回退 `MATCHSTICKS_DRIVER_STATION_*`、`MATCHSTICKS_DS_*`、`GHDS_*`；
+- 数据目录改为 `~/Library/Application Support/MatchSticksDriverStaion`，启动时从 `MatchSticksDriverStation`、`MatchSticksDS` 与 `GHDriverStation` 链式保留式迁移——旧目录与旧数据不删除、不覆盖；新目录无法创建或不可写时，`SupportDirectory` 按 `MatchSticksDriverStation → MatchSticksDS → GHDriverStation` 选择第一个已存在且可写的旧目录，均不存在则按需创建 `GHDriverStation`，回退时不向旧目录迁移；
 - `.dsrec` 魔数保持 `GHDSREC1`，旧录制文件可直接回放；Sparkle Ed25519 密钥路径不变。
 
-完整映射与兼容理由见 [ADR-0001](docs/decisions/0001-matchsticks-ds-rename.md)。
+完整映射与兼容理由见 [ADR-0001](docs/decisions/0001-matchsticks-ds-rename.md) 与 [ADR-0006](docs/decisions/0006-matchsticks-driver-staion-rename.md)。
 
 ## 许可与合规
 

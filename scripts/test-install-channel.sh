@@ -1,5 +1,5 @@
 #!/bin/bash
-# MatchSticks DS 终端安装通道与门禁回归测试。
+# MatchSticks Driver Station 终端安装通道与门禁回归测试。
 # 执行真实 install.sh / shasum；PATH 假命令隔离 GitHub、DMG 挂载与 /Applications。
 # 可由 validate-all.sh 按 test-*.sh 自动发现，不需要网络或真实安装包。
 set -euo pipefail
@@ -49,10 +49,10 @@ if [ -n "${INSTALL_TEST_FAIL_URL:-}" ] && [ "$url" = "$INSTALL_TEST_FAIL_URL" ];
     exit 22
 fi
 case "$url" in
-    "https://api.github.com/repos/LYT259/MatchSticks-DS/releases") cat "$INSTALL_TEST_LIST_JSON" ;;
-    "https://api.github.com/repos/LYT259/MatchSticks-DS/releases/latest") cat "$INSTALL_TEST_LATEST_JSON" ;;
-    https://github.com/LYT259/MatchSticks-DS/releases/download/*/SHA256SUMS) cat "$INSTALL_TEST_SUMS" ;;
-    https://github.com/LYT259/MatchSticks-DS/releases/download/*/MatchSticks-DS-*.dmg)
+    "https://api.github.com/repos/LYT259/MatchSticks-DriverStaion/releases") cat "$INSTALL_TEST_LIST_JSON" ;;
+    "https://api.github.com/repos/LYT259/MatchSticks-DriverStaion/releases/latest") cat "$INSTALL_TEST_LATEST_JSON" ;;
+    https://github.com/LYT259/MatchSticks-DriverStaion/releases/download/*/SHA256SUMS) cat "$INSTALL_TEST_SUMS" ;;
+    https://github.com/LYT259/MatchSticks-DriverStaion/releases/download/*/MatchSticks-DriverStaion-*.dmg)
         [ -n "$out" ] || exit 64
         /bin/cp "$INSTALL_TEST_DMG" "$out"
         ;;
@@ -81,21 +81,21 @@ printf '%s\n' "$*" >> "$INSTALL_TEST_CP_LOG"
 EOF
 chmod +x "$BIN"/*
 
-API="https://api.github.com/repos/LYT259/MatchSticks-DS"
+API="https://api.github.com/repos/LYT259/MatchSticks-DriverStaion"
 STABLE="v1.4.2"
 BETA="v1.5.0-beta.1"
-STABLE_BASE="https://github.com/LYT259/MatchSticks-DS/releases/download/$STABLE"
-BETA_BASE="https://github.com/LYT259/MatchSticks-DS/releases/download/$BETA"
-STABLE_DMG="$STABLE_BASE/MatchSticks-DS-1.4.2.dmg"
-BETA_DMG="$BETA_BASE/MatchSticks-DS-1.5.0-beta.1.dmg"
+STABLE_BASE="https://github.com/LYT259/MatchSticks-DriverStaion/releases/download/$STABLE"
+BETA_BASE="https://github.com/LYT259/MatchSticks-DriverStaion/releases/download/$BETA"
+STABLE_DMG="$STABLE_BASE/MatchSticks-DriverStaion-1.4.2.dmg"
+BETA_DMG="$BETA_BASE/MatchSticks-DriverStaion-1.5.0-beta.1.dmg"
 printf 'stable-test-dmg\n' > "$WORK/fixtures/payload.dmg"
 PAYLOAD_SHA="$(shasum -a 256 "$WORK/fixtures/payload.dmg" | awk '{print $1}')"
-printf '%s  MatchSticks-DS-1.4.2.dmg\n%s  MatchSticks-DS-1.5.0-beta.1.dmg\n' \
+printf '%s  MatchSticks-DriverStaion-1.4.2.dmg\n%s  MatchSticks-DriverStaion-1.5.0-beta.1.dmg\n' \
     "$PAYLOAD_SHA" "$PAYLOAD_SHA" > "$WORK/fixtures/SHA256SUMS"
 cat > "$WORK/fixtures/latest.json" <<EOF
 {
   "tag_name": "$STABLE",
-  "name": "MatchSticks DS 1.4.2",
+  "name": "MatchSticks Driver Station 1.4.2",
   "draft": false,
   "prerelease": false,
   "created_at": "2026-11-01T00:00:00Z",
@@ -106,7 +106,7 @@ cat > "$WORK/fixtures/releases.json" <<EOF
 [
   {
     "tag_name": "$BETA",
-    "name": "MatchSticks DS 1.5.0 beta 1",
+    "name": "MatchSticks Driver Station 1.5.0 beta 1",
     "draft": false,
     "prerelease": true,
     "created_at": "2026-11-23T00:00:00Z",
@@ -114,7 +114,7 @@ cat > "$WORK/fixtures/releases.json" <<EOF
   },
   {
     "tag_name": "$STABLE",
-    "name": "MatchSticks DS 1.4.2",
+    "name": "MatchSticks Driver Station 1.4.2",
     "draft": false,
     "prerelease": false,
     "created_at": "2026-11-01T00:00:00Z",
@@ -197,7 +197,7 @@ assert_not_installed "DMG 失败不调用安装命令" "$CASE"
 echo "▶ T6 SHA256 不匹配：不挂载、不安装"
 CASE="$(new_case sha-mismatch)"
 MISMATCH_SHA="0000000000000000000000000000000000000000000000000000000000000000"
-printf '%s  MatchSticks-DS-1.4.2.dmg\n' "$MISMATCH_SHA" > "$CASE/SHA256SUMS"
+printf '%s  MatchSticks-DriverStaion-1.4.2.dmg\n' "$MISMATCH_SHA" > "$CASE/SHA256SUMS"
 if INSTALL_TEST_SUMS="$CASE/SHA256SUMS" run_installer "$CASE" "$STABLE"; then
     bad "SHA256 不匹配时安装竟然成功"
 else

@@ -1,6 +1,6 @@
 # ADR-0001：产品更名为 MatchSticks DS（命名映射与兼容边界）
 
-- 状态：已接受（Accepted）
+- 状态：已接受（Accepted）——2026-11-23 起「MatchSticks DS」相关命名由 [ADR-0006](0006-matchsticks-driver-staion-rename.md) 二级更名取代，本文按历史记录保留（兼容例外与迁移语义延续有效）
 - 日期：2026-11-22
 - 决策：产品所有者（LYT259）
 - 编号核查：新建前检查本地全部分支与 `origin/*` 的 `docs/decisions/`，该目录在所有分支均不存在，无既有 ADR；按仓库约定「全分支最大号 +1」，本 ADR 取 `0001`。

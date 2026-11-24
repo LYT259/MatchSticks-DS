@@ -12,12 +12,12 @@
 
 ## 0. 台架准备
 
-> 2026-11-22 更名：应用为 `MatchSticks DS`，模拟器可执行为 `MatchSticksDSSim`；环境变量用 `MATCHSTICKS_DS_*`（旧 `GHDS_*` 仍兼容读取）；数据目录为 `~/Library/Application Support/MatchSticksDS`（旧 `GHDriverStation` 保留，不删除）。
+> 2026-11-23 二级更名、2026-11-24 无空格拼写修正：应用为 `MatchSticks Driver Station`，模拟器可执行为 `MatchSticksDriverStaionSim`；环境变量用 `MATCHSTICKS_DRIVER_STAION_*`（旧 `MATCHSTICKS_DRIVER_STATION_*`、`MATCHSTICKS_DS_*` 与更旧 `GHDS_*` 仍按序回退读取）；数据目录为 `~/Library/Application Support/MatchSticksDriverStaion`（旧 `MatchSticksDriverStation`、`MatchSticksDS` 与 `GHDriverStation` 链式保留，不删除）。
 
 - [ ] DS 装「仍要打开」流程走通（首次）；本地网络授权「允许」已点
 - [x] `bash scripts/test-e2e.sh` 本机全绿（打包版基线）
 - [ ] 抓包开启：Settings 页抓包录制（.dsrec）全程留存；镜像 lsusb/系统报告
-- [x] MatchSticksDSSim 回归先跑一遍作对照（`swift run DSCoreTests` 全绿基线）
+- [x] MatchSticksDriverStaionSim 回归先跑一遍作对照（`swift run DSCoreTests` 全绿基线）
 
 ## 1. MRC / SystemCore（真机抓包比对）
 
@@ -26,7 +26,7 @@
 - [ ] **/Dscomm/* 机器人侧回写键位**：OpModeSelection 等（NT4 6767 通道已联测，
       键位以真机为准）
 - [ ] **console/error TCP tag id**（0x0B–0x19 范围内确定具体值）
-- [ ] **摄像头流协议**：现仅 MOCK 通道（MatchSticksDSSim :6769 HTTP JPEG）；抓真机流，
+- [ ] **摄像头流协议**：现仅 MOCK 通道（MatchSticksDriverStaionSim :6769 HTTP JPEG）；抓真机流，
       定协议（容器/端口/限流语义），按实物替换 DS 侧数据源（UI 槽位与限流保留）
 - [ ] **0x2E → 物理手柄震动**：协议侧已核查（编码金样本 + 端到端同值）；真机发
       不同 rumble 值观察手柄震动强度/通道对应（L/R/双扳机），必要时调整映射
@@ -87,7 +87,7 @@
 ### 2B-1. macOS 本地网络权限（连接失败第一嫌疑）
 
 - [ ] 打包版首次启动出现本地网络弹窗并点「允许」；系统设置 → 隐私与安全性 → 本地网络中
-      MatchSticks DS 处于开启；PermissionsView 自检页复核
+      MatchSticks Driver Station 处于开启；PermissionsView 自检页复核
 - [ ] 权限专项一律用 Finder/`open` 启动 GUI：Terminal 直执行 .app 内二进制属 CLI 启动、
       权限豁免/归属改变，「命令行能通、GUI 连不上」属预期差异，不得据此误判协议问题
 
@@ -127,7 +127,7 @@
 ### 2B-5. 零应答判别：协议漂移 vs 机器人静默（原始异常收包日志）
 
 - [ ] 现象复现（.dsrec：controlOut 持续、responseIn=0）时，先读持久化事件日志（应用内
-      事件列表只留 1000 行滑窗，须用 `open --env MATCHSTICKS_DS_LOG_FILE=…` 启动留档）：
+      事件列表只留 1000 行滑窗，须用 `open --env MATCHSTICKS_DRIVER_STAION_LOG_FILE=…` 启动留档）：
       出现「无法解码应答（来自 10.T.E.2，n 字节，前缀 …）——已丢弃，不建立连接」=
       **有包但解码失败 → 协议漂移嫌疑**：留存日志 + pcap + 首包 hex，差异回写协议档案，
       改解码逻辑必须走 feat/fix 分支 + 金样本回归，不当场改判
@@ -140,7 +140,7 @@
 - [ ] 「控制环吞吐：… Hz」汇总行全程 ≥40Hz（E2E 同门限；协议名义 50Hz），无 10-31 的
       33→6Hz 塌陷趋势；按分钟重算 .dsrec 复核（方法同 10-31）
 - [ ] UI stall 行（>100ms 探针）从 10-31 的数千条/10 分钟降至个位或零；>200ms 看门狗
-      触发 0 次；仍密集 → 带 `MATCHSTICKS_DS_LOG_STDERR=1` 复测定位，不勾选
+      触发 0 次；仍密集 → 带 `MATCHSTICKS_DRIVER_STAION_LOG_STDERR=1` 复测定位，不勾选
 - [ ] 看门狗若触发：必须伴随自动失能 + 事件日志「看门狗触发…」留痕，恢复后不自动重新
       使能（需人工）
 
@@ -166,8 +166,8 @@
 ### 2B-9. 证据归档（每会话；公开文档只引用脱敏名）
 
 - [ ] `.dsrec`（Settings 页抓包全程开，captures/ 目录）、`.wpilog`/`.dslog`
-      （`~/Library/Application Support/MatchSticksDS/Logs/`）
-- [ ] `MATCHSTICKS_DS_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（机器人/权限页）
+      （`~/Library/Application Support/MatchSticksDriverStaion/Logs/`）
+- [ ] `MATCHSTICKS_DRIVER_STAION_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（机器人/权限页）
 - [ ] tcpdump pcap + 2B-2 判别命令的终端输出（nc/lsof/roboRIO 侧 ss）+ 如复用 10-31 的
       JSONL 监测则一并；全部收入当日证据目录（持久路径，勿只放 /tmp），工程日志记路径
 

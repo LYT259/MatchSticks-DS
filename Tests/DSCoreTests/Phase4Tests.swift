@@ -60,7 +60,7 @@ import DSCore
 
 func makeWebUITempEnv() -> (WebUIServer.Environment, URL) {
     let dir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("matchsticks-ds-webui-test-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("matchsticks-driver-staion-webui-test-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     var store: [String: String] = ["teamNumber": "2590", "soundsEnabled": "true"]
     let env = WebUIServer.Environment(
@@ -93,7 +93,7 @@ func webuiRoutingTests() {
 
     // 首页
     let index = WebUIServer.route(method: "GET", target: "/", body: Data(), env: env)
-    check(index.status == 200 && String(data: index.body, encoding: .utf8)?.contains("MatchSticks DS") == true,
+    check(index.status == 200 && String(data: index.body, encoding: .utf8)?.contains("MatchSticks Driver Station") == true,
           "index page serves")
 
     // 状态

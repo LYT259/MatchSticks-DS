@@ -20,41 +20,41 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   Sources/DSCore/*.swift "$BUILD_DIR/BundleModuleShim.swift" \
   -o "$BUILD_DIR/libDSCore.dylib"
 app_sources=(
-  Sources/MatchSticksDS/DSModel.swift
-  Sources/MatchSticksDS/LocalNetworkDiscovery.swift
-  Sources/MatchSticksDS/HIDInputManager.swift
-  Sources/MatchSticksDS/MacStatusMonitor.swift
-  Sources/MatchSticksDS/Views/DSStyle.swift
-  Sources/MatchSticksDS/Views/DSControls.swift
-  Sources/MatchSticksDS/PracticeAudioPlayer.swift
-  Sources/MatchSticksDS/PracticeCountdownSpeech.swift
-  Sources/MatchSticksDS/UpdateFlow.swift
-  Sources/MatchSticksDS/MainWindowDoubleClick.swift
-  Sources/MatchSticksDS/Shortcuts.swift
-  Sources/MatchSticksDS/XInputUSB/F310XInputReport.swift
-  Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift
-  Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift
-  Sources/MatchSticksDS/GamepadInputManager.swift
-  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickMotion.swift
-  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickSceneView.swift
-  Sources/MatchSticksDS/Views/GamepadArtwork/ArtworkContour.swift
-  Sources/MatchSticksDS/Views/GamepadArtwork/FlightStickSceneView.swift
-  Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift
-  Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift
-  Sources/MatchSticksDS/Views/GamepadSkinView.swift
-  Sources/MatchSticksDS/AppIconAppearance.swift
-  Sources/MatchSticksDS/Views/GitHubStarButton.swift
+  Sources/MatchSticksDriverStaion/DSModel.swift
+  Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift
+  Sources/MatchSticksDriverStaion/HIDInputManager.swift
+  Sources/MatchSticksDriverStaion/MacStatusMonitor.swift
+  Sources/MatchSticksDriverStaion/Views/DSStyle.swift
+  Sources/MatchSticksDriverStaion/Views/DSControls.swift
+  Sources/MatchSticksDriverStaion/PracticeAudioPlayer.swift
+  Sources/MatchSticksDriverStaion/PracticeCountdownSpeech.swift
+  Sources/MatchSticksDriverStaion/UpdateFlow.swift
+  Sources/MatchSticksDriverStaion/MainWindowDoubleClick.swift
+  Sources/MatchSticksDriverStaion/Shortcuts.swift
+  Sources/MatchSticksDriverStaion/XInputUSB/F310XInputReport.swift
+  Sources/MatchSticksDriverStaion/XInputUSB/F310XInputLifecycle.swift
+  Sources/MatchSticksDriverStaion/XInputUSB/F310XInputManager.swift
+  Sources/MatchSticksDriverStaion/GamepadInputManager.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadArtwork/ThumbstickMotion.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadArtwork/ThumbstickSceneView.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadArtwork/ArtworkContour.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadArtwork/FlightStickSceneView.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadArtwork/GamepadArtwork.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadArtwork/GamepadArtworkOverlay.swift
+  Sources/MatchSticksDriverStaion/Views/GamepadSkinView.swift
+  Sources/MatchSticksDriverStaion/AppIconAppearance.swift
+  Sources/MatchSticksDriverStaion/Views/GitHubStarButton.swift
 )
-if [ -f Sources/MatchSticksDS/UpdateChannel.swift ]; then
-  app_sources+=(Sources/MatchSticksDS/UpdateChannel.swift)
+if [ -f Sources/MatchSticksDriverStaion/UpdateChannel.swift ]; then
+  app_sources+=(Sources/MatchSticksDriverStaion/UpdateChannel.swift)
 else
-  echo "Integration checklist: merge feat/auto-update-channels, then rerun test-star-link.sh to compile Sources/MatchSticksDS/UpdateChannel.swift."
+  echo "Integration checklist: merge feat/auto-update-channels, then rerun test-star-link.sh to compile Sources/MatchSticksDriverStaion/UpdateChannel.swift."
 fi
 
 swiftc -parse-as-library -swift-version 5 \
   -I "$BUILD_DIR" -L "$BUILD_DIR" -lDSCore \
   "${app_sources[@]}" \
   "$BUILD_DIR/BundleModuleShim.swift" \
-  Tests/MatchSticksDSUITests/GitHubStarButtonTests.swift \
+  Tests/MatchSticksDriverStaionUITests/GitHubStarButtonTests.swift \
   -o "$BUILD_DIR/GitHubStarButtonTests"
 "$BUILD_DIR/GitHubStarButtonTests"
