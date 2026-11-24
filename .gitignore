@@ -16,6 +16,7 @@ scripts/AppIcon.iconset/
 AGENTS.md
 CLAUDE.md
 .claude/
+docs/superpowers/
 分发安装更新_待入册草案.md
 
 # 工程日志（沿 GHPaths 分家修订：只留工作区本地，不入公开库）

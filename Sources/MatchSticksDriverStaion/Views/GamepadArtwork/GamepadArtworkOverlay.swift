@@ -25,10 +25,8 @@ struct GamepadArtworkOverlay: View {
             GeometryReader { geometry in
                 let container = geometry.size
                 ZStack(alignment: .topLeading) {
-                    artworkImage(spec.imageName, removingStickCaps: true)
                     if spec.movingImageName != nil {
                         flightAssembly(in: container)
-                        fixedFlightControls(in: container)
                     } else {
                         stick(.leftStick, state: state.leftStick,
                               usage: (layout.stickUsage.lx, layout.stickUsage.ly),
@@ -50,44 +48,13 @@ struct GamepadArtworkOverlay: View {
         }
     }
 
-    @ViewBuilder private func artworkImage(_ name: String, removingStickCaps: Bool = false) -> some View {
-        if let image = removingStickCaps ?
-            GamepadArtworkImageSource.imageWithoutStickCaps(
-                named: name, capRegions: [.leftStickCap, .rightStickCap].compactMap { spec.regions[$0] }) :
-            GamepadArtworkImageSource.image(named: name) {
-            Image(nsImage: image)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .accessibilityHidden(true)
-        } else {
-            Color.red
-                .accessibilityLabel(tr("手柄图片缺失：%@", name))
-        }
-    }
-
     private func flightAssembly(in container: CGSize) -> some View {
-        let pose = spec.flightPose(left: state.leftStick, twist: state.rightStick, in: container)
-        let anchor = spec.flightAnchor(in: container)
-        return ZStack(alignment: .topLeading) {
-            if let name = spec.movingImageName { artworkImage(name) }
-            movingControls(in: container)
-            trigger(.triggerL, state: state.triggerL,
-                    help: help.trigger(layout.triggerUsage.lt, layout.triggerButton.l), in: container)
-            Color.clear
-                .frame(width: 80, height: 80)
-                .position(spec.flightPivot ?? .zero)
-                .help(help.stick(layout.stickUsage.lx, layout.stickUsage.ly, layout.stickPress.l))
-                .accessibilityElement()
-                .accessibilityLabel(tr("主摇杆与 Z 扭转"))
-                .accessibilityValue(tr("X %+.2f，Y %+.2f，Z %+.2f",
-                                       state.leftStick.x, state.leftStick.yUp, state.rightStick.x))
-        }
-        .frame(width: container.width, height: container.height)
-        .rotation3DEffect(.degrees(pose.pitch), axis: (x: 1, y: 0, z: 0), anchor: anchor)
-        .rotation3DEffect(.degrees(pose.roll), axis: (x: 0, y: 1, z: 0), anchor: anchor)
-        .rotationEffect(.degrees(pose.twist), anchor: anchor)
-        .offset(pose.offset)
+        FlightStickScene(spec: spec, state: state, container: container, help: help, layout: layout)
+            .help(help.stick(layout.stickUsage.lx, layout.stickUsage.ly, layout.stickPress.l))
+            .accessibilityElement()
+            .accessibilityLabel(tr("主摇杆与 Z 扭转"))
+            .accessibilityValue(tr("X %+.2f，Y %+.2f，Z %+.2f",
+                                   state.leftStick.x, state.leftStick.yUp, state.rightStick.x))
     }
 
     @ViewBuilder private func movingControls(in container: CGSize) -> some View {
@@ -122,31 +89,17 @@ struct GamepadArtworkOverlay: View {
         region(.modeLED, pressed: false, help: nil, shape: .ellipse, in: container)
     }
 
-    @ViewBuilder private func fixedFlightControls(in container: CGSize) -> some View {
-        region(.shoulderL, pressed: state.shoulderL,
-               help: help.button(layout.shoulder.l), shape: .rounded, in: container)
-        region(.shoulderR, pressed: state.shoulderR,
-               help: help.button(layout.shoulder.r), shape: .rounded, in: container)
-        trigger(.triggerR, state: state.triggerR,
-                help: help.trigger(layout.triggerUsage.rt, layout.triggerButton.r), in: container)
-        fixedControls(in: container)
-    }
-
     @ViewBuilder private func stick(_ region: GamepadArtworkRegion, state: GamepadStickState,
                                     usage: (x: UInt32, y: UInt32?), press: Int?, in container: CGSize) -> some View {
-        let capRegion: GamepadArtworkRegion = region == .leftStick ? .leftStickCap : .rightStickCap
-        let cap = spec.region(capRegion, in: container)
-        if cap.width > 0, cap.height > 0,
-           let source = sourceImage?.cgImage(forProposedRect: nil, context: nil, hints: nil),
-           let crop = GamepadArtworkImageSource.crop(source, rect: spec.regions[capRegion] ?? .zero) {
-            let photo = NSImage(cgImage: crop, size: cap.size)
-            NativeStickCap(image: photo, rect: cap,
-                           offset: spec.stickCapOffset(for: region, state: state, in: container),
-                           pressed: state.pressed)
+        if let sourceImage {
+            ThumbstickScene(spec: spec, region: region, state: state, container: container, sourceImage: sourceImage)
                 .help(help.stick(usage.x, usage.y, press))
                 .accessibilityElement()
                 .accessibilityLabel(region == .leftStick ? tr("左摇杆") : tr("右摇杆"))
                 .accessibilityValue(state.pressed ? tr("已按下") : tr("X %+.2f，Y %+.2f", state.x, state.yUp))
+        } else {
+            Color.red
+                .accessibilityLabel(tr("手柄图片缺失：%@", spec.imageName))
         }
     }
 
@@ -271,24 +224,6 @@ struct GamepadArtworkOverlay: View {
             return CGRect(x: rect.midX, y: rect.midY - rect.height / 4,
                           width: rect.width / 2, height: rect.height / 2)
         }
-    }
-}
-
-struct NativeStickCap: View {
-    let image: NSImage
-    let rect: CGRect
-    let offset: CGSize
-    let pressed: Bool
-
-    var body: some View {
-        Image(nsImage: image)
-            .resizable()
-            .interpolation(.high)
-            .mask(Ellipse())
-            .frame(width: rect.width, height: rect.height)
-            .overlay(Ellipse().strokeBorder(Color.accentColor, lineWidth: 2).opacity(pressed ? 1 : 0))
-            .offset(offset)
-            .position(x: rect.midX, y: rect.midY)
     }
 }
 
