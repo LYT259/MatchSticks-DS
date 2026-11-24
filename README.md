@@ -76,15 +76,17 @@ scripts/validate-all.sh # 三平台全量验证统一入口：Mac 全量 + Linux
 1. 从 [Releases](https://github.com/LYT259/MatchSticks-DS/releases) 下载 `MatchSticks-DS-<版本>.dmg`，打开并拖入 Applications；
 2. 首次启动：macOS 15+ 需到 **设置 → 隐私与安全性 → 「仍要打开」**（未公证分发的免费方案，每台机器一次性；详见报告 §5.5）；
 3. 连接机器人时允许「本地网络」权限（**机器人连不上第一嫌疑**）；终端 / SSH 启动豁免此权限；
-4. 应用内更新分 **stable** / **beta** 两条通道，读的是**同一个 appcast**（`releases/latest/download/appcast.xml`，即当前 Latest Release 的 `appcast.xml` 附件）：不带 `<sparkle:channel>` 的 stable 默认条目所有客户端可见，带 `<sparkle:channel>beta</sparkle:channel>` 的条目仅 beta 通道客户端可见；两条通道都经同一安全门安装。创建 beta Release 与修改当前 Latest Release 的 appcast 附件均须用户明确授权，发布规则见 [发版工具包](docs/release-kit.md)。
+4. 应用内更新分 **stable** / **beta** 两条通道，读的是**同一个 appcast**（`releases/latest/download/appcast.xml`，即当前 Latest Release 的 `appcast.xml` 附件）：不带 `<sparkle:channel>` 的 stable 默认条目所有客户端可见，带 `<sparkle:channel>beta</sparkle:channel>` 的条目仅 beta 通道客户端可见；两条通道都经同一安全门安装。功能合入 `beta` 且三端全量通过后创建对应 beta Pre-release，并在**同一次 beta 发布操作**里把 beta 条目并入当前 Latest 的 appcast（stable 默认条目原样不动），未全绿不得发布；stable Latest 仍需用户批准 stable 链（合并与发版均须用户明确授权）。发布规则见 [发版工具包](docs/release-kit.md)。
 
-> **生产自动更新可用性前提（尚未满足）**：仓库目前为 Private，匿名读取 Latest appcast 返回 404，Cloudflare 镜像尚未部署。必须先提供匿名可读的同一 Latest appcast、确认客户端实际 feed 地址指向可匿名读取的位置，并部署镜像、回读验证；在此之前**不得宣称现网应用内更新可用**，本地升级 E2E 也不构成生产可用证据。
+> **生产自动更新可用性前提（2026-11-24 回读，部分满足）**：仓库现为 Public，匿名 Latest appcast 返回 200；Cloudflare 镜像尚未部署。镜像部署并回读、真实客户端升级实测通过之前，**不得宣称现网应用内更新可用**，本地升级 E2E 也不构成生产可用证据。
+>
+> **Release 标题与 Pre-release 规则（2026-11-24 起）**：GitHub Release 标题只写版本号（= tag，如 `v0.1.0-alpha.8`），不得在标题写改动内容、功能名、Phase、摘要或破折号；改动内容只放 Release 正文。GitHub 仓库首页与 Releases 页顶部只突出 Latest，完整列表才会展示所有带 Pre-release 标记的版本——所以每个合入 `beta` 且三端全量通过的功能都有一个对应的 beta Pre-release（不标记为 Latest）。历史 Release 本轮不改写，批量改历史须另行点名。
 
 安装 / 校验：
 
 ```bash
-# 终端下载（仓库现为 Private：直链 curl 需带 GitHub 凭证，浏览器下载不受影响）
-curl -L -H "Authorization: Bearer <token>" <release-dmg-url> -o MatchSticks-DS.dmg && hdiutil attach MatchSticks-DS.dmg
+# 终端下载（仓库现为 Public：直链可匿名 curl）
+curl -L <release-dmg-url> -o MatchSticks-DS.dmg && hdiutil attach MatchSticks-DS.dmg
 # 校验
 shasum -a 256 -c SHA256SUMS
 ```
@@ -114,7 +116,7 @@ docs/                协议档案 / 发版操作单（release-kit）/ 真机台�
 
 ## 分支模型
 
-`feat/*`、`fix/*`、`docs/*` → PR → **beta**（集成分支）→ 累计用户可感知改动达标后提醒用户 → **用户明确同意** → 重新跑三平台全量验证 → **stable**（稳定分支名 = `stable`；**主干与发布基线**，仓库默认分支；Latest Release 从 stable 打 tag）。
+`feat/*`、`fix/*`、`docs/*` → PR → **beta**（集成分支）→ 累计用户可感知改动达标后提醒用户 → **用户明确同意** → 重新跑三平台全量验证 → **stable**（稳定分支名 = `stable`；**主干与发布基线**，仓库默认分支；Latest Release 从 stable 打 tag）。GitHub Releases 的标题只写版本号（= tag）：合入 `beta` 且三端全量通过的功能先有对应的 beta Pre-release（不标记为 Latest），`stable` 发布后才标记为 Latest Release——规则见 [发版工具包](docs/release-kit.md) 第六节。
 
 ### 三平台全量验证（发版门禁）
 
