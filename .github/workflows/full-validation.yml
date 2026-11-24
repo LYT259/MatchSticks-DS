@@ -133,6 +133,8 @@ jobs:
           if (-not $sdkRoot) {
             throw "Windows SDK (Windows.sdk) not found for toolchain ${toolchainVersion}: neither an SDKROOT environment variable under $platformsRoot nor $platformsRoot\$toolchainVersion\Windows.platform\Developer\SDKs\Windows.sdk"
           }
+          # 安装器写进注册表的目录属性带末尾反斜杠（…\Windows.sdk\）；统一去掉再导出。
+          $sdkRoot = $sdkRoot.TrimEnd('\')
           Add-Content -Path $env:GITHUB_ENV -Value "SDKROOT_VALUE=$sdkRoot"
 
       - name: Build and run DSCoreTests (native Winsock, Git Bash)
@@ -150,7 +152,20 @@ jobs:
           swift --version
           if errorlevel 1 exit 1
           echo SDKROOT=%SDKROOT%
-          "C:\Program Files\Git\bin\bash.exe" scripts/test-core.sh
+          "C:\Program Files\Git\bin\bash.exe" scripts/test-core.sh && exit /b 0
+          rem test-core.sh failed: the lines below only collect evidence. No retry; the step still fails.
+          echo ::group::Diagnosis - verbose SwiftPM output. The step above already failed.
+          swift build --verbose --product DSCoreTests
+          echo ::endgroup::
+          echo ::group::Diagnosis - compile and run a minimal Foundation program
+          > "%RUNNER_TEMP%\msds-hello.swift" echo import Foundation
+          >> "%RUNNER_TEMP%\msds-hello.swift" echo print("hello from Foundation")
+          swiftc -o "%RUNNER_TEMP%\msds-hello.exe" "%RUNNER_TEMP%\msds-hello.swift"
+          echo hello compile exit code %errorlevel%
+          "%RUNNER_TEMP%\msds-hello.exe"
+          echo hello run exit code %errorlevel%
+          echo ::endgroup::
+          exit /b 1
 
       - name: Coverage
         if: always()

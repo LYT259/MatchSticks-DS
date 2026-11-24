@@ -189,6 +189,21 @@ assert_contains "SDKROOT 从安装器写入的环境读取" .github/workflows/fu
     "GetEnvironmentVariable('SDKROOT'"
 assert_contains "SDKROOT 回退到安装布局 Platforms\…\Windows.sdk" .github/workflows/full-validation.yml \
     'Windows.platform\Developer\SDKs\Windows.sdk'
+# 安装器写进注册表的目录属性带末尾反斜杠（…\Windows.sdk\）：导出前统一去掉。
+assert_contains "SDKROOT 导出前去掉末尾反斜杠" .github/workflows/full-validation.yml ".TrimEnd('\')"
+# SwiftPM 的清单编译在 Windows 上可能无任何诊断地非零退出（日志只剩「Invalid manifest」「Missing or empty
+# JSON output」）；test-core.sh 失败后必须补打 verbose 输出与最小编译/运行探针，并且仍以非零码退出。
+assert_contains "test-core 成功即以 0 退出，失败才进入诊断分支" .github/workflows/full-validation.yml \
+    'scripts/test-core.sh && exit /b 0'
+assert_contains "诊断分支输出 verbose SwiftPM" .github/workflows/full-validation.yml 'swift build --verbose --product DSCoreTests'
+assert_contains "诊断分支编译并运行最小 Foundation 程序" .github/workflows/full-validation.yml 'msds-hello.exe'
+build_block="$(sed -n '/- name: Build and run DSCoreTests/,/- name: Coverage/p' .github/workflows/full-validation.yml | sed '$d')"
+build_last_line="$(printf '%s\n' "$build_block" | grep -v -E '^[[:space:]]*$' | tail -1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+if [ "$build_last_line" = "exit /b 1" ]; then
+    ok "构建步骤以 exit /b 1 收尾（失败不被诊断分支吞掉）"
+else
+    bad "构建步骤没有以 exit /b 1 收尾（实际最后一行：${build_last_line}）"
+fi
 
 echo "== test-core：ss UDP 样例只按 Local Address:Port（第 4 列）过滤 =="
 ss_sample="UNCONN 0      0                                 0.0.0.0:4000 0.0.0.0:1150
