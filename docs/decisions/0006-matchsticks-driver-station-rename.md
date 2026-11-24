@@ -1,9 +1,9 @@
-# ADR-0003：产品二级更名为 MatchSticks Driver Station（二级命名映射与兼容边界）
+# ADR-0006：产品二级更名为 MatchSticks Driver Station（二级命名映射与兼容边界）
 
 - 状态：已接受（Accepted）
 - 日期：2026-11-23
 - 决策：产品所有者（LYT259）
-- 编号核查：新建前检查本地全部分支与 `origin/*` 的 `docs/decisions/`。当前分支最大号为 `0001`，但 `fix/natural-controller-motion` 分支（未合入）已占用 `0002-natural-controller-motion.md`；按仓库约定「全分支最大号 +1」，本 ADR 取 `0003`。
+- 编号核查（2026-11-24）：仅执行一次 `git fetch origin beta` 后，检查本地全部 `refs/heads` 与远端全部 `refs/remotes/origin` 的 `docs/decisions/`。本 ADR 初稿误用 `0003`，该编号已由 `docs/three-platform-validation` 的 `0003-three-platform-validation.md` 占用；`0004-update-channels-and-connectivity.md` 与 `0005-portable-dscore-validation.md` 也已在其他本地分支占用。按「全分支最大号 +1」，最终编号取 `0006`。`origin/beta` 当前只有 ADR-0001，并不代表其他分支的编号可用。
 - 前置决策：[ADR-0001](0001-matchsticks-ds-rename.md)（GH Driver Station → MatchSticks DS，按历史记录保留）
 
 ## 背景
@@ -55,11 +55,13 @@ ADR-0001（2026-11-22）把产品由 **GH Driver Station** 更名为 **MatchStic
 
 ### 4. 数据目录双旧目录链式迁移
 
-新目录为 `~/Library/Application Support/MatchSticksDriverStation`。迁移沿链执行：**`GHDriverStation → MatchSticksDS → MatchSticksDriverStation`**——启动时按新→旧顺序依次以 `MatchSticksDS`（一级更名后的目录）、`GHDriverStation`（更早版本目录）为源，按 0001 §3.3 的保留式语义把 `Logs/`、`captures/` 等既有数据补齐复制到新目录：较新的 `MatchSticksDS` 先落位，`GHDriverStation` 只补剩余缺口，合并绝不覆盖；从未运行过一级更名版本的机器自然只由 `GHDriverStation` 补齐，效果与经 `MatchSticksDS` 中转一致。两级旧目录链式保留：不移动、不删除、不覆盖旧数据，也不覆盖新目录中已存在的文件或符号链接，供用户直接回退任一旧版本。新目录无法创建或不可写时按 `MatchSticksDS → GHDriverStation` 顺序回退到旧目录继续读写，回退时不向旧目录迁移。临时文件 + 硬链接原子发布、符号链接不跟随、失败清理、幂等可重试等细节同 0001 §3.3。
+新目录为 `~/Library/Application Support/MatchSticksDriverStation`。迁移沿链执行：**`GHDriverStation → MatchSticksDS → MatchSticksDriverStation`**——启动时按新→旧顺序依次以 `MatchSticksDS`（一级更名后的目录）、`GHDriverStation`（更早版本目录）为源，按 0001 §3.3 的保留式语义把 `Logs/`、`captures/` 等既有数据补齐复制到新目录：较新的 `MatchSticksDS` 先落位，`GHDriverStation` 只补剩余缺口，合并绝不覆盖；从未运行过一级更名版本的机器自然只由 `GHDriverStation` 补齐，效果与经 `MatchSticksDS` 中转一致。两级旧目录链式保留：不移动、不删除、不覆盖旧数据，也不覆盖新目录中已存在的文件或符号链接，供用户直接回退任一旧版本。新目录无法创建或不可写时，`SupportDirectory` 按 `MatchSticksDS → GHDriverStation` 顺序选择**第一个已存在且可写的旧目录**继续读写；若均不存在，则按需创建 `GHDriverStation` 并继续读写，回退时不向旧目录迁移。临时文件 + 硬链接原子发布、符号链接不跟随、失败清理、幂等可重试等细节同 0001 §3.3。
 
 ### 5. 兼容例外汇总（不在本次改名范围）
 
 - `DSCore` 模块与 `DSCoreTests`：协议核心命名稳定，0001 与本 ADR 均不改；
+- 兼容别名与迁移源：旧 `MATCHSTICKS_DS_*` / `GHDS_*` 环境变量、旧 `ghds.*` 设置键的兼容读取，以及 `MatchSticksDS` / `GHDriverStation` 作为保留式迁移源；
+- Homebrew cask 的 `zap` 清单与启动/测试脚本的进程守卫：为清理旧数据和防止旧实例占用端口而保留的旧目录、旧 executable / process 名；
 - `org.ghfrc.driverstation`、`GHDSREC1`、`~/.ghds-release-keys/ghds-ed25519`、`GH-FRC`：见上表；
 - 通用「Driver Station」「FRC」「DS」术语与协议名称（NI / MRCCOMM / NT4 主题等）不随产品名变化；
 - 历史记录（ADR-0001 正文、工程日志、旧报告快照、已发布 Release）中的旧名不回写。
@@ -88,7 +90,7 @@ ADR-0001（2026-11-22）把产品由 **GH Driver Station** 更名为 **MatchStic
 
 ## 验证与后续
 
-- 静态核对：Markdown 相对链接可解析；命令中的 target / executable / DMG / URL / cask / tap 与 `Package.swift`、`scripts/`、`packaging/` 的实际命名一致；`MatchSticksDS` 旧名残留仅限本 ADR 与 ADR-0001 的映射/兼容说明、密钥路径、bundle ID、魔数及历史记录。
+- 静态核对：Markdown 相对链接可解析；命令中的 target / executable / DMG / URL / cask / tap 与 `Package.swift`、`scripts/`、`packaging/` 的实际命名一致；旧名残留只允许出现在 §5 白名单（含兼容别名、迁移源、cask `zap` 与进程守卫）及 ADR-0001 的映射/兼容说明、密钥路径、bundle ID、魔数与历史记录中。
 - 迁移测试：在 `Tests/DSCoreTests/MigrationTests.swift` 既有用例上扩展——三级环境变量优先级、`MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT` 只认新前缀、`GHDriverStation → MatchSticksDS → MatchSticksDriverStation` 双旧目录链式补齐与不覆盖、两级旧目录保留、`GHDSREC1` 旧录制可读（用例归代码侧，本 ADR 只定验收口径）。
 - 远端动作（合并后、用户点名执行）：GitHub 仓库改名至 `LYT259/MatchSticks-Driver-Station`；建立/改名 homebrew tap 与 Cloudflare 镜像项目；核对旧 URL 重定向生效。
 - 若未来决定移除 `MATCHSTICKS_DS_*` / `GHDS_*` 兼容或旧目录迁移，必须新增 ADR 并给出迁移方案。

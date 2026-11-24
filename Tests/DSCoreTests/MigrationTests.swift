@@ -77,7 +77,7 @@ func environmentCompatibilityTests() {
 func settingsMigrationTests() {
     check(SettingsStore.defaultPrefix == "matchsticks." && SettingsStore.legacyPrefix == "ghds.",
           "设置前缀映射固定")
-    let name = "matchsticks-ds-settings-" + UUID().uuidString
+    let name = "matchsticks-driver-station-settings-" + UUID().uuidString
     let defaults = UserDefaults(suiteName: name)!
     defer { defaults.removePersistentDomain(forName: name) }
 
@@ -179,7 +179,7 @@ func settingsMigrationTests() {
 
 private func makeMigrationBase(_ label: String) -> URL {
     let base = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        .appendingPathComponent("matchsticks-ds-\(label)-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("matchsticks-driver-station-\(label)-\(UUID().uuidString)", isDirectory: true)
     try! FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
     return base
 }

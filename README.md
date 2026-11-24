@@ -83,7 +83,7 @@ curl -L -H "Authorization: Bearer <token>" <release-dmg-url> -o MatchSticks-Driv
 shasum -a 256 -c SHA256SUMS
 ```
 
-> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-Driver-Station/<ref>/scripts/install.sh | bash`（发版后生效；远端仓库改名完成前新 URL 尚不可达，见 ADR-0003 先决条件）。Homebrew tap（`LYT259/homebrew-matchsticks-driver-station`，cask `matchsticks-driver-station`）与国内镜像（Cloudflare Pages 项目 `matchsticks-driver-station-mirror`）：**待建**（物料已备，见 packaging/ 与 mirror/）。
+> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-Driver-Station/<ref>/scripts/install.sh | bash`（发版后生效；远端仓库改名完成前新 URL 尚不可达，见 ADR-0006 先决条件）。Homebrew tap（`LYT259/homebrew-matchsticks-driver-station`，cask `matchsticks-driver-station`）与国内镜像（Cloudflare Pages 项目 `matchsticks-driver-station-mirror`）：**待建**（物料已备，见 packaging/ 与 mirror/）。
 
 ## 打包发布
 
@@ -124,10 +124,10 @@ docs/                                  协议档案 / 发版操作单（release-
 
 - 应用 bundle ID 保持 `org.ghfrc.driverstation`，设置域与 Sparkle 更新链延续；旧版可直接用新版应用替换，旧数据按下方规则迁移；
 - 设置键前缀保持 `matchsticks.` 不变（新键缺失时回退读取旧 `ghds.*`；二级更名有意不引入新设置前缀）；环境变量使用 `MATCHSTICKS_DRIVER_STATION_*`，缺失时依次回退 `MATCHSTICKS_DS_*`、`GHDS_*`；
-- 数据目录改为 `~/Library/Application Support/MatchSticksDriverStation`，启动时从 `MatchSticksDS` 与 `GHDriverStation` 链式保留式迁移——旧目录与旧数据不删除、不覆盖；
+- 数据目录改为 `~/Library/Application Support/MatchSticksDriverStation`，启动时从 `MatchSticksDS` 与 `GHDriverStation` 链式保留式迁移——旧目录与旧数据不删除、不覆盖；新目录无法创建或不可写时，`SupportDirectory` 按 `MatchSticksDS → GHDriverStation` 选择第一个已存在且可写的旧目录，均不存在则按需创建 `GHDriverStation`，回退时不向旧目录迁移；
 - `.dsrec` 魔数保持 `GHDSREC1`，旧录制文件可直接回放；Sparkle Ed25519 密钥路径不变。
 
-完整映射与兼容理由见 [ADR-0001](docs/decisions/0001-matchsticks-ds-rename.md) 与 [ADR-0003](docs/decisions/0003-matchsticks-driver-station-rename.md)。
+完整映射与兼容理由见 [ADR-0001](docs/decisions/0001-matchsticks-ds-rename.md) 与 [ADR-0006](docs/decisions/0006-matchsticks-driver-station-rename.md)。
 
 ## 许可与合规
 
