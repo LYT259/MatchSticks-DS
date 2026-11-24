@@ -197,6 +197,14 @@ assert_contains "test-core 成功即以 0 退出，失败才进入诊断分支" 
     'scripts/test-core.sh && exit /b 0'
 assert_contains "诊断分支输出 verbose SwiftPM" .github/workflows/full-validation.yml 'swift build --verbose --product DSCoreTests'
 assert_contains "诊断分支编译并运行最小 Foundation 程序" .github/workflows/full-validation.yml 'msds-hello.exe'
+# 新编译出的可执行文件（SwiftPM 清单程序、DSCoreTests.exe）在运行期需要安装器放在
+# <安装根>\Runtimes\<版本>\usr\bin 的 swiftCore.dll 与 VC++ 运行库；安装器只把该目录追加进用户 PATH，
+# 当前进程看不到。不把它加进 PATH，可执行文件一启动就是 STATUS_DLL_NOT_FOUND（0xC0000135）。
+assert_contains "定位运行期目录 Runtimes\…\usr\bin" .github/workflows/full-validation.yml 'Runtimes\$toolchainVersion\usr\bin'
+assert_contains "运行期目录校验 swiftCore.dll 存在" .github/workflows/full-validation.yml "'swiftCore.dll'"
+assert_contains "运行期目录经 GITHUB_ENV 传出" .github/workflows/full-validation.yml 'SWIFT_RUNTIME_BIN='
+assert_contains "构建步骤把运行期目录加进 PATH" .github/workflows/full-validation.yml \
+    'set "PATH=%SWIFT_ROOT%\bin;%SWIFT_RUNTIME_BIN%;%PATH%"'
 build_block="$(sed -n '/- name: Build and run DSCoreTests/,/- name: Coverage/p' .github/workflows/full-validation.yml | sed '$d')"
 build_last_line="$(printf '%s\n' "$build_block" | grep -v -E '^[[:space:]]*$' | tail -1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 if [ "$build_last_line" = "exit /b 1" ]; then
