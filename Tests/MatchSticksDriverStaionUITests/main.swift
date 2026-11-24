@@ -1620,7 +1620,9 @@ struct UIStateTests {
                   "the match timeline directly follows Alliance Station at \(driveWidth) points")
             let panelRow = min(allianceLast + 8, track.rows.lowerBound - 5)
             let alliance = whiteRun(drive, y: panelRow)
-            check(alliance.start <= 30 && alliance.end >= driveWidth - 31,
+            // 760pt 下页面高过窗口而出现纵向滚动条：传统样式滚动条占去右侧布局宽度，面板撑满的是其左侧的滚动内容区
+            let scrollerWidth = Int(NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy))
+            check(alliance.start <= 30 && alliance.end >= driveWidth - 31 - scrollerWidth,
                   "Alliance Station fills the content width at \(driveWidth) points")
             if let trackStart = segmentPixel(drive, y: fillRow, last: false),
                let trackEnd = segmentPixel(drive, y: fillRow, last: true) {
