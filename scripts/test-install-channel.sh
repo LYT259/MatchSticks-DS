@@ -196,12 +196,14 @@ assert_not_installed "DMG 失败不调用安装命令" "$CASE"
 
 echo "▶ T6 SHA256 不匹配：不挂载、不安装"
 CASE="$(new_case sha-mismatch)"
-printf '%064d  MatchSticks-DS-1.4.2.dmg\n' 0 > "$CASE/SHA256SUMS"
+MISMATCH_SHA="0000000000000000000000000000000000000000000000000000000000000000"
+printf '%s  MatchSticks-DS-1.4.2.dmg\n' "$MISMATCH_SHA" > "$CASE/SHA256SUMS"
 if INSTALL_TEST_SUMS="$CASE/SHA256SUMS" run_installer "$CASE" "$STABLE"; then
     bad "SHA256 不匹配时安装竟然成功"
 else
     ok "SHA256 不匹配时安装以非零码退出"
 fi
+assert_line "SHA256 错误完整显示期望与实际摘要" "$CASE/stderr" "✗ 校验失败（期望 ${MISMATCH_SHA}，得到 ${PAYLOAD_SHA}）"
 assert_not_installed "SHA256 不匹配不调用安装命令" "$CASE"
 if [ ! -e "$CASE/hdiutil.log" ]; then ok "SHA256 不匹配不挂载 DMG"; else bad "SHA256 不匹配仍挂载了 DMG"; fi
 
