@@ -170,6 +170,25 @@ if awk '
 else
     bad "checkout 的 ref 不是 with: 输入（写在步骤级会被 GitHub 拒绝）"
 fi
+# windows-2025 标签 2026-11-24 实测已切到 VS 2026 镜像（windows-2025-vs2026）：写死 VS 年份/版本路径会让
+# vcvarsall.bat 找不到。Visual Studio 一律经镜像自带的 vswhere 定位；Swift 的 Windows SDK 由同一安装器装到
+# <安装根>\Platforms\<版本>\Windows.platform\Developer\SDKs\Windows.sdk 并写入 SDKROOT 环境变量，当前进程
+# 不会刷新，必须从注册表读或按安装布局找（旧实现只找 <root>\usr\Platforms，永远找不到）。
+echo "== workflow：Visual Studio 经 vswhere 定位；SDKROOT 取自安装器写入的环境或安装布局 =="
+if grep -Eq 'Microsoft Visual Studio\\[0-9]{4}\\' .github/workflows/full-validation.yml; then
+    bad "写死了 Visual Studio 年份/版本的安装路径（runner 镜像换 VS 版本即 vcvarsall.bat 找不到）"
+else
+    ok "未写死 Visual Studio 年份/版本安装路径"
+fi
+assert_contains "用镜像自带的 vswhere 定位 Visual Studio" .github/workflows/full-validation.yml 'vswhere.exe'
+assert_contains "vswhere 要求 x64 C++ 工具集并取 installationPath" .github/workflows/full-validation.yml \
+    '-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath'
+assert_contains "构建步骤调用定位到的 vcvarsall（经 GITHUB_ENV 传出）" .github/workflows/full-validation.yml \
+    'call "%VCVARSALL%" x64'
+assert_contains "SDKROOT 从安装器写入的环境读取" .github/workflows/full-validation.yml \
+    "GetEnvironmentVariable('SDKROOT'"
+assert_contains "SDKROOT 回退到安装布局 Platforms\…\Windows.sdk" .github/workflows/full-validation.yml \
+    'Windows.platform\Developer\SDKs\Windows.sdk'
 
 echo "== test-core：ss UDP 样例只按 Local Address:Port（第 4 列）过滤 =="
 ss_sample="UNCONN 0      0                                 0.0.0.0:4000 0.0.0.0:1150

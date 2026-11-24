@@ -17,8 +17,10 @@ name: Full validation (Windows)
 #   - Swift 安装包钉 swift.org 的 6.4.2 RELEASE 固定 URL（HTTP 200，2,098,337,696 字节；与 Mac 端 Xcode 自带
 #     的 Apple Swift 6.4.2 同一版本线；swift.org 现已发布 6.4.3，升级属主动决策）；
 #   - actions/checkout 钉 tag v4 对应的完整提交 SHA；
-#   - runner 镜像钉 windows-2025（镜像 README：Visual Studio Enterprise 2022 17.14 + Windows SDK 10.0.26100.0 +
-#     Git for Windows 2.56）。Swift 在 Windows 的前置组件（MSVC v143、Windows 11 SDK 或更新、Git）镜像自带。
+#   - runner 镜像钉 windows-2025（2026-11-24 实测：标签解析到 windows-2025-vs2026 镜像 20261116.315.1——
+#     Windows Server 2025 + Visual Studio Enterprise 2026 18.12 + Windows SDK 10.0.26100.0 + Git 2.56 + VSWhere 3.1.7）。
+#     镜像自带的 Visual Studio 版本会变（此前为 VS 2022 17.14），所以不写死安装路径，经 vswhere 定位；
+#     MSVC、Windows SDK 与 Git 均由镜像自带。
 # 覆盖范围：同 scripts/test-core.sh（协议/控制环/安全/日志/映射/迁移/双语/WebUI/SocketCompat）；
 # 不含 macOS App/SwiftUI/Sparkle/打包版 E2E（只能在 Mac 上跑）。
 #
@@ -28,7 +30,9 @@ name: Full validation (Windows)
 #     这里显式调用 Git for Windows 的 bash.exe，继承 vcvarsall 设置的 INCLUDE/LIB/PATH。
 #   - Swift 安装根目录不写死：安装器把 <root>\bin 写进 Machine/User PATH（当前进程不会刷新，从注册表读），
 #     兜底 Program Files（提升权限安装）与 %LocalAppData%\Programs\Swift（swift.org 文档所述默认位置）。
-#   - SDKROOT 只在真的找到 <root>\Platforms\...\Windows.platform\Developer\SDKs 时才设置。
+#   - SDKROOT 同理：安装器（swift-installer-scripts 的 platforms/Windows）把 Windows SDK 装到
+#     <安装根>\Platforms\<版本>\Windows.platform\Developer\SDKs\Windows.sdk（与 Toolchains\<版本>+<变体>\usr 平级）
+#     并写入用户环境变量 SDKROOT；当前进程不会刷新，从注册表读，读不到再按安装布局找。找不到即失败。
 
 on:
   push:
@@ -55,7 +59,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Install Swift 6.4.2 (swift.org, pinned URL) and locate the toolchain
+      - name: Install Swift 6.4.2 (swift.org, pinned URL) and locate the toolchain, SDK and Visual Studio
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -90,29 +94,56 @@ jobs:
           if ($version -notmatch 'Swift version 6\.4\.2') { throw "Unexpected Swift version (expected 6.4.2): $version" }
           Add-Content -Path $env:GITHUB_ENV -Value "SWIFT_ROOT=$swiftRoot"
 
-          $platforms = Join-Path $swiftRoot 'Platforms'
-          $sdkRoots = @()
-          if (Test-Path $platforms) {
-            $sdkRoots = @(Get-ChildItem -Path $platforms -Directory -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -eq 'Windows.platform' -and (Test-Path (Join-Path $_.FullName 'Developer\SDKs')) } |
-              ForEach-Object { $_.FullName })
+          # Visual Studio 的年份/版本随 runner 镜像变化（windows-2025 标签 2026-11-24 实测为 VS 2026 镜像），
+          # 用镜像自带的 vswhere 定位带 x64 C++ 工具集的最新安装，不写死安装路径。
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw "vswhere.exe not found: $vswhere" }
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath |
+            Select-Object -First 1
+          if (-not $vsInstall) { throw "vswhere found no Visual Studio installation with the x64 C++ toolset" }
+          $vcvarsall = Join-Path $vsInstall 'VC\Auxiliary\Build\vcvarsall.bat'
+          if (-not (Test-Path -LiteralPath $vcvarsall)) { throw "vcvarsall.bat not found under $vsInstall" }
+          Write-Host "Visual Studio: $vsInstall"
+          Add-Content -Path $env:GITHUB_ENV -Value "VCVARSALL=$vcvarsall"
+
+          # Windows SDK：安装器把它装到 <安装根>\Platforms\<版本>\Windows.platform\Developer\SDKs\Windows.sdk
+          #（与 Toolchains\<版本>+<变体>\usr 平级），并写入用户环境变量 SDKROOT；当前进程不会刷新，
+          # 先从注册表读（只接受本次安装根之下的值），读不到再按安装布局找。找不到即失败，不留到编译期。
+          $toolchainVersion = (Split-Path $swiftRoot -Parent).Split('+')[0]
+          $installRoot = Split-Path (Split-Path (Split-Path $swiftRoot -Parent) -Parent) -Parent
+          $platformsRoot = Join-Path $installRoot 'Platforms'
+          $sdkRoot = $null
+          foreach ($scope in @('User', 'Machine')) {
+            $registered = [Environment]::GetEnvironmentVariable('SDKROOT', $scope)
+            $registered = if ($registered) { [Environment]::ExpandEnvironmentVariables($registered) } else { $null }
+            if ($registered -and $registered.StartsWith($platformsRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $registered -PathType Container)) {
+              $sdkRoot = $registered
+              Write-Host "SDKROOT (from the $scope environment written by the installer): $sdkRoot"
+              break
+            }
           }
-          if ($sdkRoots.Count -gt 0) {
-            Add-Content -Path $env:GITHUB_ENV -Value "SDKROOT_VALUE=$($sdkRoots[0])"
-            Write-Host "SDKROOT=$($sdkRoots[0])"
-          } else {
-            Write-Host "No Windows.platform with Developer\SDKs under $platforms; leaving SDKROOT unset (the compiler falls back to its own SDK lookup) — tree:"
-            Get-ChildItem -Path $swiftRoot -Depth 2 -ErrorAction SilentlyContinue |
-              Select-Object -First 80 -ExpandProperty FullName | ForEach-Object { Write-Host "  $_" }
+          if (-not $sdkRoot) {
+            $layoutSdk = Join-Path $platformsRoot "$toolchainVersion\Windows.platform\Developer\SDKs\Windows.sdk"
+            if (Test-Path -LiteralPath $layoutSdk -PathType Container) {
+              $sdkRoot = $layoutSdk
+              Write-Host "SDKROOT (from the install layout): $sdkRoot"
+            }
           }
+          if (-not $sdkRoot) {
+            throw "Windows SDK (Windows.sdk) not found for toolchain ${toolchainVersion}: neither an SDKROOT environment variable under $platformsRoot nor $platformsRoot\$toolchainVersion\Windows.platform\Developer\SDKs\Windows.sdk"
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "SDKROOT_VALUE=$sdkRoot"
 
       - name: Build and run DSCoreTests (native Winsock, Git Bash)
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if not defined VCVARSALL (echo VCVARSALL was not located by the toolchain step & exit 1)
+          call "%VCVARSALL%" x64
           if errorlevel 1 (echo vcvarsall.bat failed & exit 1)
           set "PATH=%SWIFT_ROOT%\bin;%PATH%"
-          if defined SDKROOT_VALUE set "SDKROOT=%SDKROOT_VALUE%"
+          if not defined SDKROOT_VALUE (echo SDKROOT was not located by the toolchain step & exit 1)
+          set "SDKROOT=%SDKROOT_VALUE%"
           if not exist "C:\Program Files\Git\bin\bash.exe" (echo Git Bash not found at C:\Program Files\Git\bin\bash.exe & exit 1)
           where swift >nul 2>&1
           if errorlevel 1 (echo swift.exe not found in PATH & exit 1)
