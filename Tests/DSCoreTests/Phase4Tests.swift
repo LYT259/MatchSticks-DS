@@ -101,7 +101,7 @@ func webuiRoutingTests() {
 
     // 首页
     let index = WebUIServer.route(method: "GET", target: "/", body: Data(), env: env)
-    check(index.status == 200 && String(data: index.body, encoding: .utf8)?.contains("MatchSticks DS") == true,
+    check(index.status == 200 && String(data: index.body, encoding: .utf8)?.contains("MatchSticks Driver Station") == true,
           "index page serves")
 
     // 状态

@@ -208,7 +208,7 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     check(DSClient.sendCandidates(manualIP: model.manualIP, teamNumber: model.teamNumber) == ["172.22.11.2"],
           "send candidates stay the team-0 default (USB only) after discovery events")
     check(model.dsEvents.contains {
-        $0.text.contains(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。"))
+        $0.text.contains(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks Driver Station，然后重新打开应用。"))
     }, "policy denial is logged with the localized guidance")
     check(model.dsEvents.contains { $0.text.contains(tr("NI 服务发现：%@", "roboRIO-2590-FRC")) },
           "discovered services are logged for diagnosis")
@@ -230,8 +230,8 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     func source(_ path: String) -> String {
         (try? String(contentsOf: repositoryRoot.appendingPathComponent(path), encoding: .utf8)) ?? ""
     }
-    let modelSource = source("Sources/MatchSticksDS/DSModel.swift")
-    let discoverySource = source("Sources/MatchSticksDS/LocalNetworkDiscovery.swift")
+    let modelSource = source("Sources/MatchSticksDriverStation/DSModel.swift")
+    let discoverySource = source("Sources/MatchSticksDriverStation/LocalNetworkDiscovery.swift")
     let buildAppSource = source("scripts/build-app.sh")
     let englishTable = source("Sources/DSCore/Resources/en.lproj/Localizable.strings")
     check(!modelSource.isEmpty && !discoverySource.isEmpty && !buildAppSource.isEmpty && !englishTable.isEmpty,
@@ -262,7 +262,7 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     check(buildAppSource.contains("<key>NSBonjourServices</key>") && buildAppSource.contains("<string>_ni._tcp</string>") &&
           buildAppSource.contains("<key>NSLocalNetworkUsageDescription</key>"),
           "Info.plist keeps declaring _ni._tcp and the local network usage description")
-    for key in ["本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。",
+    for key in ["本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks Driver Station，然后重新打开应用。",
                 "NI 服务发现：%@", "NI 服务发现：当前没有 NI 设备", "NI 服务发现失败：%@",
                 "NI 服务发现等待：%@", "NI 服务发现已就绪"] {
         check(englishTable.contains("\"\(key)\" = \""), "English translation exists for: \(key)")

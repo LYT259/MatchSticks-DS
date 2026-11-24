@@ -2,7 +2,7 @@ import SwiftUI
 import DSCore
 
 @main
-struct MatchSticksDSApp: App {
+struct MatchSticksDriverStationApp: App {
     @State private var model = DSModel()
     @State private var shortcuts = ShortcutManager()
     @State private var updates = UpdateCenter()
@@ -15,7 +15,7 @@ struct MatchSticksDSApp: App {
     }
 
     var body: some Scene {
-        Window("MatchSticks DS", id: "main") {
+        Window("MatchSticks Driver Station", id: "main") {
             RootView(model: model, updates: updates, windowFlow: windowFlow)
                 .frame(minWidth: 1040, minHeight: 740)
                 .task {
@@ -48,7 +48,7 @@ struct MatchSticksDSApp: App {
 
 /// 连接草稿（RootView 常驻，跨页面导航保留）：应用前的一切编辑都留在这里，
 /// 避免「切到别的页再回来，草稿被清空」。userEdited 标记未动过的草稿，
-/// 进页时自动跟随模型（MATCHSTICKS_DS_AUTO_SIM / 启动模拟器会改写连接目标）。
+/// 进页时自动跟随模型（MATCHSTICKS_DRIVER_STATION_AUTO_SIM / 启动模拟器会改写连接目标）。
 struct RootView: View {
     let model: DSModel
     let updates: UpdateCenter
@@ -152,7 +152,7 @@ struct RootView: View {
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                Text("DS").font(.system(size: 14, weight: .semibold))
+                Text("Driver Station").font(.system(size: 14, weight: .semibold))
                 Text(tr("机器人驾驶台")).font(.caption).foregroundStyle(DSTheme.textSecondary)
             }
             .padding(.horizontal, 22).padding(.top, 46).padding(.bottom, 32)

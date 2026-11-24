@@ -6,7 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 import DSCore
 
-// MARK: - MatchSticksDSSim：roboRIO 1.0/2.0 模拟器
+// MARK: - MatchSticksDriverStationSim：roboRIO 1.0/2.0 模拟器
 //
 // 用途：无实体机器人时对 DS 做端到端验证（协议回归 + UI 链路）。
 // 行为：UDP 1110 收控制包 → 回送 DS 1150（模拟器不占用 1150，避免与 DS 监听冲突）；
@@ -564,9 +564,9 @@ var replaySource: ReplaySource? = {
 }()
 
 print("""
-┌───────────────────────────────────────────────────────────────────┐
-│  MatchSticksDSSim v\(version) — roboRIO 模拟器（MatchSticks DS）       │
-└───────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│  MatchSticksDriverStationSim v\(version) — roboRIO 模拟器（MatchSticks Driver Station）  │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
   协议模式     : \(args.mrc ? "MRC V2（SystemCore）" : "NI（roboRIO 1.0/2.0）")
   UDP 控制通道 : 0.0.0.0:\(args.udpPort) → 回送 DS 1150（模拟器源端口临时）
   TCP 慢速通道 : 0.0.0.0:\(args.tcpPort)
@@ -641,7 +641,7 @@ func generateMockCameraFrame() -> Data {
     // 底部信息条
     ctx.setFillColor(CGColor(red: 0.08, green: 0.08, blue: 0.1, alpha: 1))
     ctx.fill(CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h) * 0.28))
-    let stamp = String(format: "MatchSticksDSSim MOCK  %@  %05d", Date().formatted(.dateTime.hour().minute().second()), Int(Date().timeIntervalSinceReferenceDate) % 100000)
+    let stamp = String(format: "MatchSticksDriverStationSim MOCK  %@  %05d", Date().formatted(.dateTime.hour().minute().second()), Int(Date().timeIntervalSinceReferenceDate) % 100000)
     let attr = [
         kCTFontAttributeName: CTFontCreateWithName("Menlo" as CFString, 22, nil),
         kCTForegroundColorAttributeName: CGColor(red: 0.9, green: 0.95, blue: 1, alpha: 1),

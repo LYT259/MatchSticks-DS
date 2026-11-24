@@ -84,7 +84,7 @@ struct MiniConsoleBar: View {
     private var teamAndConnection: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "MatchSticks DS")
+                Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "MatchSticks Driver Station")
                     .font(.system(size: 15, weight: .semibold)).monospacedDigit()
                 refreshButton
             }

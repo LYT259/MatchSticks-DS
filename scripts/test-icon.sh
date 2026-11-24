@@ -1,13 +1,13 @@
 #!/bin/bash
 # scripts/test-icon.sh — 图标生成器（make-icon.swift）行为测试
-# 契约：所有生成的图标必须派生自用户原稿 Sources/MatchSticksDS/Resources/AppIcons/，
+# 契约：所有生成的图标必须派生自用户原稿 Sources/MatchSticksDriverStation/Resources/AppIcons/，
 # 彻底淘汰旧 CoreGraphics 程序绘制图标。本脚本只测生成器行为，不跑完整 build-app.sh、
 # 不触碰 dist/。用法：scripts/test-icon.sh（退出码 0=全绿，1=有失败）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 GEN="$ROOT/scripts/make-icon.swift"
-MASTER_SRC="$ROOT/Sources/MatchSticksDS/Resources/AppIcons/app-icon-day.png"
+MASTER_SRC="$ROOT/Sources/MatchSticksDriverStation/Resources/AppIcons/app-icon-day.png"
 
 if [ ! -f "$MASTER_SRC" ]; then
   echo "test-icon.sh: 母版缺失：$MASTER_SRC" >&2
@@ -138,7 +138,7 @@ else
 fi
 
 echo "▶ T8 异 cwd 调用：相对脚本路径也必须解析到仓库母版"
-REPO_MASTER="$ROOT/Sources/MatchSticksDS/Resources/AppIcons/app-icon-day.png"
+REPO_MASTER="$ROOT/Sources/MatchSticksDriverStation/Resources/AppIcons/app-icon-day.png"
 # 变体一：从工作区根（仓库外层）用不带 ../ 的相对脚本路径调用
 WS_ROOT="$(cd "$ROOT/../.." && pwd)"
 ROOT_REL_A="worktrees/$(basename "$ROOT")/scripts/make-icon.swift"

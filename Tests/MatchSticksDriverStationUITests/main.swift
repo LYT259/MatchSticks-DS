@@ -231,7 +231,7 @@ struct UIStateTests {
         // ===== OM5P UI stall / 控制环性能回归（2026-11-14）=====
 
         // ① Diag 常驻输出句柄 + HeartbeatBox 停滞探针
-        let diagPath = NSTemporaryDirectory() + "MatchSticks-DS-diag-\(UUID().uuidString).log"
+        let diagPath = NSTemporaryDirectory() + "MatchSticks-Driver-Station-diag-\(UUID().uuidString).log"
         check(Diag.setFileOutput(path: diagPath), "diag file output opens")
         Diag.write("line-one")
         Diag.write("line-two")
@@ -242,7 +242,7 @@ struct UIStateTests {
         check(!FileManager.default.fileExists(atPath: diagPath), "diag handle persists instead of reopening per line")
 
         let hb = HeartbeatBox()
-        let stallPath = NSTemporaryDirectory() + "MatchSticks-DS-diag-stall-\(UUID().uuidString).log"
+        let stallPath = NSTemporaryDirectory() + "MatchSticks-Driver-Station-diag-stall-\(UUID().uuidString).log"
         Diag.setFileOutput(path: stallPath)
         hb.beat()
         Thread.sleep(forTimeInterval: 0.15)
@@ -452,15 +452,31 @@ struct UIStateTests {
         let suiteNames = (0..<16).map { _ in "org.ghfrc.driverstation.test.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
-        // ⑤ MATCHSTICKS_DS_SETTINGS_SUITE 解析：非空有效 → 独立 suite；空白/缺失 → 标准域
-        let envSuite = DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DS_SETTINGS_SUITE": suiteNames[0]])
+        // ⑤ MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE 解析：非空有效 → 独立 suite；
+        //    过渡 MATCHSTICKS_DS_ / 旧 GHDS_ 前缀逐级回退，新键优先；空白/缺失 → 标准域
+        let envSuite = DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE": suiteNames[0]])
         envSuite.set("probe", forKey: "matchsticks.envProbe")
         check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "matchsticks.envProbe") == "probe",
-              "MATCHSTICKS_DS_SETTINGS_SUITE resolves to an isolated user defaults suite")
-        check(DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DS_SETTINGS_SUITE": "   "]) === UserDefaults.standard,
-              "blank MATCHSTICKS_DS_SETTINGS_SUITE falls back to standard defaults")
+              "MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE resolves to an isolated user defaults suite")
+        let interimEnvSuite = DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DS_SETTINGS_SUITE": suiteNames[0]])
+        interimEnvSuite.set("probe", forKey: "matchsticks.envProbeInterim")
+        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "matchsticks.envProbeInterim") == "probe",
+              "interim MATCHSTICKS_DS_SETTINGS_SUITE still resolves when the new key is absent")
+        let legacyEnvSuite = DSModel.resolvedSettingsDefaults(environment: ["GHDS_SETTINGS_SUITE": suiteNames[0]])
+        legacyEnvSuite.set("probe", forKey: "matchsticks.envProbeLegacy")
+        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "matchsticks.envProbeLegacy") == "probe",
+              "legacy GHDS_SETTINGS_SUITE still resolves as the final fallback")
+        let priorityEnvSuite = DSModel.resolvedSettingsDefaults(
+            environment: ["MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE": suiteNames[0],
+                          "MATCHSTICKS_DS_SETTINGS_SUITE": suiteNames[1]])
+        priorityEnvSuite.set("probe", forKey: "matchsticks.envProbePriority")
+        check(UserDefaults(suiteName: suiteNames[0])?.string(forKey: "matchsticks.envProbePriority") == "probe" &&
+              UserDefaults(suiteName: suiteNames[1])?.string(forKey: "matchsticks.envProbePriority") == nil,
+              "the new MATCHSTICKS_DRIVER_STATION prefix takes priority over the interim MATCHSTICKS_DS key")
+        check(DSModel.resolvedSettingsDefaults(environment: ["MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE": "   "]) === UserDefaults.standard,
+              "blank MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE falls back to standard defaults")
         check(DSModel.resolvedSettingsDefaults(environment: [:]) === UserDefaults.standard,
-              "missing MATCHSTICKS_DS_SETTINGS_SUITE falls back to standard defaults")
+              "missing MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE falls back to standard defaults")
 
         // ⑥ manualIP didSet：启用持久化时保存/清除；禁用时不动已有值，但内存仍更新
         let persistSuite = makeSuite(suiteNames[1])
@@ -1107,10 +1123,10 @@ struct UIStateTests {
         //    但 Application Support 重定向到临时目录，测试绝不写真实用户抓包
         let previousSupportOverride = ProcessInfo.processInfo.environment[AppSupportDirectory.overrideEnvironmentKey]
         let scratchSupport = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("MatchSticks-DS-task2-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("MatchSticks-Driver-Station-task2-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: scratchSupport, withIntermediateDirectories: true)
         setenv(AppSupportDirectory.overrideEnvironmentKey, scratchSupport.path, 1)
-        check(AppSupportDirectory().url.path == scratchSupport.appendingPathComponent("MatchSticksDS").path,
+        check(AppSupportDirectory().url.path == scratchSupport.appendingPathComponent("MatchSticksDriverStation").path,
               "recording tests redirect Application Support to a scratch directory")
 
         let recordingSuite = makeSuite(task2SuiteNames[3])
@@ -1347,15 +1363,15 @@ struct UIStateTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let settingsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Views/SettingsView.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Views/SettingsView.swift"), encoding: .utf8)) ?? ""
         let operationSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Views/OperationView.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Views/OperationView.swift"), encoding: .utf8)) ?? ""
         let appSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/MatchSticksDSApp.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/MatchSticksDriverStationApp.swift"), encoding: .utf8)) ?? ""
         let setupSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Views/SetupView.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Views/SetupView.swift"), encoding: .utf8)) ?? ""
         let timingSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Views/PracticeTimingEditor.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Views/PracticeTimingEditor.swift"), encoding: .utf8)) ?? ""
         let englishTable = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
             "Sources/DSCore/Resources/en.lproj/Localizable.strings"), encoding: .utf8)) ?? ""
         check(!settingsSource.isEmpty && !operationSource.isEmpty && !appSource.isEmpty &&
@@ -1592,7 +1608,7 @@ struct UIStateTests {
 
         // Task 2 放置守卫：外观行与语言行同构（360 宽）；Dashboard 无复选框图标，Launch 与分段控件同排紧邻其右。
         let controlsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Views/DSControls.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Views/DSControls.swift"), encoding: .utf8)) ?? ""
         check(!controlsSource.isEmpty, "UI placement test loads the control source fixture")
         if let generalStart = settingsSource.range(of: "private var generalPanel")?.lowerBound,
            let generalEnd = settingsSource.range(of: "private var dashboardPanel")?.lowerBound {
@@ -1657,7 +1673,7 @@ struct UIStateTests {
         // ===== Permissions 页：权限状态呈现（2026-11-23）=====
         // 宽度与 Settings 一致：不再 1040 封顶，仍填满可用宽度
         let permissionsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Views/PermissionsView.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Views/PermissionsView.swift"), encoding: .utf8)) ?? ""
         check(!permissionsSource.isEmpty, "permissions source fixture loads")
         check(!permissionsSource.contains("1040") && permissionsSource.contains(".frame(maxWidth: .infinity)"),
               "Permissions content fills the available width like Settings instead of capping at 1040 points")
@@ -1707,7 +1723,7 @@ struct UIStateTests {
               !permissionsSource.contains("CGRequestPostEventAccess"),
               "permissions page never requests Input Monitoring or Post Event access")
         let shortcutsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-            "Sources/MatchSticksDS/Shortcuts.swift"), encoding: .utf8)) ?? ""
+            "Sources/MatchSticksDriverStation/Shortcuts.swift"), encoding: .utf8)) ?? ""
         check(shortcutsSource.contains("addLocalMonitorForEvents") &&
               !shortcutsSource.contains("addGlobalMonitorForEvents") &&
               !shortcutsSource.contains("CGEvent.tapCreate"),
@@ -1718,7 +1734,7 @@ struct UIStateTests {
                   "DSBadge(text: tr(\"未检测系统防火墙配置\"), color: PermissionTone.neutral.color"),
               "firewall badge stays explicitly neutral")
 
-        print("MatchSticks DS UI state: \(checks) checks, \(failures.count) failures")
+        print("MatchSticks Driver Station UI state: \(checks) checks, \(failures.count) failures")
         for failure in failures { print("FAIL: \(failure)") }
         exit(failures.isEmpty ? 0 : 1)
     }

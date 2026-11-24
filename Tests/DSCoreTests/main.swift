@@ -402,10 +402,11 @@ runTest("gamepadProfileDualshock4State", gamepadProfileDualshock4StateTests)
 runTest("gamepadDirectionAndPolarity", gamepadDirectionAndPolarityTests)
 runTest("gamepadProfileGenericState", gamepadProfileGenericStateTests)
 runTest("gamepadProfileRobustness", gamepadProfileRobustnessTests)
-// 品牌改名迁移（env 兼容 / 设置前缀 / 数据目录 / 旧录制魔数）
+// 品牌改名迁移（env 三级兼容 / 设置前缀 / 数据目录双旧源链 / 旧录制魔数）
 runTest("environmentCompatibility", environmentCompatibilityTests)
 runTest("settingsLegacyMigration", settingsMigrationTests)
 runTest("appSupportDirectoryMigration", appSupportDirectoryTests)
+runTest("appSupportChainedFallback", appSupportChainedFallbackTests)
 runTest("appSupportMigrationBackground", appSupportMigrationBackgroundTests)
 runTest("appSupportSymlinks", appSupportSymlinkTests)
 runTest("appSupportConcurrentMigration", appSupportConcurrentMigrationTests)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# MatchSticks DS 打包：universal .app + ad-hoc 签名 + DMG + SHA256
+# MatchSticks Driver Station 打包：universal .app + ad-hoc 签名 + DMG + SHA256
 # 用法：scripts/build-app.sh [版本号，默认 0.1.0]
 # 依赖：Xcode（DEVELOPER_DIR 指向完整 Xcode，SPM 宏需要）；打包红线见可行性研究报告 §5.5
 set -euo pipefail
@@ -14,7 +14,7 @@ if [ -z "${DEVELOPER_DIR:-}" ]; then
 fi
 export DEVELOPER_DIR
 
-APP_NAME="MatchSticks DS"
+APP_NAME="MatchSticks Driver Station"
 # 兼容例外：生产 bundle ID 不随产品改名变化（设置域、Sparkle 身份与用户数据都挂在它上面）
 BUNDLE_ID="org.ghfrc.driverstation"
 BUILD_DIR=".build/release"
@@ -23,13 +23,13 @@ APP="$OUT_DIR/$APP_NAME.app"
 
 echo "▶ 构建 universal release（arm64 + x86_64）"
 swift build -c release --arch arm64 --arch x86_64
-lipo -info "$BUILD_DIR/MatchSticksDS"
+lipo -info "$BUILD_DIR/MatchSticksDriverStation"
 
 echo "▶ 组装 .app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BUILD_DIR/MatchSticksDS" "$APP/Contents/MacOS/"
-cp "$BUILD_DIR/MatchSticksDSSim" "$APP/Contents/MacOS/"
+cp "$BUILD_DIR/MatchSticksDriverStation" "$APP/Contents/MacOS/"
+cp "$BUILD_DIR/MatchSticksDriverStationSim" "$APP/Contents/MacOS/"
 
 # Sparkle 框架入 bundle + rpath（应用内更新，报告 §5.5）
 if [ ! -d "$BUILD_DIR/Sparkle.framework" ]; then
@@ -38,23 +38,23 @@ if [ ! -d "$BUILD_DIR/Sparkle.framework" ]; then
 fi
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$BUILD_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/MatchSticksDS"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/MatchSticksDriverStation"
 
 # 中英双语资源：SPM 资源 bundle（en.lproj 双语表所在）须进 Contents/Resources，
 # Bundle.module 才能在打包 app 内解析；缺失即失败——不出「英文系统却只有中文界面」的残缺包
-if [ ! -d "$BUILD_DIR/MatchSticksDS_DSCore.bundle" ]; then
-    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDS_DSCore.bundle——双语表缺失即失败" >&2
+if [ ! -d "$BUILD_DIR/MatchSticksDriverStation_DSCore.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDriverStation_DSCore.bundle——双语表缺失即失败" >&2
     exit 1
 fi
-cp -R "$BUILD_DIR/MatchSticksDS_DSCore.bundle" "$APP/Contents/Resources/"
+cp -R "$BUILD_DIR/MatchSticksDriverStation_DSCore.bundle" "$APP/Contents/Resources/"
 
 # 应用音频与手柄实机图片必须随包分发；缺失即失败，避免安全事件无声或外观缺失
-if [ ! -d "$BUILD_DIR/MatchSticksDS_MatchSticksDS.bundle" ]; then
-    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDS_MatchSticksDS.bundle——应用音频或手柄图片缺失" >&2
+if [ ! -d "$BUILD_DIR/MatchSticksDriverStation_MatchSticksDriverStation.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDriverStation_MatchSticksDriverStation.bundle——应用音频或手柄图片缺失" >&2
     exit 1
 fi
-cp -R "$BUILD_DIR/MatchSticksDS_MatchSticksDS.bundle" "$APP/Contents/Resources/"
-RESOURCE_DIR="$APP/Contents/Resources/MatchSticksDS_MatchSticksDS.bundle/Contents/Resources"
+cp -R "$BUILD_DIR/MatchSticksDriverStation_MatchSticksDriverStation.bundle" "$APP/Contents/Resources/"
+RESOURCE_DIR="$APP/Contents/Resources/MatchSticksDriverStation_MatchSticksDriverStation.bundle/Contents/Resources"
 for REQUIRED in FOGHORN.wav ArtworkCredits.txt dualsense.png dualshock4.png xbox-series.png f310.png direwolf4.png \
     extreme3dpro.png extreme3dpro-base.png extreme3dpro-handle.png; do
     if [ ! -f "$RESOURCE_DIR/$REQUIRED" ]; then
@@ -66,7 +66,7 @@ done
 # ── 图标链：全部图标必须来自用户原稿 Sources/.../AppIcons（淘汰程序绘制图标）；
 #    任何缺失/失败都阻断打包——不出无图标包，更不出残留旧图标的包。注入先于 codesign ──
 echo "▶ 图标：iconset → AppIcon.icns + actool Assets.car（浅/深外观）"
-ICON_SRC_DIR="Sources/MatchSticksDS/Resources/AppIcons"
+ICON_SRC_DIR="Sources/MatchSticksDriverStation/Resources/AppIcons"
 # 四张白名单原稿缺一不可：day/night 供 bundle 图标（icns + Assets.car），
 # mono-day/mono-night 供应用内单色变体。损坏（非图片内容/非 1024×1024）同样阻断——
 # sips 对损坏文件不报错，但尺寸输出为 <nil>，因此必须比对解析值而非退出码
@@ -252,7 +252,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleDisplayName</key><string>$APP_NAME</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-    <key>CFBundleExecutable</key><string>MatchSticksDS</string>
+    <key>CFBundleExecutable</key><string>MatchSticksDriverStation</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
@@ -273,7 +273,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
         <string>zh-Hans</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>MatchSticks DS 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。</string>
+    <string>MatchSticks Driver Station 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_ni._tcp</string>
@@ -284,7 +284,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <!-- Sparkle 应用内更新（报告 §5.5）：appcast 托管 GitHub Releases；
          公钥对应私钥 ~/.ghds-release-keys/ghds-ed25519（历史路径按兼容例外保留，本机保管，勿入库） -->
     <key>SUFeedURL</key>
-    <string>${SU_FEED_URL:-https://github.com/LYT259/MatchSticks-DS/releases/latest/download/appcast.xml}</string>
+    <string>${SU_FEED_URL:-https://github.com/LYT259/MatchSticks-Driver-Station/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-YHHW4wKUsjO8HlZkuZc4vdJWZj4y4ftbiFcEsJkNop4=}</string>
 </dict>
@@ -296,30 +296,30 @@ echo "PBPB" > "$APP/Contents/PkgInfo"
 # 权限弹窗与版权文案双语（Info.plist 键的 per-language 覆盖；中文为主表值，英文走 en.lproj）
 mkdir -p "$APP/Contents/Resources/en.lproj" "$APP/Contents/Resources/zh-Hans.lproj"
 cat > "$APP/Contents/Resources/en.lproj/InfoPlist.strings" <<'STRINGS'
-"NSLocalNetworkUsageDescription" = "MatchSticks DS needs local network access to connect to roboRIO / SystemCore robots (UDP 1110/1150, TCP 1740, mDNS discovery). If the robot won't connect, first allow this app under Settings → Privacy & Security → Local Network.";
+"NSLocalNetworkUsageDescription" = "MatchSticks Driver Station needs local network access to connect to roboRIO / SystemCore robots (UDP 1110/1150, TCP 1740, mDNS discovery). If the robot won't connect, first allow this app under Settings → Privacy & Security → Local Network.";
 "NSHumanReadableCopyright" = "© 2026 GH-FRC — Practice Only (third-party DS must not be used in official matches)";
 STRINGS
 cat > "$APP/Contents/Resources/zh-Hans.lproj/InfoPlist.strings" <<'STRINGS'
-"NSLocalNetworkUsageDescription" = "MatchSticks DS 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。";
+"NSLocalNetworkUsageDescription" = "MatchSticks Driver Station 需要访问本地网络以连接 roboRIO / SystemCore 机器人（UDP 1110/1150、TCP 1740、mDNS 发现）。机器人连不上时请先在 设置 → 隐私与安全性 → 本地网络 中允许本应用。";
 "NSHumanReadableCopyright" = "© 2026 GH-FRC — Practice Only（第三方 DS 不得用于正式比赛）";
 STRINGS
 
 # ad-hoc 签名（打包红线：保留有效签名；未公证分发按报告 §5.5 方案 A）
 codesign --force --deep -s - "$APP"
-# --deep --strict：连同嵌套可执行文件（MatchSticksDSSim）一起做资源密封校验；
+# --deep --strict：连同嵌套可执行文件（MatchSticksDriverStationSim）一起做资源密封校验；
 # 打包红线「签名损坏=只剩 xattr 终端路的死胡同」依赖这道门禁真正兜住嵌套代码
-codesign --verify --deep --strict --verbose=2 "$APP" >/dev/null && echo "  ✓ 签名校验通过（deep+strict，含嵌套 MatchSticksDSSim）"
+codesign --verify --deep --strict --verbose=2 "$APP" >/dev/null && echo "  ✓ 签名校验通过（deep+strict，含嵌套 MatchSticksDriverStationSim）"
 
 echo "▶ 打 DMG"
 rm -rf "$OUT_DIR/stage"
 mkdir -p "$OUT_DIR/stage"
 cp -R "$APP" "$OUT_DIR/stage/"
 ln -sf /Applications "$OUT_DIR/stage/Applications"
-DMG="$OUT_DIR/MatchSticks-DS-$VERSION.dmg"
+DMG="$OUT_DIR/MatchSticks-Driver-Station-$VERSION.dmg"
 rm -f "$DMG"
 hdiutil create -volname "$APP_NAME" -srcfolder "$OUT_DIR/stage" -ov -format UDZO "$DMG" | tail -1
 
 echo "▶ SHA256"
-(cd "$OUT_DIR" && shasum -a 256 "MatchSticks-DS-$VERSION.dmg" | tee SHA256SUMS)
+(cd "$OUT_DIR" && shasum -a 256 "MatchSticks-Driver-Station-$VERSION.dmg" | tee SHA256SUMS)
 
 echo "✅ 完成：$APP / $DMG"

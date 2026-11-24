@@ -18,7 +18,7 @@ enum MacStatusMonitor {
     /// 相邻两次 tick 的差分，采样状态只属于该队列）；主线程只经 latest 读缓存快照，
     /// 不再在 1Hz UI tick 里承担采样成本。日志写器（.dslog/.wpilog）线程语义不变。
     final class BackgroundSampler: @unchecked Sendable {
-        private let queue = DispatchQueue(label: "matchsticks.ds.macstatus", qos: .utility)
+        private let queue = DispatchQueue(label: "matchsticks.driverstation.macstatus", qos: .utility)
         private let lock = NSLock()
         private var cached: MacStatusSnapshot?
         private var timer: DispatchSourceTimer?
@@ -144,6 +144,6 @@ final class NetworkPathMonitor: @unchecked Sendable {
             self._satisfied = path.status == .satisfied
             self.lock.unlock()
         }
-        monitor.start(queue: DispatchQueue(label: "matchsticks.ds.netpath"))
+        monitor.start(queue: DispatchQueue(label: "matchsticks.driverstation.netpath"))
     }
 }

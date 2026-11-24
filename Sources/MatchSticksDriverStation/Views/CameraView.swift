@@ -3,7 +3,7 @@ import DSCore
 
 // MARK: - 摄像头显示槽位（MOCK 通道；真实 SystemCore 流协议待实测）
 //
-// 数据源：MatchSticksDSSim 的自定义 MOCK 通道（默认 http://127.0.0.1:6769/frame.jpg，单帧 JPEG）。
+// 数据源：MatchSticksDriverStationSim 的自定义 MOCK 通道（默认 http://127.0.0.1:6769/frame.jpg，单帧 JPEG）。
 // 交互按 First DS 的限流习惯收敛为「点按刷新 + ≥1s 限流」，无自动轮询。
 // 真实流协议核查（协议档案待实测清单）后替换数据源，UI 槽位保留。
 

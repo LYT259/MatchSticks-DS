@@ -39,10 +39,10 @@ func appIconAppearanceTests(_ check: @MainActor (@autoclosure () -> Bool, String
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-    let iconDirectory = repositoryRoot.appendingPathComponent("Sources/MatchSticksDS/Resources/AppIcons")
+    let iconDirectory = repositoryRoot.appendingPathComponent("Sources/MatchSticksDriverStation/Resources/AppIcons")
     func makeArtworkBundle() -> (bundle: Bundle?, directory: URL) {
         let bundleDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .appendingPathComponent("MatchSticks-DS-appicon-\(UUID().uuidString).bundle", isDirectory: true)
+            .appendingPathComponent("MatchSticks-Driver-Station-appicon-\(UUID().uuidString).bundle", isDirectory: true)
         let resourcesDirectory = bundleDirectory.appendingPathComponent("Contents/Resources", isDirectory: true)
         try? FileManager.default.createDirectory(at: resourcesDirectory, withIntermediateDirectories: true)
         for name in AppIconArtwork.whitelist {
@@ -337,11 +337,11 @@ func appIconAppearanceTests(_ check: @MainActor (@autoclosure () -> Bool, String
 
     // ===== H. 设置页放置守卫：并入 General 的卡片选择器，无独立面板 / 灰色脚注 / 分段+28px 旧形态 =====
     let settingsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-        "Sources/MatchSticksDS/Views/SettingsView.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStation/Views/SettingsView.swift"), encoding: .utf8)) ?? ""
     let cardsSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-        "Sources/MatchSticksDS/Views/AppIconAppearanceCards.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStation/Views/AppIconAppearanceCards.swift"), encoding: .utf8)) ?? ""
     let modelSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-        "Sources/MatchSticksDS/DSModel.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStation/DSModel.swift"), encoding: .utf8)) ?? ""
     let englishTable = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
         "Sources/DSCore/Resources/en.lproj/Localizable.strings"), encoding: .utf8)) ?? ""
     check(!settingsSource.isEmpty && !cardsSource.isEmpty && !modelSource.isEmpty && !englishTable.isEmpty,

@@ -9,7 +9,7 @@
 | 来源 | 状态 | 说明 |
 |---|---|---|
 | [frcnetworking.readthedocs.io](https://frcnetworking.readthedocs.io/)（ds_to_rio / rio_to_ds） | 已核查（2026-09-15 抓取） | 本档案主依据；实现 `Sources/DSCore/NIPackets.swift` |
-| MatchSticksDSSim ↔ MatchSticksDS 本机回环 + 回归测试 | 已实测（本机） | 协议两端均我方实现，互通验证通过（78 checks + 50Hz E2E） |
+| MatchSticksDriverStationSim ↔ MatchSticksDriverStation 本机回环 + 回归测试 | 已实测（本机） | 协议两端均我方实现，互通验证通过（78 checks + 50Hz E2E） |
 | 真机 roboRIO 抓包 | **待实测** | 硬件到位后逐字段核对；差异回写本文件并同步代码 |
 
 ## 已核查条目（含实现验证）
@@ -97,7 +97,7 @@ robot → DS：
 
 ### 待实测（MRC/SystemCore）
 - [ ] 真机 SystemCore 抓包比对（现行依据为逆向文档 + robot_sim 语义）
-- [ ] **SystemCore 摄像头流**：真实流协议未核查（无实机，禁止猜字段）。现状 = MatchSticksDSSim 自定义 **MOCK 通道**（127.0.0.1:6769，HTTP GET `/frame.jpg` 单帧 JPEG，按需生成）+ DS 侧显示槽位（诊断页，点按刷新 + ≥1s 限流，RateLimiter 可注入时钟有单测）；真机抓包后按实物替换数据源，槽位与限流交互保留（2026-10-01，Phase 4）
+- [ ] **SystemCore 摄像头流**：真实流协议未核查（无实机，禁止猜字段）。现状 = MatchSticksDriverStationSim 自定义 **MOCK 通道**（127.0.0.1:6769，HTTP GET `/frame.jpg` 单帧 JPEG，按需生成）+ DS 侧显示槽位（诊断页，点按刷新 + ≥1s 限流，RateLimiter 可注入时钟有单测）；真机抓包后按实物替换数据源，槽位与限流交互保留（2026-10-01，Phase 4）
 - [x] NT4 6767 握手与 /Dscomm/Control/ControlData 写入路径——已实现并以 robot_sim.py 联测通过（2026-09-16）；**/Dscomm/OpModeSelection 等机器人侧回写主题的键位仍以真机为准**
 - [ ] console/error 的 TCP tag id（0x0B–0x19 范围内，具体值待核）
 - [ ] 0x2E rumble 值到物理手柄的映射（Phase 4 震动测试——**协议侧已核查**（2026-10-01）：`MRCPackets.slotOutputsTag` 编码金样本 + 应答器/DS 端到端同值断言 + DS 手柄页呈现；仅物理手柄驱动效果待真机）

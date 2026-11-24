@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-// MARK: - MOCK 摄像头通道（MatchSticksDSSim 侧；Phase 4 摄像头流的无硬件占位）
+// MARK: - MOCK 摄像头通道（MatchSticksDriverStationSim 侧；Phase 4 摄像头流的无硬件占位）
 //
 // ⚠️ 这不是 SystemCore 的真实摄像头流协议——真实协议无实机未核查（协议档案待实测清单），
 // 本通道仅为 DS 侧显示管线与本机联调提供自定义 MOCK 图源，禁止当作协议事实使用。

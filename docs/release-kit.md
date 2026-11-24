@@ -5,12 +5,12 @@
 
 ## 一、产物（每个 release 固定包含）
 
-1. **dmg 安装包**（universal：arm64 + x86_64）——`bash scripts/build-app.sh <版本>` 产出 `dist/MatchSticks-DS-<版本>.dmg`
+1. **dmg 安装包**（universal：arm64 + x86_64）——`bash scripts/build-app.sh <版本>` 产出 `dist/MatchSticks-Driver-Station-<版本>.dmg`
 2. **SHA256SUMS**——同目录已生成（build-app.sh 自动）
 3. **appcast.xml**——应用内更新（Sparkle）的 feed，作为 release 附件上传（`releases/latest/download/appcast.xml` 永指最新）：
    ```bash
    # 生成某版本的 appcast item（私钥：~/.ghds-release-keys/ghds-ed25519，本机保管）
-   swift scripts/sign-update.swift sign ~/.ghds-release-keys/ghds-ed25519 dist/MatchSticks-DS-<版本>.dmg
+   swift scripts/sign-update.swift sign ~/.ghds-release-keys/ghds-ed25519 dist/MatchSticks-Driver-Station-<版本>.dmg
    # 把输出粘进 appcast.xml 的 <item>（模板见下），url 填 GitHub Releases 附件地址
    ```
    模板：
@@ -18,12 +18,12 @@
    <?xml version="1.0" encoding="utf-8"?>
    <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
      <channel>
-       <title>MatchSticks DS</title>
+       <title>MatchSticks Driver Station</title>
        <item>
          <title>版本 X.Y.Z</title>
          <sparkle:version>X.Y.Z</sparkle:version>
          <pubDate>RFC2822 时间</pubDate>
-         <enclosure url="https://github.com/LYT259/MatchSticks-DS/releases/download/vX.Y.Z/MatchSticks-DS-X.Y.Z.dmg" …edSignature 与 length 粘这里… type="application/octet-stream"/>
+         <enclosure url="https://github.com/LYT259/MatchSticks-Driver-Station/releases/download/vX.Y.Z/MatchSticks-Driver-Station-X.Y.Z.dmg" …edSignature 与 length 粘这里… type="application/octet-stream"/>
          <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
        </item>
      </channel>
@@ -33,10 +33,10 @@
 4. **图文安装教程**（正文粘贴 Releases 描述，内容 = `mirror/public/index.html` 的三步 + xattr 兜底 + 本地网络第一嫌疑）
 5. **安装命令**（正文）：
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-DS/<ref>/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-Driver-Station/<ref>/scripts/install.sh | bash
    ```
-   Homebrew（tap 仓库建好后）：`brew install --cask LYT259/matchsticks-ds/matchsticks-ds`
-6. **镜像链接**：Cloudflare Pages 镜像页（`mirror/`，Cloudflare 项目 `matchsticks-ds-mirror`，部署等凭证）——发版前实测可达
+   Homebrew（tap 仓库建好后）：`brew install --cask LYT259/matchsticks-driver-station/matchsticks-driver-station`
+6. **镜像链接**：Cloudflare Pages 镜像页（`mirror/`，Cloudflare 项目 `matchsticks-driver-station-mirror`，部署等凭证）——发版前实测可达
 
 ## 二、发版操作单（按序）
 
@@ -50,9 +50,9 @@
 ## 三、密钥与安全
 
 - Sparkle Ed25519 私钥：`~/.ghds-release-keys/ghds-ed25519`（0600，仓库外；**丢失则换钥需随下个版本发 SUPublicEDKey——老版本只能手动升级**）
-- 公钥已固化 `scripts/build-app.sh` 默认值；**新构建**的 Info.plist 默认使用 SUFeedURL = `https://github.com/LYT259/MatchSticks-DS/releases/latest/download/appcast.xml`（构建前可用 `SU_FEED_URL` 覆盖，仅测试/镜像场景）
-- **历史 Release 不改写**：已发布旧版本的 Info.plist 内置其构建时的旧地址（`LYT259/ghdriverstation/...`），不会因本次改名自动切换；旧 Release 的附件与 appcast 保持原样、不回填也不删除。旧客户端能否继续检查更新取决于 GitHub 仓库改名后的重定向，否则需手动安装一次新构建；新构建发布后才会使用新地址。
-- 更名不影响签名链：应用 bundle ID 保持 `org.ghfrc.driverstation`；Sparkle 私钥路径与 `SUPublicEDKey` 均沿用原值，仅 appcast / 下载地址随仓库改为 `LYT259/MatchSticks-DS`。
+- 公钥已固化 `scripts/build-app.sh` 默认值；**新构建**的 Info.plist 默认使用 SUFeedURL = `https://github.com/LYT259/MatchSticks-Driver-Station/releases/latest/download/appcast.xml`（构建前可用 `SU_FEED_URL` 覆盖，仅测试/镜像场景）
+- **历史 Release 不改写**：已发布旧版本的 Info.plist 内置其构建时的旧地址（`LYT259/MatchSticks-DS/…` 或更早 `LYT259/ghdriverstation/…`），不会因历次改名自动切换；旧 Release 的附件与 appcast 保持原样、不回填也不删除。旧客户端能否继续检查更新取决于 GitHub 仓库改名后的重定向，否则需手动安装一次新构建；新构建发布后才会使用新地址。
+- 更名不影响签名链：应用 bundle ID 保持 `org.ghfrc.driverstation`；Sparkle 私钥路径与 `SUPublicEDKey` 均沿用原值，仅 appcast / 下载地址随仓库改为 `LYT259/MatchSticks-Driver-Station`。
 - 签名红线：**签名后不得再改 bundle 内任何文件**（改 Info.plist = 破坏资源密封 → Sparkle 拒收 + 用户侧「已损坏」假警告）；测试密钥走构建前注入（SU_PUBLIC_ED_KEY）
 
 ## 四、实测清单（每次发版）

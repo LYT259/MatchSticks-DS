@@ -130,7 +130,8 @@ final class DSModel {
         return f
     }()
 
-    /// 设置域解析：非空有效的 `MATCHSTICKS_DS_SETTINGS_SUITE`（旧 `GHDS_SETTINGS_SUITE` 兼容）
+    /// 设置域解析：非空有效的 `MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE`
+    /// （旧 `MATCHSTICKS_DS_` / `GHDS_` 前缀兼容）
     /// → 独立 UserDefaults suite（测试 / 并行会话隔离），否则标准域。
     /// 无效名字（UserDefaults 拒绝创建）同样回退标准域。
     nonisolated static func resolvedSettingsDefaults(
@@ -523,7 +524,7 @@ final class DSModel {
     /// 数据目录首次使用时解析（DSModel 初始化不触碰用户目录；UI 干测试不产生副作用）。
     /// 旧目录补齐由 AppSupportDirectory 在后台队列执行，不阻塞主线程；
     /// WebUI 日志列表、dslog、抓包录制全部由此返回的同一实例派生。
-    /// 测试可用 `MATCHSTICKS_DS_APPLICATION_SUPPORT` 覆盖 Application Support 根。
+    /// 测试可用 `MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT` 覆盖 Application Support 根。
     private func appSupport() -> AppSupportDirectory {
         if let appSupportDirectory { return appSupportDirectory }
         let resolved = AppSupportDirectory()
@@ -543,7 +544,7 @@ final class DSModel {
         // .latencyCritical 对该进程关闭 App Nap 与相关节流。
         latencyToken = ProcessInfo.processInfo.beginActivity(
             options: [.latencyCritical],
-            reason: "MatchSticks DS 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
+            reason: "MatchSticks Driver Station 控制环 20ms 与安全看门狗：停发控制包即触发机器人看门狗失能")
         loadPersistedSettings()
         // 启动恢复后显式设置运行时图标（默认安装也在此时首次推送日间图稿），
         // 并开始监听系统深浅（跟随系统模式随系统重推；固定模式不受影响）
@@ -635,15 +636,15 @@ final class DSModel {
         startLocalNetworkDiscovery()
         startWebUI()
         client.start()
-        log(tr("MatchSticks DS 控制环已启动（20ms）"))
+        log(tr("MatchSticks Driver Station 控制环已启动（20ms）"))
 
         if DSModel.isAutoSim {
             manualIP = "127.0.0.1"
-            log(tr("MATCHSTICKS_DS_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
+            log(tr("MATCHSTICKS_DRIVER_STATION_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
         }
         if DSEnvironment.isEnabled("AUTO_MRC") {
             protocolKind = .mrc
-            log(tr("MATCHSTICKS_DS_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
+            log(tr("MATCHSTICKS_DRIVER_STATION_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
         }
     }
 
@@ -712,7 +713,7 @@ final class DSModel {
     private func handleLocalNetworkDiscovery(_ event: LocalNetworkDiscoveryEvent) {
         switch event {
         case .policyDenied:
-            log(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。"))
+            log(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks Driver Station，然后重新打开应用。"))
         case .failed(let reason):
             log(tr("NI 服务发现失败：%@", reason))
         case .services(let names):

@@ -1,20 +1,21 @@
 #!/bin/bash
 # Dry app-state regression tests; no network or simulator startup.
 # Builds DSCore from source into its own dylib+swiftmodule, then compiles the
-# MatchSticks DS app layer and tests against them — independent of SPM's build layout, which
+# MatchSticks Driver Station app layer and tests against them — independent of SPM's build layout, which
 # differs between the Xcode and native toolchains.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # 测试隔离：每次运行生成唯一、合法的反 DNS suite 名，导出给被测进程。
-# 新前缀 MATCHSTICKS_DS_*；旧 GHDS_SETTINGS_SUITE 作为兼容 alias 一并导出，保证任何仍读旧名的
-# 被测路径也落在隔离 suite 上。退出时只删本脚本创建的 suite（含 cfprefsd 留下的空 plist），
-# 不碰正式域。
-MATCHSTICKS_DS_SETTINGS_SUITE="org.ghfrc.driverstation.test.ui.$$.$(date +%Y%m%d%H%M%S).$RANDOM"
-GHDS_SETTINGS_SUITE="$MATCHSTICKS_DS_SETTINGS_SUITE"
-export MATCHSTICKS_DS_SETTINGS_SUITE GHDS_SETTINGS_SUITE
+# 新前缀 MATCHSTICKS_DRIVER_STATION_*；旧 MATCHSTICKS_DS_SETTINGS_SUITE / GHDS_SETTINGS_SUITE
+# 作为兼容 alias 一并导出，保证任何仍读旧名的被测路径也落在隔离 suite 上。退出时只删本脚本
+# 创建的 suite（含 cfprefsd 留下的空 plist），不碰正式域。
+MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE="org.ghfrc.driverstation.test.ui.$$.$(date +%Y%m%d%H%M%S).$RANDOM"
+MATCHSTICKS_DS_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE"
+GHDS_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE"
+export MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE MATCHSTICKS_DS_SETTINGS_SUITE GHDS_SETTINGS_SUITE
 cleanup_settings_suite() {
-    local suite="${MATCHSTICKS_DS_SETTINGS_SUITE:-}"
+    local suite="${MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE:-}"
     case "$suite" in
         org.ghfrc.driverstation.test.*) ;;
         *) return 0 ;;
@@ -30,7 +31,7 @@ if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app ]; then
 fi
 
 # 2022–2026 官方 FMS Audience Module 的内嵌 Foghorn 均为此原始文件。
-echo "767354f7dead260f2bf5d1b65cac710ceec0c035fff6e5c7dfab86a7e02cc761  Sources/MatchSticksDS/Resources/FOGHORN.wav" | shasum -a 256 -c -
+echo "767354f7dead260f2bf5d1b65cac710ceec0c035fff6e5c7dfab86a7e02cc761  Sources/MatchSticksDriverStation/Resources/FOGHORN.wav" | shasum -a 256 -c -
 
 swift build   # 先确认主工程可构建（常规门禁）
 mkdir -p .build/uitest
@@ -45,32 +46,32 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
-  Sources/MatchSticksDS/DSModel.swift Sources/MatchSticksDS/LocalNetworkDiscovery.swift \
-  Sources/MatchSticksDS/HIDInputManager.swift \
-  Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
-  Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
-  Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
-  .build/uitest/BundleModuleShim.swift Sources/MatchSticksDS/Shortcuts.swift \
-  Sources/MatchSticksDS/XInputUSB/F310XInputReport.swift \
-  Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
-  Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
-  Sources/MatchSticksDS/GamepadInputManager.swift \
-  Sources/MatchSticksDS/Views/OperationView.swift \
-  Sources/MatchSticksDS/Views/PracticeTimingEditor.swift \
-  Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
-  Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
-  Sources/MatchSticksDS/Views/GamepadSkinView.swift \
-  Sources/MatchSticksDS/AppIconAppearance.swift \
-  Sources/MatchSticksDS/Views/AppIconAppearanceCards.swift \
-  Sources/MatchSticksDS/Views/PermissionsView.swift \
-  Tests/MatchSticksDSUITests/main.swift Tests/MatchSticksDSUITests/F310XInputReportTests.swift \
-  Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
-  Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
-  Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
-  Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
-  Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
-  Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
-  Tests/MatchSticksDSUITests/MiniDriverStationTests.swift \
-  Tests/MatchSticksDSUITests/LocalNetworkDiscoveryTests.swift \
-  -o .build/MatchSticksDSUIStateTests
-.build/MatchSticksDSUIStateTests
+  Sources/MatchSticksDriverStation/DSModel.swift Sources/MatchSticksDriverStation/LocalNetworkDiscovery.swift \
+  Sources/MatchSticksDriverStation/HIDInputManager.swift \
+  Sources/MatchSticksDriverStation/MacStatusMonitor.swift Sources/MatchSticksDriverStation/Views/DSStyle.swift \
+  Sources/MatchSticksDriverStation/Views/DSControls.swift Sources/MatchSticksDriverStation/PracticeAudioPlayer.swift \
+  Sources/MatchSticksDriverStation/UpdateFlow.swift Sources/MatchSticksDriverStation/MainWindowDoubleClick.swift \
+  .build/uitest/BundleModuleShim.swift Sources/MatchSticksDriverStation/Shortcuts.swift \
+  Sources/MatchSticksDriverStation/XInputUSB/F310XInputReport.swift \
+  Sources/MatchSticksDriverStation/XInputUSB/F310XInputLifecycle.swift \
+  Sources/MatchSticksDriverStation/XInputUSB/F310XInputManager.swift \
+  Sources/MatchSticksDriverStation/GamepadInputManager.swift \
+  Sources/MatchSticksDriverStation/Views/OperationView.swift \
+  Sources/MatchSticksDriverStation/Views/PracticeTimingEditor.swift \
+  Sources/MatchSticksDriverStation/Views/GamepadArtwork/GamepadArtwork.swift \
+  Sources/MatchSticksDriverStation/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
+  Sources/MatchSticksDriverStation/Views/GamepadSkinView.swift \
+  Sources/MatchSticksDriverStation/AppIconAppearance.swift \
+  Sources/MatchSticksDriverStation/Views/AppIconAppearanceCards.swift \
+  Sources/MatchSticksDriverStation/Views/PermissionsView.swift \
+  Tests/MatchSticksDriverStationUITests/main.swift Tests/MatchSticksDriverStationUITests/F310XInputReportTests.swift \
+  Tests/MatchSticksDriverStationUITests/F310XInputLifecycleTests.swift \
+  Tests/MatchSticksDriverStationUITests/GamepadArtworkTests.swift Tests/MatchSticksDriverStationUITests/GamepadSkinPickerTests.swift \
+  Tests/MatchSticksDriverStationUITests/GamepadSkinPickerInteractionTests.swift \
+  Tests/MatchSticksDriverStationUITests/GamepadRenderingTests.swift Tests/MatchSticksDriverStationUITests/GamepadTriggerRangeTests.swift \
+  Tests/MatchSticksDriverStationUITests/AppIconAppearanceTests.swift \
+  Sources/MatchSticksDriverStation/Views/MiniView.swift Sources/MatchSticksDriverStation/MiniDriverStation.swift \
+  Tests/MatchSticksDriverStationUITests/MiniDriverStationTests.swift \
+  Tests/MatchSticksDriverStationUITests/LocalNetworkDiscoveryTests.swift \
+  -o .build/MatchSticksDriverStationUIStateTests
+.build/MatchSticksDriverStationUIStateTests
