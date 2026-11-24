@@ -18,7 +18,7 @@ import WinSDK
 // - 错误码：POSIX 读 errno，Windows 读 WSAGetLastError（WSAE* 码值不同，常量经本层取用）；
 // - 非阻塞：POSIX fcntl(O_NONBLOCK)，Windows ioctlsocket(FIONBIO)；
 // - connect 等待：Darwin 用 select 写/异常集合（poll 在 macOS 上对 RST 不可靠，见 DSClient 注释），
-//   Linux 用 poll，Windows 用 select（Winsock fd_set）；
+//   Linux 用 poll，Windows 用 WSAPoll（Winsock 的 select 在 windows-2025-vs2026 上对 connect 完成从不置位）；
 // - SIGPIPE：Linux 的 send 带 MSG_NOSIGNAL；Darwin/Windows 无此语义，行为保持不变；
 // - 数字地址解析/格式化用纯 Swift，IPv4 文法与 inet_pton 一致（允许前导零、拒绝 >255）；
 //   主机名解析（DSClient 的 mDNS）经 resolveIPv4Hosts：Darwin / Linux 用 getaddrinfo，
@@ -541,20 +541,23 @@ public enum SocketCompat {
 
     private static func waitForConnectOnce(_ fd: Int32, remainingMs: Int) -> OnceOutcome {
         #if os(Windows)
-        var writeSet = fd_set()
-        var errorSet = fd_set()
-        writeSet.fd_count = 1
-        writeSet.fd_array.0 = socketHandle(fd)
-        errorSet.fd_count = 1
-        errorSet.fd_array.0 = socketHandle(fd)
-        var wait = timeval(tv_sec: .init(remainingMs / 1000), tv_usec: .init((remainingMs % 1000) * 1000))
-        let rc = select(0, nil, &writeSet, &errorSet, &wait)
-        if rc > 0 { return .ready }
+        // Winsock 的 select 在 windows-2025-vs2026 镜像上对非阻塞 connect 的完成/失败从不置位
+        //（2026-11-24 实测：6×300ms 均返回 0），WSAPoll 则立即报出 POLLERR|POLLHUP|POLLOUT（revents=0x13）。
+        // 失败时 POLLOUT 也会置位，必须先看错误位；这种失败也不保证反映在 SO_ERROR（实测恒为 0）。
+        // 常量按 winsock2.h 写字面量：POLLOUT = POLLWRNORM = 0x0010，POLLERR = 0x0001，POLLHUP = 0x0002。
+        var descriptor = WSAPOLLFD(fd: socketHandle(fd), events: Int16(0x0010), revents: 0)
+        let rc = WSAPoll(&descriptor, 1, Int32(remainingMs))
         if rc < 0 {
             let e = lastError
             return e == eintr ? .interrupted : .failed(e)
         }
-        return .timeout
+        guard rc > 0 else { return .timeout }
+        if (descriptor.revents & Int16(0x0003)) != 0 {
+            if let code = getSocketError(fd), code != 0 { return .failed(code) }
+            // 没有错误码的快速失败：连接尝试被对端明确拒绝（回环 / 局域网的 RST 形态）
+            return .failed(econnrefused)
+        }
+        return .ready
         #elseif os(Linux)
         var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         let rc = poll(&descriptor, 1, Int32(remainingMs))

@@ -691,7 +691,7 @@ public final class DSClient {
         case error(errno: Int32)
     }
 
-    /// 非阻塞 connect + 有界等待（SocketCompat：Darwin select / Linux poll / Windows select）
+    /// 非阻塞 connect + 有界等待（SocketCompat：Darwin select / Linux poll / Windows WSAPoll）
     /// + SO_ERROR 分类。旧实现（blockingTCPConnect，已移除）设 SO_SNDTIMEO/RCVTIMEO 后直接阻塞
     /// connect——这两个选项不约束 connect 本身，黑洞链路会挂到内核 TCP 超时（~75s），且把
     /// ECONNREFUSED 与其他失败一并吞成 -1，OM5P 在线时的 RST 被误判离线
@@ -735,8 +735,14 @@ public final class DSClient {
             SocketCompat.closeSocket(fd)
             return .timedOut
         case .failed(let code):
+            // 等待阶段拿到的就是套接字错误码：与 connect 同步失败走同一套分类
             SocketCompat.closeSocket(fd)
-            return .error(errno: code)
+            switch code {
+            case SocketCompat.econnrefused: return .refused
+            case SocketCompat.enetunreach, SocketCompat.ehostunreach: return .unreachable
+            case SocketCompat.etimedout: return .timedOut
+            default: return .error(errno: code)
+            }
         }
         guard let soError = SocketCompat.getSocketError(fd) else {
             let e = SocketCompat.lastError

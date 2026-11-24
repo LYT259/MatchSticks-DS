@@ -31,17 +31,17 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 | 差异点 | macOS | Linux | Windows | 实现位置（SocketCompat.swift） |
 |---|---|---|---|---|
 | 句柄 | `Int32` fd | 同 macOS | `Int32`；`INVALID_SOCKET` 与 -1 互转，超出 Int32 的句柄按创建失败处理，绝不截断 | :596–608 |
-| 错误码 | `errno` | `errno` | `WSAGetLastError()`，`WSAE*` 常量经本层取用 | :56–92、:108–115 |
-| 初始化 | 无 | 无 | `WSAStartup(2.2)`，进程内幂等（`ensureInitialized()`） | :136–149 |
-| UDP 套接字 | — | — | 关闭 `SIO_UDP_CONNRESET`：对端端口不可达不再表现为连接重置 | :119–133 |
-| 非阻塞 | `fcntl(O_NONBLOCK)` | 同 macOS | `ioctlsocket(FIONBIO)`，常量按 SDK 头文件写字面量 | :151–201 |
-| 「可重绑但不共享」 | `SO_REUSEADDR` | UDP 不设（否则两个套接字可重复绑定同端口）；TCP 监听口设 | `SO_EXCLUSIVEADDRUSE`（Winsock 的 `SO_REUSEADDR` 允许无特权进程强绑已占用端口） | :203–235 |
-| 接收超时 | `timeval` | `timeval` | 毫秒 `DWORD` | :237–248 |
-| 非阻塞 connect 的等待 | `select` 写/异常集合（`poll` 对实网 RST 可能不醒） | `poll` | `select`（Winsock `fd_set`） | :498–568 |
-| 对端关闭写入 | 默认 | `MSG_NOSIGNAL`（不得以 SIGPIPE 杀死控制环进程） | 默认 | :666–681 |
-| 地址解析与格式化 | 纯 Swift，文法同 `inet_pton` | 同 macOS | 同 macOS | :263–324 |
-| 主机名解析（mDNS） | `getaddrinfo` | 同 macOS | `GetAddrInfoW` / `FreeAddrInfoW`（`ADDRINFOW`；`getaddrinfoA` 是宏别名，WinSDK 模块不导入） | :326–370 |
-| 接口枚举与钉绑 | `getifaddrs` + `IP_BOUND_IF` | `getifaddrs` + `SO_BINDTOIFINDEX`（62） | 不实现（`supportsInterfaceBinding = false`，按系统路由） | :570–628 |
+| 错误码 | `errno` | `errno` | `WSAGetLastError()`，`WSAE*` 常量经本层取用 | :56–92、:110–117 |
+| 初始化 | 无 | 无 | `WSAStartup(2.2)`，进程内幂等（`ensureInitialized()`） | :138–149 |
+| UDP 套接字 | — | — | 关闭 `SIO_UDP_CONNRESET`：对端端口不可达不再表现为连接重置 | :121–135 |
+| 非阻塞 | `fcntl(O_NONBLOCK)` | 同 macOS | `ioctlsocket(FIONBIO)`，常量按 SDK 头文件写字面量 | :153–203 |
+| 「可重绑但不共享」 | `SO_REUSEADDR` | UDP 不设（否则两个套接字可重复绑定同端口）；TCP 监听口设 | `SO_EXCLUSIVEADDRUSE`（Winsock 的 `SO_REUSEADDR` 允许无特权进程强绑已占用端口） | :205–237 |
+| 接收超时 | `timeval` | `timeval` | 毫秒 `DWORD` | :239–250 |
+| 非阻塞 connect 的等待 | `select` 写/异常集合（`poll` 对实网 RST 可能不醒） | `poll` | `WSAPoll`（Winsock 的 `select` 对非阻塞 connect 的完成从不置位，2026-11-24 实测；失败也不反映在 `SO_ERROR`） | :514–587 |
+| 对端关闭写入 | 默认 | `MSG_NOSIGNAL`（不得以 SIGPIPE 杀死控制环进程） | 默认 | :685–700 |
+| 地址解析与格式化 | 纯 Swift，文法同 `inet_pton` | 同 macOS | 同 macOS | :265–326 |
+| 主机名解析（mDNS） | `getaddrinfo` | 同 macOS | `GetAddrInfoW` / `FreeAddrInfoW`（`ADDRINFOW`；`getaddrinfoA` 是宏别名，WinSDK 模块不导入） | :328–374 |
+| 接口枚举与钉绑 | `getifaddrs` + `IP_BOUND_IF` | `getifaddrs` + `SO_BINDTOIFINDEX`（62） | 不实现（`supportsInterfaceBinding = false`，按系统路由） | :589–647 |
 
 「可重绑但不共享」一行是安全相关的：DS 固定绑定 UDP 1150，「被占即失败」是不变量。Winsock 默认语义会把它变成静默串包，所以 Windows 改用独占选项；Linux 内核允许两个都设 `SO_REUSEADDR` 的 UDP 套接字重复绑定同地址同端口（单播只投给其一），所以 Linux 的 UDP 不设该选项。对应测试见下文第 6 节。
 
@@ -79,6 +79,18 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 `scripts/test-core.sh` 是三平台共用的核心回归入口：只构建并运行 `DSCoreTests`（自带 runner，不依赖 XCTest），Sparkle 与 SwiftUI 主程序不参与。
 
 `.github/workflows/full-validation.yml` 是 Windows 一端：`windows-2025` 原生 Swift（swift.org 6.4.2 固定安装 URL，安装后校验版本）、`actions/checkout` 钉完整提交 SHA，并以 `github.event.pull_request.head.sha || github.sha` 显式选择 checkout ref——PR 验证精确 head，不验证 `refs/pull/N/merge`；push 与 dispatch 回退到 `github.sha`。随后经 vcvarsall 与显式的 Git Bash 路径运行 `scripts/test-core.sh`。触发器为 `pull_request`（目标 beta/stable）、`push`（beta/stable）与 `workflow_dispatch`。项目自 2026-10-04 起停用 GitHub Actions；本次由产品所有者点名，仅为 Windows 验证恢复，且全仓库只有这一个 job。
+
+### 首次真实 Windows 运行修正（2026-11-24）
+
+「本机编译不了 Windows 分支」在第一次把 `DSCoreTests` 真正跑在 Windows 上（GitHub Actions `windows-2025`，实测镜像 `windows-2025-vs2026`）之前只是风险；跑起来之后暴露并已修正的事实，按发现顺序：
+
+- `actions/checkout` 的 `ref` 必须是 `with:` 输入；写在步骤级会让 GitHub 判整个 workflow 无效（不产生任何 job）。
+- 镜像自带的 Visual Studio 版本会变（这次是 VS 2026 18.12），`vcvarsall.bat` 路径不能写死，经 `vswhere` 定位。
+- swift.org 安装器把运行期 DLL 与 VC++ 运行库装到 `<安装根>\Runtimes\<版本>\usr\bin`，只追加进用户 PATH；作业进程看不到，新编译出的可执行文件一启动就是 `STATUS_DLL_NOT_FOUND`。`SDKROOT` 同理（`<安装根>\Platforms\<版本>\Windows.platform\Developer\SDKs\Windows.sdk`）。
+- `getaddrinfoA` 在 WinSDK 模块里是宏别名、不导入（`cannot find 'getaddrinfoA' in scope`）；可变参数的 C 函数（`_open`）同样不导入。
+- Winsock 的 `select` 对非阻塞 connect 的完成/失败从不置位（实测 6×300ms 均返回 0），`WSAPoll` 立即报出 `POLLERR|POLLHUP|POLLOUT`；失败时 `POLLOUT` 也会置位，且不保证反映在 `SO_ERROR`（实测恒为 0）。
+- 带 `SO_RCVTIMEO` 的阻塞 `recvfrom` 到期报 `WSAETIMEDOUT`（POSIX 是 `EAGAIN`）；未绑定套接字的 `getsockname` 报 `WSAEINVAL`（POSIX 返回 `0.0.0.0:0`）。
+- swift-foundation 在 Windows 上的 `FileManager.linkItem` 建的是**符号链接**而不是硬链接（`linkOrCopyFile` 的非复制分支调 `createSymbolicLink`）；数据目录迁移的「硬链接发布」因此在 Windows 上产生指向已清理临时文件的悬空链接，改为直接用 `CreateHardLinkW`（不支持硬链接的文件系统退回同目录 `MoveFileExW`）。
 
 ## 影响
 
