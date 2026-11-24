@@ -91,7 +91,7 @@ func firewallVerificationProbeTests(_ check: @MainActor (@autoclosure () -> Bool
     check(fake.startCount == 2 && fake.stopCount == 1,
           "a fresh firewall check stops the previous probe before starting a new one")
     fake.onState?(.starting)
-    check(monitor.firewallEvidence == .starting && monitor.firewallEvidence.tone == .neutral,
+    check(monitor.firewallEvidence == .starting && monitor.firewallEvidence.tone == .warning,
           "starting a probe does not create success")
     let url = URL(string: "http://192.0.2.10:6789/verify")!
     fake.onState?(.waiting(url))

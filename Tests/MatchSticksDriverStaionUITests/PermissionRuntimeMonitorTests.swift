@@ -72,8 +72,8 @@ func permissionRuntimeMonitorTests(_ check: @MainActor (@autoclosure () -> Bool,
 
     let url = URL(string: "http://192.0.2.10:6789/verify")!
     monitor.applyFirewallState(.waiting(url))
-    check(monitor.firewallEvidence == .waiting(url) && monitor.firewallEvidence.tone == .neutral,
-          "a listening socket is not firewall success")
+    check(monitor.firewallEvidence == .waiting(url) && monitor.firewallEvidence.tone == .warning,
+          "a listening socket is not firewall success and reads as not verified yet, like the network badge")
     monitor.applyFirewallState(.verified(peer: "192.0.2.20"))
     check(monitor.firewallEvidence == .verified && monitor.firewallEvidence.tone == .success,
           "a valid non-loopback incoming request becomes green")
@@ -85,19 +85,19 @@ func permissionRuntimeMonitorTests(_ check: @MainActor (@autoclosure () -> Bool,
     check(monitor.firewallEvidence == .notStarted && monitor.firewallURL == nil,
           "firewall evidence and URL reset on a new launch")
     monitor.applyFirewallState(.timedOut)
-    check(monitor.firewallEvidence == .timedOut && monitor.firewallEvidence.tone == .neutral,
+    check(monitor.firewallEvidence == .timedOut && monitor.firewallEvidence.tone == .warning,
           "timeout is unverified rather than denied")
     monitor.applyFirewallState(.unavailable)
-    check(monitor.firewallEvidence == .unavailable && monitor.firewallEvidence.tone == .neutral,
+    check(monitor.firewallEvidence == .unavailable && monitor.firewallEvidence.tone == .warning,
           "no usable address is not a denial")
     monitor.applyFirewallState(.failed)
-    check(monitor.firewallEvidence == .failed && monitor.firewallEvidence.tone == .neutral,
+    check(monitor.firewallEvidence == .failed && monitor.firewallEvidence.tone == .warning,
           "probe failure is not a firewall denial")
 
     monitor.beginNewLaunch(autoSim: true)
     check(monitor.networkEvidence == .skipped && monitor.firewallEvidence == .skipped &&
-          monitor.networkEvidence.tone == .warning && monitor.firewallEvidence.tone == .neutral,
-          "AUTO_SIM explicitly skips checks without becoming green")
+          monitor.networkEvidence.tone == .neutral && monitor.firewallEvidence.tone == .neutral,
+          "AUTO_SIM explicitly skips both checks; skipped reads as not applicable, never green, for both")
 
     monitor.beginNewLaunch()
     check(monitor.networkEvidence == .checking && monitor.firewallEvidence == .notStarted,

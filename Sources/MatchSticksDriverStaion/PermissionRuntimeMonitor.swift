@@ -26,7 +26,8 @@ enum LocalNetworkEvidence: Equatable {
         switch self {
         case .verifiedRobot, .verifiedDiscovery: return .success
         case .denied: return .danger
-        case .checking, .skipped, .loopbackSimulator, .unverified: return .warning
+        case .skipped: return .neutral
+        case .checking, .loopbackSimulator, .unverified: return .warning
         }
     }
 
@@ -75,7 +76,7 @@ enum LocalNetworkEvidence: Equatable {
 enum FirewallEvidence: Equatable {
     case notStarted, skipped, starting, waiting(URL), verified, unavailable, failed, timedOut
 
-    var tone: PermissionTone { self == .verified ? .success : .neutral }
+    var tone: PermissionTone { self == .verified ? .success : self == .skipped ? .neutral : .warning }
 
     var badge: String {
         switch self {

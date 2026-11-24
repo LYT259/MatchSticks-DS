@@ -3,8 +3,8 @@ import AppKit
 import CoreGraphics
 import DSCore
 
-/// 权限面板徽章的色调。`.success` 只用于真实非回环证据；`.danger` 只用于系统明确拒绝；
-/// `.warning` 表示尚无证据，`.neutral` 表示应用未读取或尚未取得验证结果。
+/// 权限面板徽章的色调，两项权限共用同一套含义：`.success` 只用于本次启动的真实非回环证据；
+/// `.danger` 只用于系统明确拒绝；`.warning` 表示尚未取得证据；`.neutral` 表示本次会话已跳过检测。
 enum PermissionTone: Equatable {
     case success, warning, neutral, danger
 
