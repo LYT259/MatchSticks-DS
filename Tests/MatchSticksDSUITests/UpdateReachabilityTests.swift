@@ -178,11 +178,36 @@ func updateReachabilityTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
     drain()
     check(scheduler.state == .checking(triggerPending: true) && scheduler.reachabilityConfirmed,
           "Ethernet coming back at any point opens the gate and authorizes the check")
+
+    // ===== J. 生产传输的 URL 边界：凭据、非 HTTP scheme、越界端口在发连接前 fail closed =====
+    let invalidCases: [(String, URL, UpdateProbeRoute)] = [
+        ("URL credentials on default", URL(string: "http://user:secret@127.0.0.1:9/appcast.xml")!, .defaultRoute),
+        ("URL credentials on wired", URL(string: "http://user:secret@127.0.0.1:9/appcast.xml")!, .wiredEthernet),
+        ("non-HTTP scheme", URL(string: "ftp://127.0.0.1:9/appcast.xml")!, .defaultRoute),
+        ("out-of-range port", URL(string: "http://127.0.0.1:65536/appcast.xml")!, .wiredEthernet),
+    ]
+    for (name, url, route) in invalidCases {
+        let result = ReachabilityProbeResultBox()
+        SystemRouteProbeTransport(wiredTimeout: 0.5).probe(route, url: url) { result.value = $0 }
+        let deadline = Date().addingTimeInterval(2)
+        while result.value == nil && Date() < deadline { drain() }
+        check(result.value?.reachable == false && result.value?.detail.contains("invalid feed URL") == true,
+              "\(name) is rejected before a probe connection (detail: \(result.value?.detail ?? "pending"))")
+    }
 }
 
 @MainActor
 private func drain() {
     RunLoop.main.run(until: Date().addingTimeInterval(0.03))
+}
+
+private final class ReachabilityProbeResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: UpdateProbeResult?
+    var value: UpdateProbeResult? {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); defer { lock.unlock() }; stored = newValue }
+    }
 }
 
 /// 脚本化传输：记录每次调用（路由 + URL）。设置 responder 时同步回复；否则挂起直到 reply(call:)。

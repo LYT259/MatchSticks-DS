@@ -108,16 +108,87 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
         check(transport.calls.value.isEmpty, "unmarked requests never create an update transport request")
         check(SentinelURLProtocol.count.value == urls.count, "all unmarked requests reach the next URLProtocol")
         var credentials = URLRequest(url: markedURL(URL(string: "https://user:secret@example.com/appcast.xml")!, token: token))
-        check(!routing.shouldIntercept(credentials), "URL-embedded credentials are rejected by the update adapter")
         routing.markDownload(&credentials)
+        check(routing.shouldIntercept(credentials), "marked requests with URL-embedded credentials are contained instead of escaping to another protocol")
         credentials.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
         credentials.setValue("session=secret", forHTTPHeaderField: "Cookie")
+        let sentinelBeforeInvalid = SentinelURLProtocol.count.value
+        let invalidCredentialResult = perform(credentials, session: session)
+        check(invalidCredentialResult.error.value != nil && SentinelURLProtocol.count.value == sentinelBeforeInvalid,
+              "URL-embedded credentials fail closed without reaching a fallback protocol or the origin")
         let sanitized = routing.sanitizedRequest(credentials)
-        check(sanitized.value(forHTTPHeaderField: "Authorization") == nil &&
-              sanitized.value(forHTTPHeaderField: "Cookie") == nil &&
-              sanitized.value(forHTTPHeaderField: UpdateRequestRouting.downloadHeader) == nil,
-              "credential and private marker headers are not forwarded to the origin")
+        check(sanitized == nil,
+              "URL-embedded credentials cannot produce a forwardable sanitized request")
+
+        var nonHTTP = URLRequest(url: URL(string: "ftp://user:secret@example.com/appcast.xml?matchsticksds_update_request=\(token)")!)
+        nonHTTP.setValue(token, forHTTPHeaderField: UpdateRequestRouting.downloadHeader)
+        check(routing.shouldIntercept(nonHTTP), "marked non-HTTP requests are contained instead of escaping to another protocol")
+        let invalidSchemeResult = perform(nonHTTP, session: session)
+        check(invalidSchemeResult.error.value != nil && SentinelURLProtocol.count.value == sentinelBeforeInvalid,
+              "non-HTTP update requests fail closed without reaching a fallback protocol or the origin")
+
+        let escaped = URL(string: "https://example.com/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=&matchsticksds_update_request=\(token)")!
+        let escapedResult = routing.sanitizedRequest(URLRequest(url: escaped))
+        let escapedComponents = escapedResult?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        check(escapedComponents?.percentEncodedPath == "/escaped/a%2Fb" &&
+              escapedComponents?.percentEncodedQuery == "keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=",
+              "request sanitization preserves percent-encoded path and query bytes (actual: \(escapedComponents?.percentEncodedQuery ?? "nil"))")
+
+        check(SystemUpdateRequestTransport.makeConfiguration().urlCredentialStorage == nil,
+              "the production default-route configuration disables implicit URL credentials")
+
+        let secureOrigin = URL(string: "https://example.com/appcast.xml")!
+        check(UpdateRequestRouting.redirectTarget(URL(string: "http://example.com/appcast.xml")!, from: secureOrigin) == nil &&
+              UpdateRequestRouting.redirectTarget(URL(string: "https://example.com/appcast.xml")!, from: secureOrigin) != nil &&
+              UpdateRequestRouting.redirectTarget(URL(string: "ftp://example.com/appcast.xml")!, from: URL(string: "http://example.com/appcast.xml")!) == nil &&
+              UpdateRequestRouting.redirectTarget(URL(string: "https://user:secret@example.com/appcast.xml")!, from: secureOrigin) == nil,
+              "redirect policy rejects HTTPS downgrade, non-HTTP schemes and URL credentials")
+        let redirectURL = UpdateRequestRouting.redirectTarget(
+            URL(string: "https://example.com/appcast.xml?keep=%2F&matchsticksds_update_request=secret")!, from: secureOrigin)
+        check(redirectURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.percentEncodedQuery == "keep=%2F",
+              "redirect sanitization removes private markers without decoding the remaining query")
+        var urlLess = URLRequest(url: secureOrigin)
+        urlLess.url = nil
+        check(UpdateRequestRouting.sanitizedRequest(URLRequest(url: URL(fileURLWithPath: "/tmp/appcast.xml"))) == nil &&
+              UpdateRequestRouting.sanitizedRequest(urlLess) == nil &&
+              UpdateRequestRouting.sanitizedRequest(URLRequest(url: secureOrigin)) != nil,
+              "non-HTTP and URL-less requests fail closed while valid HTTP(S) requests are sanitized")
+
+        let conflictingResponse = HTTPURLResponse(url: secureOrigin, statusCode: 200, httpVersion: "HTTP/1.1",
+                                                  headerFields: ["Content-Length": "1, 2"])!
+        let identicalResponse = HTTPURLResponse(url: secureOrigin, statusCode: 200, httpVersion: "HTTP/1.1",
+                                                headerFields: ["Content-Length": "1, 1"])!
+        let hugeResponse = HTTPURLResponse(url: secureOrigin, statusCode: 200, httpVersion: "HTTP/1.1",
+                                           headerFields: ["Content-Length": String(UInt64.max)])!
+        check(SystemUpdateRequestTransport.responseError(conflictingResponse)?.localizedDescription.contains("conflicting Content-Length") == true &&
+              SystemUpdateRequestTransport.responseError(identicalResponse) == nil &&
+              SystemUpdateRequestTransport.responseError(hugeResponse) != nil,
+              "default responses reject conflicting or unrepresentable Content-Length but allow identical duplicates (conflict: \(String(describing: SystemUpdateRequestTransport.responseError(conflictingResponse))), identical: \(String(describing: SystemUpdateRequestTransport.responseError(identicalResponse))), huge: \(String(describing: SystemUpdateRequestTransport.responseError(hugeResponse))), headers: \(conflictingResponse.allHeaderFields))")
         _ = routing.activate(route: .defaultRoute)
+    }
+
+    // ===== C2. 全局 registerClass：未显式配置 protocolClasses 的 session 也命中生产 URLProtocol =====
+    do {
+        let transport = ScriptedRequestTransport()
+        routing.transport = transport
+        let token = routing.activate(route: .defaultRoute)
+        UpdateRequestRouting.installSparkleSessionRouting()
+        URLProtocol.registerClass(UpdateURLProtocol.self)
+        let interceptions = Locked(0)
+        routing.interceptionObserver = { interceptions.value += 1 }
+        defer {
+            routing.interceptionObserver = nil
+            URLProtocol.unregisterClass(UpdateURLProtocol.self)
+        }
+        let session = URLSession(configuration: .default)
+        defer { session.finishTasksAndInvalidate() }
+        check(session.configuration.protocolClasses?.contains { $0 === UpdateURLProtocol.self } == true,
+              "Sparkle-style default-configuration sessions receive the production adapter")
+        let result = perform(URLRequest(url: markedURL(URL(string: "https://example.com/appcast.xml")!, token: token)), session: session)
+        check(result.error.value == nil && transport.calls.value.count == 1 && interceptions.value == 1,
+              "global registration plus Sparkle-style configuration injection intercepts a default-configuration session (error: \(String(describing: result.error.value)))")
+        check(transport.calls.value.first?.request.url.map(stripMarker(from:)) == URL(string: "https://example.com/appcast.xml"),
+              "the globally registered production adapter strips the query token before transport")
     }
 
     // ===== D. 失败 / 取消 / 重复回调：URLProtocol 有界收尾，路径失败交给上层退避 =====
@@ -162,7 +233,9 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
 
     // ===== E. 真实回环 HTTP：两种 route 都支持重定向、流式 body、chunked 与断线 =====
     let payload = Data((0..<262_144).map { UInt8(truncatingIfNeeded: $0) })
-    guard let server = try? LoopbackHTTPServer(expectedConnections: 20, handler: { request, fd in
+    let originRequests = Locked<[HTTPRequest]>([])
+    guard let server = try? LoopbackHTTPServer(expectedConnections: 80, handler: { request, fd in
+        originRequests.value.append(request)
         switch request.target {
         case "/redirect":
             LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "/final", "Content-Length": "0"], body: Data(), fd: fd)
@@ -178,6 +251,36 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
                                        body: payload.prefix(4096), fd: fd)
             Thread.sleep(forTimeInterval: 1.0)
             close(fd)
+        case "/length-2e63":
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Content-Length": "9223372036854775808"], body: Data("x".utf8), fd: fd)
+        case "/length-uint64max":
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Content-Length": "18446744073709551615"], body: Data("x".utf8), fd: fd)
+        case "/chunk-2e63":
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Transfer-Encoding": "chunked"], body: Data("8000000000000000\r\nx".utf8), fd: fd)
+        case "/chunk-overflow":
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Transfer-Encoding": "chunked"],
+                                          body: Data(String(repeating: "A", count: 65_537).utf8), fd: fd)
+        case "/trailer-overflow":
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Transfer-Encoding": "chunked"],
+                                          body: Data(("0\r\n" + String(repeating: "T", count: 65_537)).utf8), fd: fd)
+        case "/length-conflict":
+            LoopbackHTTPServer.respondRawText("HTTP/1.1 200 OK\r\nContent-Length: 1\r\nContent-Length: 2\r\nConnection: close\r\n\r\nx", fd: fd)
+        case "/length-empty":
+            LoopbackHTTPServer.respondRawText("HTTP/1.1 200 OK\r\nContent-Length:\r\nConnection: close\r\n\r\n", fd: fd)
+        case "/status-999":
+            LoopbackHTTPServer.respond(status: "999 Out Of Range", headers: ["Content-Length": "0"], body: Data(), fd: fd)
+        case let target where target.hasPrefix("/redirect-non-http"):
+            LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "ftp://\(request.headers["host"] ?? "127.0.0.1")/final",
+                                                                        "Content-Length": "0"], body: Data(), fd: fd)
+        case let target where target.hasPrefix("/redirect-marker"):
+            LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "/echo?keep=%2F&matchsticksds_update_request=redirect-secret",
+                                                                        "Content-Length": "0"], body: Data(), fd: fd)
+        case let target where target.hasPrefix("/redirect-sensitive"):
+            LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "/echo", "Content-Length": "0"], body: Data(), fd: fd)
+        case "/echo", "/final-echo":
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Content-Length": "2"], body: Data("ok".utf8), fd: fd)
+        case let target where target.hasPrefix("/escaped/"):
+            LoopbackHTTPServer.respond(status: "200 OK", headers: ["Content-Length": "2"], body: Data("ok".utf8), fd: fd)
         default:
             LoopbackHTTPServer.respond(status: "404 Not Found", headers: ["Content-Length": "0"], body: Data(), fd: fd)
         }
@@ -205,10 +308,110 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
               "\(route) streams large payloads in chunks instead of buffering one body block (counts: \(recorder.dataCounts.value))")
         let chunked = perform(URLRequest(url: markedURL(URL(string: "\(base)/chunked")!, token: routing.token!)), session: session)
         check(chunked.error.value == nil && chunked.data.value == payload,
-              "\(route) decodes chunked transfer encoding")
+              "\(route) decodes chunked transfer encoding (error: \(String(describing: chunked.error.value)), bytes: \(chunked.data.value?.count ?? 0))")
         let disconnected = perform(URLRequest(url: markedURL(URL(string: "\(base)/close")!, token: routing.token!)), session: session)
         check(disconnected.error.value != nil, "\(route) reports a connection closed before headers")
     }
+
+    // ===== E2. 重定向安全与源站隐私：两种 route 都不得把标记、凭据或非 HTTP 目标放行 =====
+    for route: UpdateProbeRoute in [.defaultRoute, .wiredEthernet] {
+        routing.transport = SystemUpdateRequestTransport(wiredTimeout: 1)
+        _ = routing.activate(route: route)
+        let session = URLSession(configuration: updateProtocolConfiguration())
+        defer { session.finishTasksAndInvalidate() }
+
+        let beforeNonHTTP = originRequests.value.count
+        let nonHTTP = perform(URLRequest(url: markedURL(URL(string: "\(base)/redirect-non-http")!, token: routing.token!)), session: session)
+        let nonHTTPRequests = originRequests.value.dropFirst(beforeNonHTTP)
+        check(nonHTTP.error.value != nil && nonHTTPRequests.count == 1 && nonHTTPRequests.first?.target.hasPrefix("/redirect-non-http") == true,
+              "\(route) rejects a non-HTTP redirect without contacting its target")
+
+        let beforeSensitive = originRequests.value.count
+        var sensitive = URLRequest(url: markedURL(URL(string: "\(base)/redirect-sensitive")!, token: routing.token!))
+        sensitive.setValue("Bearer origin-secret", forHTTPHeaderField: "Authorization")
+        sensitive.setValue("Basic proxy-secret", forHTTPHeaderField: "Proxy-Authorization")
+        sensitive.setValue("session=origin-secret", forHTTPHeaderField: "Cookie")
+        let sensitiveResult = perform(sensitive, session: session)
+        let sensitiveRequests = originRequests.value.dropFirst(beforeSensitive)
+        check(sensitiveResult.error.value == nil && sensitiveRequests.count == 2 &&
+              sensitiveRequests.dropFirst().first?.target == "/echo",
+              "\(route) follows a safe redirect while preserving the origin path")
+        check(sensitiveRequests.allSatisfy { request in
+            request.headers["authorization"] == nil && request.headers["proxy-authorization"] == nil && request.headers["cookie"] == nil
+        }, "\(route) never sends Authorization, Proxy-Authorization or Cookie headers to the origin")
+
+        let beforeMarker = originRequests.value.count
+        let markedRedirect = perform(URLRequest(url: markedURL(URL(string: "\(base)/redirect-marker")!, token: routing.token!)), session: session)
+        let markerRequests = originRequests.value.dropFirst(beforeMarker)
+        check(markedRedirect.error.value == nil && markerRequests.count == 2 && markerRequests.first?.target == "/redirect-marker",
+              "\(route) removes the private query marker before the first origin request")
+        check(markerRequests.dropFirst().first?.target == "/echo?keep=%2F",
+              "\(route) strips private markers from the redirect target while preserving other escaping (actual: \(markerRequests.dropFirst().first?.target ?? "none"))")
+
+        let escapedTarget = "/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=&matchsticksds_update_request=\(routing.token!)"
+        let escapedResult = perform(URLRequest(url: URL(string: "\(base)\(escapedTarget)")!), session: session)
+        check(escapedResult.error.value == nil && originRequests.value.last?.target == "/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=",
+              "\(route) preserves the exact percent-encoded request target (actual: \(originRequests.value.last?.target ?? "none"))")
+    }
+
+    // ===== E3. 恶意 HTTP framing：大整数不得崩溃，累计行缓冲有界，冲突长度/状态码 fail closed =====
+    for path in ["/length-2e63", "/length-uint64max"] {
+        let result = performWired("\(base)\(path)", timeout: 1)
+        check(result.error.value?.localizedDescription.contains("Content-Length") == true,
+              "\(path) rejects a Content-Length beyond Int.max without trapping (error: \(String(describing: result.error.value)))")
+    }
+    let hugeChunk = performWired("\(base)/chunk-2e63", timeout: 1)
+    check(hugeChunk.error.value?.localizedDescription.contains("chunk size") == true,
+          "a chunk size of 2^63 is rejected without trapping (error: \(String(describing: hugeChunk.error.value)))")
+    for path in ["/chunk-overflow", "/trailer-overflow"] {
+        let before = originRequests.value.count
+        let result = performWired("\(base)\(path)", timeout: 0.5)
+        let expected = path == "/chunk-overflow" ? "chunk size line" : "chunk trailers"
+        check(result.error.value?.localizedDescription.contains(expected) == true && originRequests.value.count == before + 1,
+              "\(path) caps an unterminated line at 64 KiB instead of waiting for the full timeout (error: \(String(describing: result.error.value)))")
+    }
+    let conflict = performWired("\(base)/length-conflict", timeout: 1)
+    check(conflict.error.value?.localizedDescription.contains("conflicting Content-Length") == true,
+          "different repeated Content-Length values are rejected (error: \(String(describing: conflict.error.value)))")
+    let emptyLength = performWired("\(base)/length-empty", timeout: 1)
+    check(emptyLength.error.value?.localizedDescription.contains("Content-Length") == true,
+          "an empty Content-Length is rejected instead of becoming a close-delimited success")
+    let badStatus = performWired("\(base)/status-999", timeout: 1)
+    check(badStatus.error.value?.localizedDescription.contains("HTTP status") == true,
+          "a status code above 599 is rejected (error: \(String(describing: badStatus.error.value)))")
+    routing.transport = SystemUpdateRequestTransport(wiredTimeout: 1)
+    _ = routing.activate(route: .defaultRoute)
+    let defaultSession = URLSession(configuration: updateProtocolConfiguration())
+    defer { defaultSession.finishTasksAndInvalidate() }
+    let defaultConflict = perform(URLRequest(url: markedURL(URL(string: "\(base)/length-conflict")!, token: routing.token!)), session: defaultSession)
+    let defaultBadStatus = perform(URLRequest(url: markedURL(URL(string: "\(base)/status-999")!, token: routing.token!)), session: defaultSession)
+    check(defaultConflict.error.value != nil && defaultBadStatus.error.value != nil,
+          "default responses reject conflicting Content-Length and out-of-range status codes (conflict: \(String(describing: defaultConflict.error.value)); status: \(String(describing: defaultBadStatus.error.value)); response: \(String(describing: defaultConflict.response.value))")
+
+    let beforeCredentials = originRequests.value.count
+    let credentialBase = base.replacingOccurrences(of: "http://", with: "http://user:secret@")
+    let urlCredentials = performWired("\(credentialBase)/echo", timeout: 1)
+    check(urlCredentials.error.value != nil && originRequests.value.count == beforeCredentials,
+          "wired requests with URL-embedded credentials fail before opening an origin connection")
+
+    // ===== E4. 探测边界：默认探测不跟随跳转，有线状态码也限定在 HTTP 范围内 =====
+    let beforeProbeRedirect = originRequests.value.count
+    let probeRedirect = Locked<UpdateProbeResult?>(nil)
+    SystemRouteProbeTransport().probe(.defaultRoute, url: URL(string: "\(base)/redirect")!) { probeRedirect.value = $0 }
+    waitUntil("default redirect probe completes") { probeRedirect.value != nil }
+    check(probeRedirect.value?.reachable == true && probeRedirect.value?.detail.contains("302") == true &&
+          originRequests.value.count == beforeProbeRedirect + 1,
+          "the default probe reports a redirect without following it (detail: \(probeRedirect.value?.detail ?? "pending"), requests: \(originRequests.value.dropFirst(beforeProbeRedirect).map(\.target)))")
+    let probeBadStatus = Locked<UpdateProbeResult?>(nil)
+    SystemRouteProbeTransport().probe(.wiredEthernet, url: URL(string: "\(base)/status-999")!) { probeBadStatus.value = $0 }
+    waitUntil("wired bad-status probe completes") { probeBadStatus.value != nil }
+    check(probeBadStatus.value?.reachable == false, "the wired probe rejects a status line above 599")
+    let probeSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/MatchSticksDS/UpdateProbeTransport.swift"), encoding: .utf8)) ?? ""
+    check(probeSource.contains("configuration.urlCredentialStorage = nil") &&
+              SystemRouteProbeTransport.makeConfiguration().urlCredentialStorage == nil,
+          "the production default probe configuration disables implicit URL credentials")
 
     // ===== F. 数据已开始后取消：底层连接确实取消，不仅隐藏 UI =====
     do {
@@ -245,6 +448,27 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
     check(center.contains("routing.markDownload(request)"), "the Sparkle enclosure request receives the private marker")
     check(center.contains("shouldDownloadReleaseNotesForUpdate"),
           "the silent driver disables unused release-notes downloads that would otherwise bypass the selected route")
+    let unknownSparkleGuard = "guard nsError.domain == SUSparkleErrorDomain,\n              let code = SUError(rawValue: Int32(nsError.code)) else { return }"
+    check(!center.contains(unknownSparkleGuard),
+          "unknown Sparkle errors cannot return without finishing the cycle and scheduling backoff")
+    check(!center.contains("Int(delay), error.localizedDescription)"),
+          "Sparkle error descriptions are not copied into app logs where request URLs could contain markers")
+}
+
+@MainActor
+private func performWired(_ string: String, timeout: TimeInterval) -> NetworkResult {
+    let result = NetworkResult()
+    let transport = SystemUpdateRequestTransport(wiredTimeout: timeout)
+    let handle = transport.send(URLRequest(url: URL(string: string)!), route: .wiredEthernet, callbacks: UpdateRequestCallbacks(
+        response: { result.response.value = $0 },
+        data: { result.data.value = $0 },
+        completion: { error in
+            result.error.value = error
+            result.done.value = true
+        }))
+    waitUntil("wired request completes", timeout: 5) { result.done.value }
+    if !result.done.value { handle.cancel() }
+    return result
 }
 
 @MainActor
@@ -472,6 +696,10 @@ private final class LoopbackHTTPServer {
         for (key, value) in headers { head += "\(key): \(value)\r\n" }
         head += "Connection: close\r\n\r\n"
         sendAll(Data(head.utf8) + body, fd: fd)
+    }
+
+    static func respondRawText(_ response: String, fd: Int32) {
+        sendAll(Data(response.utf8), fd: fd)
     }
 
     static func stream(status: String, headers: [String: String], body: Data, fd: Int32) {

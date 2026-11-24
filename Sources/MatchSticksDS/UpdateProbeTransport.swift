@@ -17,9 +17,9 @@ import Security
 // 把 .loopback 一并禁用也会 ENETDOWN，所以只禁 Wi‑Fi。与 AGENTS.md 记录的 macOS 27 Network.framework
 // 回归（NWListener EINVAL）同类。禁止 Wi‑Fi 不依赖按类型选路，语义上同样回答「不经 radio Wi‑Fi 能否连上 GitHub」。
 //
-// 任何 HTTP 状态行 = 可达；无路径（.waiting）、连接失败（.failed）、超时 = 不可达。不设 ALPN（服务端按
-// HTTP/1.1 应答，状态行可直接解析），不跟随重定向（任一状态码即可达），不发送 cookie / 凭证。只约束这一条
-// 探测连接：不改网络服务顺序、不关 Wi‑Fi、不碰机器人 socket。
+// 合法 HTTP 状态行 = 可达；无路径（.waiting）、连接失败（.failed）、超时 = 不可达。不设 ALPN（服务端按
+// HTTP/1.1 应答，状态行可直接解析），不跟随重定向，不发送 cookie / 凭据。只约束这一条探测连接：
+// 不改网络服务顺序、不关 Wi‑Fi、不碰机器人 socket。
 //
 // Sparkle 的 appcast / 下载请求由 UpdateURLProtocol 使用同一 UpdateProbeRoute：默认成功只走默认，
 // 默认失败且有线路径成功时，feed 与 enclosure 都经 WiredEthernet HTTP transport。更新请求失败回到
@@ -28,14 +28,40 @@ import Security
 
 final class SystemRouteProbeTransport: UpdateProbeTransport {
     private let session: URLSession
+    private let redirectDelegate: ProbeRedirectRejector?
     private let wiredTimeout: TimeInterval
 
-    init(session: URLSession = UpdateReachability.makeSession(), wiredTimeout: TimeInterval = 8) {
-        self.session = session
+    init(session: URLSession? = nil, wiredTimeout: TimeInterval = 8) {
+        if let session {
+            self.session = session
+            redirectDelegate = nil
+        } else {
+            let delegate = ProbeRedirectRejector()
+            self.session = URLSession(configuration: Self.makeConfiguration(), delegate: delegate, delegateQueue: nil)
+            redirectDelegate = delegate
+        }
         self.wiredTimeout = wiredTimeout
     }
 
+    static func makeConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = []
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 15
+        return configuration
+    }
+
     func probe(_ route: UpdateProbeRoute, url: URL, completion: @escaping (UpdateProbeResult) -> Void) {
+        guard UpdateRequestRouting.validatedRequestURL(url) != nil else {
+            completion(UpdateProbeResult(reachable: false, route: route, detail: "invalid feed URL"))
+            return
+        }
         switch route {
         case .defaultRoute:
             probeDefault(url, completion: completion)
@@ -48,13 +74,26 @@ final class SystemRouteProbeTransport: UpdateProbeTransport {
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         session.dataTask(with: request) { _, response, error in
-            if let http = response as? HTTPURLResponse {
-                completion(UpdateProbeResult(reachable: true, route: .defaultRoute, detail: "HTTP \(http.statusCode)"))
-            } else {
+            guard let http = response as? HTTPURLResponse else {
                 completion(UpdateProbeResult(reachable: false, route: .defaultRoute,
                                              detail: error?.localizedDescription ?? "no HTTP response"))
+                return
             }
+            if let responseError = SystemUpdateRequestTransport.responseError(http) {
+                completion(UpdateProbeResult(reachable: false, route: .defaultRoute,
+                                             detail: responseError.localizedDescription))
+                return
+            }
+            completion(UpdateProbeResult(reachable: true, route: .defaultRoute, detail: "HTTP \(http.statusCode)"))
         }.resume()
+    }
+}
+
+private final class ProbeRedirectRejector: NSObject, URLSessionDataDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }
 
@@ -78,14 +117,15 @@ private final class WiredEthernetProbe {
 
     func start() {
         selfRetainer = self
-        guard let host = url.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty,
-              let port = Self.port(of: url) else {
+        guard let validatedURL = UpdateRequestRouting.validatedRequestURL(url),
+              let components = URLComponents(url: validatedURL, resolvingAgainstBaseURL: false),
+              let host = components.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty,
+              let port = Self.port(for: validatedURL) else {
             fail("invalid feed URL")
             return
         }
-        let useTLS = url.scheme?.lowercased() == "https"
         let parameters: NWParameters
-        if useTLS {
+        if components.scheme?.lowercased() == "https" {
             let tls = NWProtocolTLS.Options()
             sec_protocol_options_set_tls_server_name(tls.securityProtocolOptions, host)
             parameters = NWParameters(tls: tls)
@@ -95,15 +135,11 @@ private final class WiredEthernetProbe {
         parameters.prohibitedInterfaceTypes = [.wifi]
 
         // IPv6 字面量主机名需加方括号；显式端口才写进 Host
-        let hostHeader = (host.contains(":") ? "[\(host)]" : host) + (url.port.map { ":\($0)" } ?? "")
-        var target = url.path.isEmpty ? "/" : url.path
-        if let query = url.query { target += "?\(query)" }
-        var lines: [String] = []
-        lines.append("HEAD \(target) HTTP/1.1")
-        lines.append("Host: \(hostHeader)")
-        lines.append("User-Agent: MatchSticksDS-update-probe")
-        lines.append("Accept: */*")
-        lines.append("Connection: close")
+        let hostHeader = (host.contains(":") ? "[\(host)]" : host) + (components.port.map { ":\($0)" } ?? "")
+        var target = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
+        if let query = components.percentEncodedQuery { target += "?\(query)" }
+        let lines = ["HEAD \(target) HTTP/1.1", "Host: \(hostHeader)",
+                     "User-Agent: MatchSticksDS-update-probe", "Accept: */*", "Connection: close"]
         let request = Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8)
 
         let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: parameters)
@@ -118,9 +154,20 @@ private final class WiredEthernetProbe {
         connection.start(queue: queue)
     }
 
-    private static func port(of url: URL) -> NWEndpoint.Port? {
-        if let explicit = url.port { return NWEndpoint.Port(rawValue: UInt16(clamping: explicit)) }
-        return url.scheme?.lowercased() == "https" ? 443 : 80
+    private static func port(for url: URL) -> NWEndpoint.Port? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let number: Int
+        if let explicit = components.port {
+            guard (1...65_535).contains(explicit) else { return nil }
+            number = explicit
+        } else if components.scheme?.lowercased() == "https" {
+            number = 443
+        } else if components.scheme?.lowercased() == "http" {
+            number = 80
+        } else {
+            return nil
+        }
+        return NWEndpoint.Port(rawValue: UInt16(number))
     }
 
     private func stateChanged(_ state: NWConnection.State, request: Data) {
@@ -157,10 +204,12 @@ private final class WiredEthernetProbe {
                 let head = String(decoding: data.prefix(256), as: UTF8.self)
                 if let lineEnd = head.range(of: "\r\n") ?? head.range(of: "\n") {
                     let line = String(head[..<lineEnd.lowerBound])
-                    if line.hasPrefix("HTTP/") {
+                    let fields = line.split(separator: " ", omittingEmptySubsequences: false)
+                    if fields.count >= 2, fields[0].hasPrefix("HTTP/"),
+                       let statusCode = Int(fields[1]), (100...599).contains(statusCode) {
                         self.finish(UpdateProbeResult(reachable: true, route: .wiredEthernet, detail: line))
                     } else {
-                        self.fail("unexpected response: \(line)")
+                        self.fail("unexpected or invalid HTTP status line")
                     }
                     return
                 }

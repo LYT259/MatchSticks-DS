@@ -1,4 +1,5 @@
 import Foundation
+import ObjectiveC
 
 struct UpdateRequestCallbacks {
     let response: (HTTPURLResponse) -> Void
@@ -35,16 +36,21 @@ final class UpdateRequestHandle {
 
 /// Sparkle 2.10 没有公开 URLSession 注入点。进程内 URLProtocol 只识别本次探测签发的随机 token：
 /// feed 经公开 feedParameters 获得 query token，enclosure 经 willDownloadUpdate 获得 header token。
-/// 机器人、WebUI、Star 以及未标记的同源请求都不会命中；token 与凭证不会发往源站，也不写日志。
+/// 机器人、WebUI、Star 以及未标记的同源请求都不会命中；token 与凭证不会发往源站，应用自身不记录它们。
 final class UpdateRequestRouting {
     static let shared = UpdateRequestRouting()
     static let feedParameter = "matchsticksds_update_request"
     static let downloadHeader = "MatchSticksDS-Update-Request"
+    static let errorDomain = "org.ghfrc.driverstation.update.routing"
+    private static let sensitiveHeaders = ["Authorization", "Proxy-Authorization", "Cookie", downloadHeader]
+    private static let installLock = NSLock()
+    private static var sparkSessionRoutingInstalled = false
 
     private let lock = NSLock()
     private var storedRoute: UpdateProbeRoute?
     private var storedToken: String?
     private var storedTransport: (any UpdateRequestTransport)?
+    private var storedInterceptionObserver: (() -> Void)?
 
     var route: UpdateProbeRoute? {
         lock.lock()
@@ -69,6 +75,41 @@ final class UpdateRequestRouting {
             defer { lock.unlock() }
             storedTransport = newValue
         }
+    }
+
+    var interceptionObserver: (() -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedInterceptionObserver
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            storedInterceptionObserver = newValue
+        }
+    }
+
+    /// URLProtocol.registerClass 只覆盖 shared session；Sparkle 通过 defaultSessionConfiguration
+    /// 创建独立 session，因此还需在该公开工厂上幂等地补充同一 adapter。未标记请求仍由 canInit 放行。
+    static func installSparkleSessionRouting() {
+        installLock.lock()
+        defer { installLock.unlock() }
+        guard !sparkSessionRoutingInstalled else { return }
+        let selector = NSSelectorFromString("defaultSessionConfiguration")
+        guard let method = class_getClassMethod(URLSessionConfiguration.self, selector) else { return }
+        let originalIMP = method_getImplementation(method)
+        typealias ConfigurationFactory = @convention(c) (AnyObject, Selector) -> URLSessionConfiguration
+        let factory: @convention(block) (AnyObject) -> URLSessionConfiguration = { object in
+            let configuration = unsafeBitCast(originalIMP, to: ConfigurationFactory.self)(object, selector)
+            let alreadyInstalled = configuration.protocolClasses?.contains { $0 === UpdateURLProtocol.self } == true
+            if !alreadyInstalled {
+                configuration.protocolClasses = [UpdateURLProtocol.self] + (configuration.protocolClasses ?? [])
+            }
+            return configuration
+        }
+        method_setImplementation(method, imp_implementationWithBlock(factory))
+        sparkSessionRoutingInstalled = true
     }
 
     @discardableResult
@@ -104,27 +145,75 @@ final class UpdateRequestRouting {
     }
 
     func shouldIntercept(_ request: URLRequest) -> Bool {
-        guard route != nil, let token, let url = request.url,
-              url.user == nil, url.password == nil,
-              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return false }
+        guard route != nil, let token, let url = request.url else { return false }
         if request.value(forHTTPHeaderField: Self.downloadHeader) == token { return true }
-        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        return items.contains { $0.name == Self.feedParameter && $0.value == token }
+        guard let rawQuery = url.query else { return false }
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let query = components.percentEncodedQuery else {
+            return rawQuery.contains("\(Self.feedParameter)=")
+        }
+        return Self.containsFeedToken(in: query, token: token)
     }
 
-    func sanitizedRequest(_ request: URLRequest) -> URLRequest {
+    static func sanitizedRequest(_ request: URLRequest) -> URLRequest? {
+        guard let url = request.url, let sanitizedURL = sanitizedURL(url) else { return nil }
         var sanitized = request
-        sanitized.setValue(nil, forHTTPHeaderField: Self.downloadHeader)
-        for header in ["Authorization", "Proxy-Authorization", "Cookie"] {
+        sanitized.url = sanitizedURL
+        for header in sensitiveHeaders {
             sanitized.setValue(nil, forHTTPHeaderField: header)
         }
-        if let url = sanitized.url,
-           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
-            components.queryItems = components.queryItems?.filter { $0.name != Self.feedParameter }
-            if components.queryItems?.isEmpty == true { components.queryItems = nil }
-            sanitized.url = components.url
+        return sanitized
+    }
+
+    func sanitizedRequest(_ request: URLRequest) -> URLRequest? {
+        Self.sanitizedRequest(request)
+    }
+
+    static func sanitizedURL(_ url: URL) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.url != nil else { return nil }
+        if let query = components.percentEncodedQuery {
+            components.percentEncodedQuery = removingFeedToken(from: query)
+        }
+        guard let sanitized = components.url else { return nil }
+        return validatedRequestURL(sanitized)
+    }
+
+    static func redirectTarget(_ url: URL, from currentURL: URL) -> URL? {
+        guard let sanitized = sanitizedURL(url),
+              let currentComponents = URLComponents(url: currentURL, resolvingAgainstBaseURL: false),
+              let nextComponents = URLComponents(url: sanitized, resolvingAgainstBaseURL: false) else { return nil }
+        if currentComponents.scheme?.lowercased() == "https" && nextComponents.scheme?.lowercased() != "https" {
+            return nil
         }
         return sanitized
+    }
+
+    static func validatedRequestURL(_ url: URL) -> URL? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let normalized = components.url,
+              ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
+              let host = components.host?.trimmingCharacters(in: .whitespaces), !host.isEmpty,
+              components.user == nil, components.password == nil else { return nil }
+        if let port = components.port, !(1...65_535).contains(port) { return nil }
+        return normalized
+    }
+
+    private static func feedTokenValue(in item: String) -> String? {
+        let parts = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, String(parts[0]).removingPercentEncoding == feedParameter else { return nil }
+        return String(parts[1]).removingPercentEncoding
+    }
+
+    private static func containsFeedToken(in query: String, token: String) -> Bool {
+        query.split(separator: "&", omittingEmptySubsequences: false)
+            .contains { feedTokenValue(in: String($0)) == token }
+    }
+
+    private static func removingFeedToken(from query: String) -> String? {
+        let items = query.split(separator: "&", omittingEmptySubsequences: false)
+            .filter { feedTokenValue(in: String($0)) == nil }
+        return items.isEmpty ? nil : items.joined(separator: "&")
     }
 }
 
@@ -144,11 +233,14 @@ final class UpdateURLProtocol: URLProtocol {
         guard UpdateRequestRouting.shared.shouldIntercept(request),
               let route = UpdateRequestRouting.shared.route,
               let transport = UpdateRequestRouting.shared.transport else {
-            finish(NSError(domain: "org.ghfrc.driverstation.update.routing", code: 1,
-                           userInfo: [NSLocalizedDescriptionKey: "Update request is no longer active"]))
+            finish(routingError("Update request is no longer active"))
             return
         }
-        let sanitized = UpdateRequestRouting.shared.sanitizedRequest(request)
+        guard let sanitized = UpdateRequestRouting.shared.sanitizedRequest(request) else {
+            finish(routingError("Invalid update request URL"))
+            return
+        }
+        UpdateRequestRouting.shared.interceptionObserver?()
         let newHandle = transport.send(sanitized, route: route, callbacks: UpdateRequestCallbacks(
             response: { [weak self] response in self?.receive(response) },
             data: { [weak self] data in self?.receive(data) },
@@ -199,4 +291,8 @@ final class UpdateURLProtocol: URLProtocol {
         }
     }
 
+    private func routingError(_ detail: String) -> NSError {
+        NSError(domain: UpdateRequestRouting.errorDomain, code: 1,
+                userInfo: [NSLocalizedDescriptionKey: detail])
+    }
 }
