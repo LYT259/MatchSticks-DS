@@ -428,7 +428,7 @@ final class DSModel {
     }
     private var dslogWriter: DSLogWriter?
 
-    // MARK: 图表历史（1Hz 采样，Charts 页真实时间序列）
+    // MARK: 图表历史（1Hz 采样，机器人页历史曲线的真实时间序列）
 
     var cpuHistory: [CPUPoint] = []
     var lossHistory: [LossPoint] = []
@@ -444,6 +444,9 @@ final class DSModel {
     private let persistenceAllowed: Bool
     private var lastBatterySampleAt: TimeInterval = 0
     private var radioProbe: RadioProbe?
+    /// NI 服务发现（`_ni._tcp` Bonjour 浏览，start() 启动）：默认真实 NWBrowser，测试注入假浏览器（无套接字）。
+    var makeLocalNetworkDiscovery: @MainActor () -> LocalNetworkDiscovery = { LocalNetworkDiscovery() }
+    private var localNetworkDiscovery: LocalNetworkDiscovery?
     private let nt4Server = NT4Server(port: 6767)
     private var webUI: WebUIServer?
     private let opModeHashBox = OpModeHashBox()
@@ -629,6 +632,7 @@ final class DSModel {
             }
         }
 
+        startLocalNetworkDiscovery()
         startWebUI()
         client.start()
         log(tr("MatchSticks DS 控制环已启动（20ms）"))
@@ -651,6 +655,27 @@ final class DSModel {
         }
     }
 
+    /// 机器人重搜动作：默认走真实 DSClient.refreshConnection()；测试注入记录闭包。
+    var robotConnectionRefresher: (() -> Void)?
+
+    /// 手动刷新机器人连接（迷你驾驶台刷新按钮）：未连接时执行真重搜
+    /// （清 mDNS 解析节流/缓存、重建发送候选）；已连接时拒绝——不打断活跃控制链路
+    /// （重建候选会触发 autoDisabled，等于误失能）。返回是否真的执行了重搜。
+    @discardableResult
+    func refreshRobotConnection() -> Bool {
+        guard !commConnected else {
+            log(tr("已连接机器人，无需刷新；刷新仅在未连接时重新搜索。"))
+            return false
+        }
+        if let robotConnectionRefresher {
+            robotConnectionRefresher()
+        } else {
+            client.refreshConnection()
+        }
+        log(tr("已请求重新搜索机器人"))
+        return true
+    }
+
     /// Radio 探测结果落库：仅真实翻转时写日志。
     /// RadioProbe.onResult 本身只在值变化时回调；这里再守一次，重复回调与直接调用都不刷。
     func applyRadioResult(_ reachable: Bool) {
@@ -668,6 +693,36 @@ final class DSModel {
         guard summary != tr("检测中…") else { return false }
         log(tr("本机网络状态：%@", summary))
         return true
+    }
+
+    /// 启动一次 NI 服务发现（幂等；仅 AUTO_SIM 跳过——E2E 不浏览网络上无关的机器人；
+    /// autoSim 缺省跟随会话 AUTO_SIM 标志，测试显式传入）。
+    /// 不看 teamNumber / manualIP：默认队号 0、空手动地址同样启动，首次 start() 即触发系统本地网络
+    /// 授权询问。浏览结果只写日志：不进发送轮转、不自动连接（控制客户端的 mDNS 解析独立于此）。
+    func startLocalNetworkDiscovery(autoSim: Bool? = nil) {
+        guard !(autoSim ?? DSModel.isAutoSim), localNetworkDiscovery == nil else { return }
+        let discovery = makeLocalNetworkDiscovery()
+        discovery.onEvent = { [weak self] event in
+            MainActor.assumeIsolated { self?.handleLocalNetworkDiscovery(event) }
+        }
+        discovery.start()
+        localNetworkDiscovery = discovery
+    }
+
+    private func handleLocalNetworkDiscovery(_ event: LocalNetworkDiscoveryEvent) {
+        switch event {
+        case .policyDenied:
+            log(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks DS，然后重新打开应用。"))
+        case .failed(let reason):
+            log(tr("NI 服务发现失败：%@", reason))
+        case .services(let names):
+            log(names.isEmpty ? tr("NI 服务发现：当前没有 NI 设备")
+                              : tr("NI 服务发现：%@", names.joined(separator: ", ")))
+        case .waiting(let reason):
+            Diag.write(tr("NI 服务发现等待：%@", reason))
+        case .ready:
+            Diag.write(tr("NI 服务发现已就绪"))
+        }
     }
 
     // MARK: 主线程 50Hz：轮询 HID → 刷新槽位 → 填快照盒子

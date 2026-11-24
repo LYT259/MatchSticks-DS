@@ -1,10 +1,8 @@
 import SwiftUI
 import DSCore
 
-struct DiagnosticsView: View {
+struct RobotView: View {
     let model: DSModel
-    @State private var confirmReboot = false
-    @State private var confirmRestart = false
     private let columns = [GridItem(.adaptive(minimum: 300), spacing: 16, alignment: .top)]
 
     var body: some View {
@@ -15,23 +13,11 @@ struct DiagnosticsView: View {
                     resourcesPanel
                     canPanel
                     powerPanel
-                    computerPanel
                 }
-                cameraMockPanel
                 versionsPanel
-                maintenancePanel
+                RobotHistoryView(model: model)
             }
             .padding(24)
-        }
-        .confirmationDialog(tr("确认重启机器人控制器？"), isPresented: $confirmReboot, titleVisibility: .visible) {
-            Button(tr("重启控制器"), role: .destructive) { model.rebootRoboRIO() }
-        } message: {
-            Text(tr("机器人将暂时断开连接。请确认当前已失能。"))
-        }
-        .confirmationDialog(tr("确认重启机器人程序？"), isPresented: $confirmRestart, titleVisibility: .visible) {
-            Button(tr("重启程序"), role: .destructive) { model.restartRobotCode() }
-        } message: {
-            Text(tr("重启会中断当前程序。请先确认机器人已失能。"))
         }
     }
 
@@ -115,22 +101,6 @@ struct DiagnosticsView: View {
         }
     }
 
-    private var computerPanel: some View {
-        DSPanel(title: tr("这台 Mac")) {
-            if let pct = model.macStatus.batteryPercent {
-                metricRow(tr("电池"), value: "\(pct)%")
-                metricRow(tr("供电方式"), value: model.macStatus.onAC == true ? tr("外接电源") : tr("电池供电"))
-            } else {
-                metricRow(tr("供电方式"), value: tr("外接电源"))
-            }
-            metricRow(tr("系统 CPU"), value: String(format: "%.0f%%", model.macStatus.systemCPUPercent))
-            metricRow(tr("应用内存"), value: String(format: "%.0f MB", model.macStatus.processMemoryMB))
-            Divider()
-            Text(model.localNetworkSummary)
-                .font(.callout).foregroundStyle(DSTheme.textSecondary).textSelection(.enabled)
-        }
-    }
-
     private var versionsPanel: some View {
         DSPanel(title: tr("设备版本"), subtitle: model.commConnected ? nil : tr("未连接；如有记录，显示上次收到的版本")) {
             if model.versionEntries.isEmpty {
@@ -140,26 +110,6 @@ struct DiagnosticsView: View {
                 ForEach(Array(model.versionEntries.enumerated()), id: \.offset) { _, entry in
                     metricRow(tr("%@ · 类型 %d", entry.name, Int(entry.deviceType)), value: entry.version)
                 }
-            }
-        }
-    }
-
-    private var cameraMockPanel: some View {
-        DSPanel(title: tr("摄像头"), subtitle: tr("模拟器 MOCK 图像源（真实 SystemCore 流协议待实测）")) {
-            CameraMockPanel()
-        }
-    }
-
-    private var maintenancePanel: some View {
-        DSPanel(title: tr("机器人维护"), subtitle: tr("重启会中断控制。请先确认机器人已失能。")) {
-            HStack(spacing: 12) {
-                Button(tr("重启机器人程序"), systemImage: "arrow.clockwise") { confirmRestart = true }
-                    .buttonStyle(DSActionStyle())
-                    .disabled(!model.commConnected)
-                Button(tr("重启控制器"), systemImage: "power") { confirmReboot = true }
-                    .buttonStyle(DSActionStyle())
-                    .disabled(!model.commConnected)
-                Spacer(minLength: 0)
             }
         }
     }

@@ -105,7 +105,7 @@
 ### 2B-3. 自动/手动 radio 目标区分（假绿/假阴性修复的实物确认）
 
 - [ ] 自动模式 + 队号已设：radio 探测目标恒为 `10.T.E.1:80`，与手动 IP 无关（lsof 核对）；
-      OM5P 在线但 :80 拒绝（RST/refused）时诊断页显示「已响应」——10-31 假阴性场景复测
+      OM5P 在线但 :80 拒绝（RST/refused）时机器人页显示「已响应」——10-31 假阴性场景复测
 - [ ] 手动 IP 填 roboRIO `10.T.E.2` 并应用：radio 灯**不得**变绿（10-31 假绿场景复测）；
       手动 IP 只改变 roboRIO 通信目标，不参与 radio 选址
 - [ ] 队号改为错误相邻网段：探测目标随切换、最终未响应；改回后恢复。注意：新 UI 中
@@ -167,7 +167,7 @@
 
 - [ ] `.dsrec`（Settings 页抓包全程开，captures/ 目录）、`.wpilog`/`.dslog`
       （`~/Library/Application Support/MatchSticksDS/Logs/`）
-- [ ] `MATCHSTICKS_DS_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（诊断/权限页）
+- [ ] `MATCHSTICKS_DS_LOG_FILE` 控制台日志（含坏包/UI stall/吞吐/看门狗行）+ 截图（机器人/权限页）
 - [ ] tcpdump pcap + 2B-2 判别命令的终端输出（nc/lsof/roboRIO 侧 ss）+ 如复用 10-31 的
       JSONL 监测则一并；全部收入当日证据目录（持久路径，勿只放 /tmp），工程日志记路径
 
