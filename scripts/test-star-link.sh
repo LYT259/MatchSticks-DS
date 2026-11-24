@@ -27,6 +27,7 @@ app_sources=(
   Sources/MatchSticksDS/Views/DSStyle.swift
   Sources/MatchSticksDS/Views/DSControls.swift
   Sources/MatchSticksDS/PracticeAudioPlayer.swift
+  Sources/MatchSticksDS/PracticeCountdownSpeech.swift
   Sources/MatchSticksDS/UpdateFlow.swift
   Sources/MatchSticksDS/MainWindowDoubleClick.swift
   Sources/MatchSticksDS/Shortcuts.swift
