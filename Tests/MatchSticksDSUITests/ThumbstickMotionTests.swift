@@ -7,36 +7,62 @@ func thumbstickMotionTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     func state(_ x: Float, _ y: Float) -> GamepadStickState {
         GamepadStickState(x: x, yUp: y, pressed: false)
     }
-    let neutral = ThumbstickMotion.pose(well: well, cap: cap, state: state(0, 0))
-    check(neutral.pivot == CGPoint(x: 180, y: 155) && neutral.tiltX == 0 && neutral.tiltY == 0,
-          "三维摇杆中立时轴心固定在井口且不倾斜")
-    check(neutral.capSize == cap.size && neutral.travel == .zero, "中立帽顶尺寸来自标定且无位移")
+    guard let geometry = ThumbstickGeometry.resolve(cap: cap) else {
+        check(false, "三维摇杆几何可由帽顶轮廓解出")
+        return
+    }
+    let radius = cap.width / 2
+    check(geometry.cameraPitch == ThumbstickGeometry.viewPitch,
+          "参考图视角固定为产品图的默认俯角，同一手柄的左右摇杆一致")
+    check(abs(2 * geometry.capDepth * cos(geometry.cameraPitch) + geometry.capThickness * sin(geometry.cameraPitch) - cap.height) < 0.01,
+          "中立帽顶轮廓（顶面加可见侧面）与原图帽顶高度一致")
+    check(geometry.capThickness > 0 && geometry.capThickness < radius, "帽顶有真实厚度且不超过帽顶半径")
+    let square = ThumbstickGeometry.resolve(cap: CGRect(x: 0, y: 0, width: 100, height: 100))
+    let flat = ThumbstickGeometry.resolve(cap: CGRect(x: 0, y: 0, width: 100, height: 80))
+    let tall = ThumbstickGeometry.resolve(cap: CGRect(x: 0, y: 0, width: 100, height: 103))
+    check(square?.cameraPitch == ThumbstickGeometry.viewPitch && flat?.cameraPitch == ThumbstickGeometry.viewPitch &&
+              abs((square?.capDepth ?? 0) - 50) < 0.05 && (flat?.capDepth ?? 50) < 50 && (tall?.capDepth ?? 0) > 50 &&
+              abs((flat?.capDepth ?? 0) * 2 * cos(ThumbstickGeometry.viewPitch) +
+                  (flat?.capThickness ?? 0) * sin(ThumbstickGeometry.viewPitch) - 80) < 0.000001,
+          "俯角固定不变，偏扁或偏高的帽顶用椭圆截面贴合原图轮廓，且仍有真实厚度")
 
-    let right = ThumbstickMotion.pose(well: well, cap: cap, state: state(1, 0))
+    let neutral = ThumbstickMotion.pose(cap: cap, state: state(0, 0))
+    check(neutral.tiltX == 0 && neutral.tiltY == 0 && neutral.travel == .zero,
+          "三维摇杆中立时不倾斜、无位移")
+    check(neutral.capSize == cap.size && neutral.pivot == geometry.pivot, "中立帽顶尺寸来自标定")
+    check(neutral.pivot.x == cap.midX && neutral.pivot.y > cap.midY && well.contains(neutral.pivot),
+          "转动轴心在帽顶前下方（靠使用者一侧）的井口内，而不是帽顶后方或井口中心")
+
+    let right = ThumbstickMotion.pose(cap: cap, state: state(1, 0))
     check(right.pivot == neutral.pivot && right.tiltY > 0 && right.tiltX == 0,
-          "右拨绕井口 Y 轴倾斜而非平移贴图")
-    check(abs(right.travel.width - 20) < 0.0001 && right.travel.height == 0,
-          "右拨投影位移受井帽差值约束")
+          "右拨绕自身轴心侧倾而非平移贴图")
+    check(right.travel.width > 0 && abs(right.travel.height) < cap.width * 0.05,
+          "右拨帽顶向右移动，只略微降低")
 
-    let left = ThumbstickMotion.pose(well: well, cap: cap, state: state(-1, 0))
-    check(left.tiltY < 0 && left.travel.width == -20, "左拨方向与右拨相反")
-    let up = ThumbstickMotion.pose(well: well, cap: cap, state: state(0, 1))
-    check(up.tiltX < 0 && up.travel.height == -20, "上拨朝屏幕上方倾斜")
-    let down = ThumbstickMotion.pose(well: well, cap: cap, state: state(0, -1))
-    check(down.tiltX > 0 && down.travel.height == 20, "下拨朝屏幕下方倾斜")
+    let left = ThumbstickMotion.pose(cap: cap, state: state(-1, 0))
+    check(left.tiltY < 0 && left.travel.width == -right.travel.width, "左拨方向与右拨相反")
+    let up = ThumbstickMotion.pose(cap: cap, state: state(0, 1))
+    check(up.tiltX < 0 && up.travel.height < 0 && up.travel.width == 0, "上拨帽顶向屏幕上方倾斜")
+    let down = ThumbstickMotion.pose(cap: cap, state: state(0, -1))
+    check(down.tiltX > 0 && down.travel.height > 0 && down.travel.width == 0, "下拨帽顶向屏幕下方倾斜")
+    check(abs(down.tiltX) <= ThumbstickGeometry.maxDeflection && abs(up.tiltX) <= ThumbstickGeometry.maxDeflection &&
+              abs(right.tiltY) <= ThumbstickGeometry.maxDeflection,
+          "满量程偏转不超过真实摇杆模块的机械极限（20°），不会把摇杆放倒")
+    check(abs(down.travel.height) > abs(up.travel.height) &&
+              abs(down.travel.height) < radius && abs(up.travel.height) < radius &&
+              abs(right.travel.width) < radius,
+          "帽顶行程小于一个帽顶半径，朝使用者一侧略大于远离一侧")
 
-    let diagonal = ThumbstickMotion.pose(well: well, cap: cap, state: state(1, 1))
-    check(abs(diagonal.travel.width - 20 / sqrt(2)) < 0.0001 &&
-          abs(diagonal.travel.height + 20 / sqrt(2)) < 0.0001,
-          "斜向输入受圆形井口约束而不会越界")
-    let oversized = ThumbstickMotion.pose(well: well, cap: cap, state: state(100, -100))
-    check(abs(oversized.travel.width - 20 / sqrt(2)) < 0.0001 &&
-          abs(oversized.travel.height - 20 / sqrt(2)) < 0.0001,
-          "超量程输入仍钳制在井口内")
-    let invalid = ThumbstickMotion.pose(well: well, cap: cap, state: state(.nan, .infinity))
+    let diagonal = ThumbstickMotion.pose(cap: cap, state: state(1, 1))
+    check(abs(diagonal.tiltX - up.tiltX / sqrt(2)) < 0.000001 && abs(diagonal.tiltY - right.tiltY / sqrt(2)) < 0.000001,
+          "斜向输入按圆形量程归一化而不会越界")
+    let oversized = ThumbstickMotion.pose(cap: cap, state: state(100, -100))
+    check(oversized == ThumbstickMotion.pose(cap: cap, state: state(1, -1)),
+          "超量程输入仍钳制在圆形量程内")
+    let invalid = ThumbstickMotion.pose(cap: cap, state: state(.nan, .infinity))
     check(invalid == neutral, "非有限输入安全回中")
-    let empty = ThumbstickMotion.pose(well: .zero, cap: .zero, state: state(1, 1))
-    check(empty.tiltX.isFinite && empty.tiltY.isFinite && empty.travel == .zero,
+    let empty = ThumbstickMotion.pose(cap: .zero, state: state(1, 1))
+    check(empty.tiltX.isFinite && empty.tiltY.isFinite && empty.travel == .zero && empty.pivot == .zero,
           "非法几何不产生 NaN 或无限姿态")
 
     guard let context = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8,
@@ -84,6 +110,21 @@ func thumbstickMotionTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
         check(abs(color.redComponent - 1) < 0.001 && abs(color.greenComponent) < 0.001 &&
               abs(color.blueComponent) < 0.001,
               "摇杆侧面保留原图边缘颜色而非任意配色，实际 RGB \(color.redComponent)/\(color.greenComponent)/\(color.blueComponent)")
+    }
+    let strip = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 64 * 4,
+                          space: CGColorSpaceCreateDeviceRGB(),
+                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    strip.setFillColor(NSColor.red.cgColor)
+    strip.fill(CGRect(x: 16, y: 16, width: 32, height: 32))
+    strip.setFillColor(NSColor.blue.cgColor)
+    strip.fill(CGRect(x: 16, y: 16, width: 32, height: 4))
+    if let stripImage = strip.makeImage(),
+       let capSide = ThumbstickTexture.capSideColor(image: stripImage, cap: CGRect(x: 16, y: 16, width: 32, height: 32))?
+           .usingColorSpace(.deviceRGB) {
+        check(capSide.blueComponent > 0.8 && capSide.redComponent < 0.3,
+              "帽顶侧面取下缘最暗条带的颜色，而不是帽顶顶面纹理，实际 RGB \(capSide.redComponent)/\(capSide.greenComponent)/\(capSide.blueComponent)")
+    } else {
+        check(false, "帽顶侧面颜色可采样")
     }
     let wellRegion = CGRect(x: 8, y: 8, width: 32, height: 32)
     let sampledWell = ThumbstickTexture.wellColor(image: source, well: wellRegion,

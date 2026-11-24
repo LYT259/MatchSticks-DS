@@ -14,15 +14,15 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     check(mapped == CGRect(x: 50, y: 50, width: 100, height: 50),
           "artwork 统一 aspect-fit 映射与纵向留白")
 
-    let zero = ThumbstickMotion.pose(well: mapped, cap: spec.region(.leftStickCap, in: container),
-                                     state: .init(x: 0, yUp: 0, pressed: false))
-    check(zero.pivot == CGPoint(x: mapped.midX, y: mapped.midY) && zero.tiltX == 0 && zero.tiltY == 0,
-          "artwork 三维摇杆零值严格回中且轴心固定")
-    let moved = ThumbstickMotion.pose(well: mapped, cap: spec.region(.leftStickCap, in: container),
-                                      state: .init(x: 2, yUp: -2, pressed: false))
-    check(abs(moved.travel.width - 37.5 / sqrt(2)) < 0.0001 &&
-          abs(moved.travel.height - 12.5 / sqrt(2)) < 0.0001,
-          "artwork 三维摇杆斜向行程按井口归一化（得到 \(moved.travel)")
+    let capFrame = spec.region(.leftStickCap, in: container)
+    let zero = ThumbstickMotion.pose(cap: capFrame, state: .init(x: 0, yUp: 0, pressed: false))
+    check(zero.tiltX == 0 && zero.tiltY == 0 && zero.travel == .zero && mapped.contains(zero.pivot),
+          "artwork 三维摇杆零值严格回中且轴心在井口内")
+    let moved = ThumbstickMotion.pose(cap: capFrame, state: .init(x: 2, yUp: -2, pressed: false))
+    check(moved == ThumbstickMotion.pose(cap: capFrame, state: .init(x: 1, yUp: -1, pressed: false)) &&
+              moved.travel.width > 0 && moved.travel.height > 0 &&
+              hypot(moved.travel.width, moved.travel.height) < capFrame.width / 2,
+          "artwork 三维摇杆斜向行程按圆形量程归一化且不超过帽顶半径（得到 \(moved.travel)")
 
     check(GamepadArtworkCatalog.spec(for: .dualsense).imageName == "dualsense",
           "PS5 使用 DualSense 实机资源")

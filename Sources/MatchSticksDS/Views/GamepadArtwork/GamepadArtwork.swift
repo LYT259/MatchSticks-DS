@@ -125,9 +125,9 @@ enum GamepadArtworkCatalog {
         imageName: "f310", referenceSize: CGSize(width: 755, height: 556),
         regions: [
             .leftStick: CGRect(x: 210, y: 290, width: 135, height: 140),
-            .leftStickCap: CGRect(x: 230, y: 310, width: 95, height: 95),
+            .leftStickCap: CGRect(x: 230.5, y: 306.5, width: 95.5, height: 98.5),
             .rightStick: CGRect(x: 405, y: 290, width: 135, height: 140),
-            .rightStickCap: CGRect(x: 425, y: 310, width: 95, height: 95),
+            .rightStickCap: CGRect(x: 427.5, y: 306.5, width: 95.5, height: 98.5),
             .dpad: CGRect(x: 110, y: 165, width: 145, height: 145),
             .faceNorth: CGRect(x: 540, y: 155, width: 75, height: 75),
             .faceEast: CGRect(x: 590, y: 210, width: 65, height: 70),

@@ -59,6 +59,7 @@ func gamepadRenderingTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
             try? data.write(to: url.appendingPathComponent("\(skin.rawValue)-composite.png"))
         }
         saveMotionSheet(left: left, right: right, spec: spec, source: source, skin: skin, check: check)
+        saveStickCloseUps(spec: spec, source: source, skin: skin)
         if skin == .f310 {
             check(GamepadArtworkImageSource.image(named: "f310") != nil,
                   "SwiftUI 正式布局可以加载原厂手柄资源")
@@ -103,6 +104,57 @@ private func saveMotionSheet(left: ThumbstickSceneView, right: ThumbstickSceneVi
     let root = URL(fileURLWithPath: directory, isDirectory: true)
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try? data.write(to: root.appendingPathComponent("\(skin.rawValue)-motion-sheet.png"))
+}
+
+/// Enlarged per-state close-ups of both sticks, written only for review runs.
+@MainActor
+private func saveStickCloseUps(spec: GamepadArtworkSpec, source: NSImage, skin: GamepadSkin) {
+    guard skin != .generic, let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+          let data = stickCloseUps(spec: spec, source: source, skin: skin) else { return }
+    let root = URL(fileURLWithPath: directory, isDirectory: true)
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try? data.write(to: root.appendingPathComponent("\(skin.rawValue)-stick-closeups.png"))
+}
+
+@MainActor
+private func stickCloseUps(spec: GamepadArtworkSpec, source: NSImage, skin: GamepadSkin) -> Data? {
+    let states: [(String, Float, Float, Bool)] = [
+        ("neutral", 0, 0, false), ("left", -1, 0, false), ("right", 1, 0, false),
+        ("up", 0, 1, false), ("down", 0, -1, false), ("diagonal", 1, 1, false),
+        ("pressed", 1, 0, true),
+    ]
+    let zoom: CGFloat = skin == .direwolf4 ? 1 : 3
+    let container = CGSize(width: spec.referenceSize.width * zoom, height: spec.referenceSize.height * zoom)
+    func closeUp(_ region: GamepadArtworkRegion) -> CGRect {
+        let well = spec.region(region, in: container)
+        let padding = well.width * 0.35
+        return CGRect(x: well.minX - padding, y: well.minY - padding,
+                      width: well.width + padding * 2, height: well.height + padding * 2).integral
+    }
+    let boxes = [closeUp(.leftStick), closeUp(.rightStick)]
+    let cell = CGSize(width: boxes.map(\.width).max() ?? 0, height: boxes.map(\.height).max() ?? 0)
+    guard cell.width > 0, cell.height > 0 else { return nil }
+    let sheet = NSImage(size: CGSize(width: cell.width * 2, height: cell.height * CGFloat(states.count)))
+    sheet.lockFocus()
+    for (index, item) in states.enumerated() {
+        for (column, region) in [GamepadArtworkRegion.leftStick, .rightStick].enumerated() {
+            let box = boxes[column]
+            let origin = CGPoint(x: CGFloat(column) * cell.width + (cell.width - box.width) / 2,
+                                 y: CGFloat(states.count - 1 - index) * cell.height + (cell.height - box.height) / 2)
+            let view = ThumbstickSceneView(frame: CGRect(origin: .zero, size: container))
+            if view.update(spec: spec, region: region, state: .init(x: item.1, yUp: item.2, pressed: item.3),
+                           container: container, sourceImage: source),
+               let image = view.snapshot().cgImage(forProposedRect: nil, context: nil, hints: nil)?.cropping(to: box) {
+                NSImage(cgImage: image, size: box.size).draw(in: CGRect(origin: origin, size: box.size))
+            }
+            NSString(string: item.0).draw(at: origin, withAttributes: [
+                .font: NSFont.systemFont(ofSize: 14), .foregroundColor: NSColor.systemBlue,
+            ])
+        }
+    }
+    sheet.unlockFocus()
+    guard let image = sheet.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+    return NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
 }
 
 @MainActor
