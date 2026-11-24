@@ -144,12 +144,25 @@ func boundedConnectClassificationTests() {
     check(-t0.timeIntervalSinceNow < 1.0, "connected 快速返回")
 
     // refused：端口关但主机活（真机 OM5P:80 形态 → RST）
+    // Windows 的 TCP 收到 RST 后会先重发 SYN，约 2s 才报 WSAECONNREFUSED；POSIX 立即返回
+    //（2026-11-24 首次真实 Windows 运行实测：1s 截止被判成 timedOut，WSAPoll 要到 ~1.8s 后才报 POLLERR）。
+    // 截止时间按平台给足——这里验证的是「refused」这一分类本身，不是操作系统的 RST 时延。
+    #if os(Windows)
+    let refusedTimeout = 5.0
+    #else
+    let refusedTimeout = 1.0
+    #endif
     let dead = loopbackListen(backlog: 4)
     SocketCompat.closeSocket(dead.fd)
     t0 = Date()
-    outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: dead.port, timeout: 1.0)
+    outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: dead.port, timeout: refusedTimeout)
+    let refusedElapsed = -t0.timeIntervalSinceNow
+    #if os(Windows)
+    print("windows: refused reported after \(String(format: "%.2f", refusedElapsed))s")
+    #endif
     check(outcomeTag(outcome) == "refused", "端口关闭 → refused（ECONNREFUSED 独立分类，got \(outcomeTag(outcome))）")
-    check(-t0.timeIntervalSinceNow < 2.0, "refused 即时返回（不等待）")
+    check(refusedElapsed < refusedTimeout,
+          "refused 在截止时间内返回，不等到超时（\(String(format: "%.2f", refusedElapsed))s）")
 
     // timedOut：黑洞链路（accept 积压填满 → SYN 被丢）
     #if os(Windows)
@@ -196,7 +209,13 @@ func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
 // MARK: ① RadioProbe 语义：connected 或 refused = radio 在线；其余 = 离线
 
 func radioProbeClassificationTests() {
-    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.4, timeout: 0.5))
+    // 探测截止按平台给足：Windows 上「被拒」要 ~2s 才由系统报出，截止太短只能看到超时，验证不了 refused → 可达
+    #if os(Windows)
+    let probeTimeout = 3.0
+    #else
+    let probeTimeout = 0.5
+    #endif
+    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.4, timeout: probeTimeout))
 
     // 1. 黑洞（物理断线等价物）→ 不可达
     let hole = LoopbackBlackhole()

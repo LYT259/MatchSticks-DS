@@ -371,7 +371,13 @@ func radioProbeTests() {
         return
     }
 
-    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.5, timeout: 0.5, port: 18_123))
+    // Windows 上「被拒」要 ~2s 才由系统报出：截止时间给足，才能验证「监听关闭（RST）→ 仍在线」
+    #if os(Windows)
+    let probeTimeout = 3.0
+    #else
+    let probeTimeout = 0.5
+    #endif
+    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.5, timeout: probeTimeout, port: 18_123))
     probe.hostProvider = { return (host: "127.0.0.1", port: 18_123) }
     probe.start()
     check(waitUntil(8.0) { probe.isReachable }, "监听时可达（attempts " + String(probe.probeAttempts) + "）")
