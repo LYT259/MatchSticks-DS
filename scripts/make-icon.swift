@@ -1,6 +1,6 @@
 // MatchSticks Driver Station 应用图标生成器：从用户原稿派生全尺寸 iconset（不再程序绘制）
 // 用法：swift scripts/make-icon.swift <输出目录> [母版 PNG]
-//       母版默认 Sources/MatchSticksDriverStation/Resources/AppIcons/app-icon-day.png（按脚本位置解析）
+//       母版默认 Sources/MatchSticksDriverStaion/Resources/AppIcons/app-icon-day.png（按脚本位置解析）
 // 行为契约（scripts/test-icon.sh 固化）：
 //   - 母版必须是 1024×1024 可解码图片；缺失/损坏/尺寸不符 → 报错点名路径并以非零码退出
 //   - 每次运行整体重建 <输出目录>/AppIcon.iconset（先删旧目录，不留任何陈旧产物）
@@ -17,7 +17,7 @@ let outDir = args.count > 1 ? args[1] : "."
 // 都解析到同一份仓库母版（scripts/test-icon.sh T8 锁定该行为）
 let scriptDir = URL(fileURLWithPath: args[0]).absoluteURL.resolvingSymlinksInPath().deletingLastPathComponent()
 let defaultMaster = scriptDir.deletingLastPathComponent()
-    .appendingPathComponent("Sources/MatchSticksDriverStation/Resources/AppIcons/app-icon-day.png")
+    .appendingPathComponent("Sources/MatchSticksDriverStaion/Resources/AppIcons/app-icon-day.png")
 let masterURL = URL(fileURLWithPath: args.count > 2 ? args[2] : defaultMaster.path)
 
 let entries: [(name: String, side: Int)] = [

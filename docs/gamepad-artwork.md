@@ -22,7 +22,7 @@ Xbox 图片只做边缘白底透明化与透明边界裁切；手柄本体、按
 
 ## 标定方法与主要锚点
 
-其他素材使用 `.build/grid-overlay.swift` 辅助标定。DualSense 清晰版使用归一化相关的局部模板匹配定位主体与摇杆帽，逐像素复核相关性；肩键从 alpha>128 且亮度<96 的真实连通区域提取。生产坐标表位于 `Sources/MatchSticksDriverStation/Views/GamepadArtwork/GamepadArtwork.swift`，渲染时统一使用 `GamepadArtworkSpec.region(_:in:)` 的 aspect-fit 变换，全部锚点由 `GamepadArtworkTests` 固定回归。
+其他素材使用 `.build/grid-overlay.swift` 辅助标定。DualSense 清晰版使用归一化相关的局部模板匹配定位主体与摇杆帽，逐像素复核相关性；肩键从 alpha>128 且亮度<96 的真实连通区域提取。生产坐标表位于 `Sources/MatchSticksDriverStaion/Views/GamepadArtwork/GamepadArtwork.swift`，渲染时统一使用 `GamepadArtworkSpec.region(_:in:)` 的 aspect-fit 变换，全部锚点由 `GamepadArtworkTests` 固定回归。
 
 当前 DualSense 使用 1920×1080 原生图（不是 1600×900 缩放副本），alpha 前景边界为 `(380,151,1160×816)`；增加 16 像素边界后裁切为 `(364,135,1192×848)`。原标定坐标通过 `x'=1.2x−364`、`y'=1.2y−135` 转换，宽高同乘 1.2。图片不重绘、不锐化，渲染显式使用高质量插值。
 

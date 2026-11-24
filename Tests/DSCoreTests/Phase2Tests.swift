@@ -557,7 +557,7 @@ import DSCore
 // UI 冻结看门狗冻结使能 / brownout 解码 / 30s 长跑稳定性。
 
 /// bind 并断言成功。**此前所有 bind 返回值都被丢弃**，症状是「应答数为 0」的
-/// 误导性失败——真凶往往是残留的 MatchSticksDriverStation/MatchSticksDriverStationSim 进程占着 1110/1150（2026-09-16
+/// 误导性失败——真凶往往是残留的 MatchSticksDriverStaion/MatchSticksDriverStaionSim 进程占着 1110/1150（2026-09-16
 /// 通宵段就因残留实例误判过一次负向测试）。失败时给出可执行的排查提示。
 @discardableResult
 func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: Bool = false, what: String) -> Bool {
@@ -577,7 +577,7 @@ func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: 
         guard soft else {
             let held = portInUse(port)
             check(false, "\(what)：bind \(host):\(port) 失败（errno \(errno)）"
-                + (held ? " —— 端口被占用，先 `pgrep -lf MatchSticksDriverStation` 清残留进程"
+                + (held ? " —— 端口被占用，先 `pgrep -lf MatchSticksDriverStaion` 清残留进程"
                         : "（端口探测空闲，可能是权限问题）"))
             return false
         }

@@ -1,20 +1,20 @@
 # Homebrew cask 清单（自维护 tap 用；模板随发版填充 VERSION/SHA256）
 #
 # 使用（tap 仓库创建后——等用户点名）：
-#   1. 在 tap 仓库（如 LYT259/homebrew-matchsticks-driver-station）放本文件到 Casks/matchsticks-driver-station.rb
+#   1. 在 tap 仓库（如 LYT259/homebrew-matchsticks-driver-staion）放本文件到 Casks/matchsticks-driver-staion.rb
 #   2. 发版时更新 version / sha256（来自 Releases 的 SHA256SUMS）
-#   3. 用户侧：brew install --cask LYT259/matchsticks-driver-station/matchsticks-driver-station
+#   3. 用户侧：brew install --cask LYT259/matchsticks-driver-staion/matchsticks-driver-staion
 #
 # 说明：本 cask 依赖 GitHub Releases 的 dmg（universal）；ad-hoc 签名 + 未公证，
 # Homebrew 安装路径不经浏览器下载隔离属性，首开无 Gatekeeper 拦截（报告 §5.5 方案 A）。
-cask "matchsticks-driver-station" do
+cask "matchsticks-driver-staion" do
   version "0.1.0-SET-AT-RELEASE"
   sha256 "SET-AT-RELEASE-FROM-SHA256SUMS"
 
-  url "https://github.com/LYT259/MatchSticks-Driver-Station/releases/download/v#{version}/MatchSticks-Driver-Station-#{version}.dmg"
+  url "https://github.com/LYT259/MatchSticks-DriverStaion/releases/download/v#{version}/MatchSticks-DriverStaion-#{version}.dmg"
   name "MatchSticks Driver Station"
   desc "macOS FRC Driver Station for roboRIO 1.0/2.0 and SystemCore (practice only)"
-  homepage "https://github.com/LYT259/MatchSticks-Driver-Station"
+  homepage "https://github.com/LYT259/MatchSticks-DriverStaion"
 
   depends_on macos: ">= :sonoma"
 
@@ -22,10 +22,11 @@ cask "matchsticks-driver-station" do
 
   # 首开仍需一次「本地网络」应用内授权（macOS 15+；点「允许」即完成，
   # 与签名公证无关——详见仓库发版教程）。
-  # zap 同时覆盖两代改名前后的数据目录：新目录 MatchSticksDriverStation，旧目录 MatchSticksDS 与
-  # GHDriverStation 由新版保留式链式迁移（不自动删除）；生产 bundle ID 未变，偏好文件仍是
-  # org.ghfrc.driverstation.plist。
+  # zap 同时覆盖三代改名前后的数据目录：现行目录 MatchSticksDriverStaion，中间形态
+  # MatchSticksDriverStation 与旧目录 MatchSticksDS、GHDriverStation 由新版保留式链式迁移
+  # （不自动删除）；生产 bundle ID 未变，偏好文件仍是 org.ghfrc.driverstation.plist。
   zap trash: [
+    "~/Library/Application Support/MatchSticksDriverStaion",
     "~/Library/Application Support/MatchSticksDriverStation",
     "~/Library/Application Support/MatchSticksDS",
     "~/Library/Application Support/GHDriverStation",

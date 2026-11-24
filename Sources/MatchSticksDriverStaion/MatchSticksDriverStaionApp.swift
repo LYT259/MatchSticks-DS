@@ -2,7 +2,7 @@ import SwiftUI
 import DSCore
 
 @main
-struct MatchSticksDriverStationApp: App {
+struct MatchSticksDriverStaionApp: App {
     @State private var model = DSModel()
     @State private var shortcuts = ShortcutManager()
     @State private var updates = UpdateCenter()
@@ -48,7 +48,7 @@ struct MatchSticksDriverStationApp: App {
 
 /// 连接草稿（RootView 常驻，跨页面导航保留）：应用前的一切编辑都留在这里，
 /// 避免「切到别的页再回来，草稿被清空」。userEdited 标记未动过的草稿，
-/// 进页时自动跟随模型（MATCHSTICKS_DRIVER_STATION_AUTO_SIM / 启动模拟器会改写连接目标）。
+/// 进页时自动跟随模型（MATCHSTICKS_DRIVER_STAION_AUTO_SIM / 启动模拟器会改写连接目标）。
 struct RootView: View {
     let model: DSModel
     let updates: UpdateCenter

@@ -5,7 +5,7 @@ import PackageDescription
 let swiftV5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 
 let package = Package(
-    name: "MatchSticksDriverStation",
+    name: "MatchSticksDriverStaion",
     defaultLocalization: "en", // 中英双语：中文文案即查找键，en.lproj 提供译文（键缺失回退中文）
     platforms: [.macOS(.v14)],
     dependencies: [
@@ -22,7 +22,7 @@ let package = Package(
         ),
         // SwiftUI 主应用（Sparkle 仅此目标依赖，DSCore 保持零外部依赖）
         .executableTarget(
-            name: "MatchSticksDriverStation",
+            name: "MatchSticksDriverStaion",
             dependencies: [
                 "DSCore",
                 .product(name: "Sparkle", package: "Sparkle"),
@@ -32,7 +32,7 @@ let package = Package(
         ),
         // roboRIO 模拟器（本机端到端验证用，报告 §6 设计决策 3「录制即测试」的最小起步）
         .executableTarget(
-            name: "MatchSticksDriverStationSim",
+            name: "MatchSticksDriverStaionSim",
             dependencies: ["DSCore"],
             swiftSettings: swiftV5
         ),

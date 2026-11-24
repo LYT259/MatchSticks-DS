@@ -164,18 +164,18 @@ struct SetupView: View {
         actionMessage = tr("已应用连接设置，正在寻找机器人。")
     }
 
-    /// MatchSticksDriverStationSim is bundled beside MatchSticksDriverStation. Keep the process in the parent so navigation does not lose it.
+    /// MatchSticksDriverStaionSim is bundled beside MatchSticksDriverStaion. Keep the process in the parent so navigation does not lose it.
     private func launchSim() {
         guard !connectionEditingLocked, simProcess?.isRunning != true else { return }
         guard let dir = Bundle.main.executableURL?.deletingLastPathComponent() else {
             actionMessage = tr("无法定位模拟器，请检查应用是否完整。")
-            model.log(tr("无法定位 MatchSticksDriverStationSim（无可执行目录）"))
+            model.log(tr("无法定位 MatchSticksDriverStaionSim（无可执行目录）"))
             return
         }
-        let simURL = dir.appendingPathComponent("MatchSticksDriverStationSim")
+        let simURL = dir.appendingPathComponent("MatchSticksDriverStaionSim")
         guard FileManager.default.fileExists(atPath: simURL.path) else {
-            actionMessage = tr("当前应用未包含模拟器。请使用包含 MatchSticksDriverStationSim 的完整应用。")
-            model.log(tr("未找到 MatchSticksDriverStationSim：%@", simURL.path))
+            actionMessage = tr("当前应用未包含模拟器。请使用包含 MatchSticksDriverStaionSim 的完整应用。")
+            model.log(tr("未找到 MatchSticksDriverStaionSim：%@", simURL.path))
             return
         }
         let p = Process()

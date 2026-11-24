@@ -130,8 +130,8 @@ final class DSModel {
         return f
     }()
 
-    /// 设置域解析：非空有效的 `MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE`
-    /// （旧 `MATCHSTICKS_DS_` / `GHDS_` 前缀兼容）
+    /// 设置域解析：非空有效的 `MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE`
+    /// （旧 `MATCHSTICKS_DRIVER_STATION_` / `MATCHSTICKS_DS_` / `GHDS_` 前缀兼容）
     /// → 独立 UserDefaults suite（测试 / 并行会话隔离），否则标准域。
     /// 无效名字（UserDefaults 拒绝创建）同样回退标准域。
     nonisolated static func resolvedSettingsDefaults(
@@ -577,7 +577,7 @@ final class DSModel {
     /// 数据目录首次使用时解析（DSModel 初始化不触碰用户目录；UI 干测试不产生副作用）。
     /// 旧目录补齐由 AppSupportDirectory 在后台队列执行，不阻塞主线程；
     /// WebUI 日志列表、dslog、抓包录制全部由此返回的同一实例派生。
-    /// 测试可用 `MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT` 覆盖 Application Support 根。
+    /// 测试可用 `MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT` 覆盖 Application Support 根。
     private func appSupport() -> AppSupportDirectory {
         if let appSupportDirectory { return appSupportDirectory }
         let resolved = AppSupportDirectory()
@@ -693,11 +693,11 @@ final class DSModel {
 
         if DSModel.isAutoSim {
             manualIP = "127.0.0.1"
-            log(tr("MATCHSTICKS_DRIVER_STATION_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
+            log(tr("MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1"))
         }
         if DSEnvironment.isEnabled("AUTO_MRC") {
             protocolKind = .mrc
-            log(tr("MATCHSTICKS_DRIVER_STATION_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
+            log(tr("MATCHSTICKS_DRIVER_STAION_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）"))
         }
     }
 

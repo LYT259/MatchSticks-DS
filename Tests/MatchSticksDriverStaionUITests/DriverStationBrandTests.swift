@@ -90,7 +90,7 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
     let repositoryRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let rootSource = (try? String(contentsOf: repositoryRoot.appendingPathComponent(
-        "Sources/MatchSticksDriverStation/MatchSticksDriverStationApp.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStaion/MatchSticksDriverStaionApp.swift"), encoding: .utf8)) ?? ""
     check(rootSource.contains("DriverStationBrandView(model: model)") &&
           !rootSource.contains("tr(\"机器人驾驶台\")"),
           "the actual sidebar embeds the branded view and no longer translates the old subtitle")

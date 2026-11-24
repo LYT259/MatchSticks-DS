@@ -1,75 +1,104 @@
-// MARK: 品牌改名迁移回归（env 三级兼容 / 设置前缀 / 数据目录链 / 旧录制魔数）
+// MARK: 品牌改名迁移回归（env 四级兼容 / 设置前缀 / 数据目录三旧源链 / 旧录制魔数）
 
 import Foundation
 import DSCore
 
-// MARK: 环境变量：新前缀 → 过渡前缀 → 旧前缀逐级回退
+// MARK: 环境变量：新前缀 → 中间前缀 → DS 前缀 → 旧前缀逐级回退
 
 func environmentCompatibilityTests() {
-    check(DSEnvironment.prefix == "MATCHSTICKS_DRIVER_STATION_"
-          && DSEnvironment.interimPrefix == "MATCHSTICKS_DS_"
+    check(DSEnvironment.prefix == "MATCHSTICKS_DRIVER_STAION_"
+          && DSEnvironment.interimPrefix == "MATCHSTICKS_DRIVER_STATION_"
+          && DSEnvironment.dsPrefix == "MATCHSTICKS_DS_"
           && DSEnvironment.legacyPrefix == "GHDS_",
-          "env 前缀映射固定（新 → 过渡 → 旧）")
-    let allThree = [
-        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "newest-feed",
-        "MATCHSTICKS_DS_FEED_URL": "interim-feed",
+          "env 前缀映射固定（新 → 中间 → DS → 旧）")
+    let allFour = [
+        "MATCHSTICKS_DRIVER_STAION_FEED_URL": "newest-feed",
+        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "interim-feed",
+        "MATCHSTICKS_DS_FEED_URL": "ds-feed",
         "GHDS_FEED_URL": "old-feed",
     ]
-    check(DSEnvironment.string("FEED_URL", environment: allThree) == "newest-feed", "新 env 键优先")
+    check(DSEnvironment.string("FEED_URL", environment: allFour) == "newest-feed", "新 env 键优先")
     check(DSEnvironment.string("FEED_URL", environment: [
-        "MATCHSTICKS_DS_FEED_URL": "interim-feed",
+        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "interim-feed",
+        "MATCHSTICKS_DS_FEED_URL": "ds-feed",
         "GHDS_FEED_URL": "old-feed",
-    ]) == "interim-feed", "过渡 MATCHSTICKS_DS_ 键优先于 GHDS_")
+    ]) == "interim-feed", "中间 MATCHSTICKS_DRIVER_STATION_ 键优先于 DS / GHDS_")
+    check(DSEnvironment.string("FEED_URL", environment: [
+        "MATCHSTICKS_DS_FEED_URL": "ds-feed",
+        "GHDS_FEED_URL": "old-feed",
+    ]) == "ds-feed", "DS MATCHSTICKS_DS_ 键优先于 GHDS_")
     check(DSEnvironment.string("FEED_URL", environment: ["GHDS_FEED_URL": "old-feed"]) == "old-feed",
           "旧 GHDS_ 键回退兼容")
     check(DSEnvironment.string("FEED_URL", environment: [
-        "MATCHSTICKS_DS_FEED_URL": "interim-only",
-    ]) == "interim-only", "仅过渡键存在时生效")
-    check(DSEnvironment.string("FEED_URL", environment: [:]) == nil, "三级键都缺失返回 nil")
+        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "interim-only",
+    ]) == "interim-only", "仅中间键存在时生效")
     check(DSEnvironment.string("FEED_URL", environment: [
-        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "",
-        "MATCHSTICKS_DS_FEED_URL": "interim-feed",
+        "MATCHSTICKS_DS_FEED_URL": "ds-only",
+    ]) == "ds-only", "仅 DS 键存在时生效")
+    check(DSEnvironment.string("FEED_URL", environment: [:]) == nil, "四级键都缺失返回 nil")
+    check(DSEnvironment.string("FEED_URL", environment: [
+        "MATCHSTICKS_DRIVER_STAION_FEED_URL": "",
+        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "interim-feed",
+        "MATCHSTICKS_DS_FEED_URL": "ds-feed",
         "GHDS_FEED_URL": "old-feed",
     ]) == "", "新键存在即权威（空值不落回旧键）")
     check(DSEnvironment.string("FEED_URL", environment: [
+        "MATCHSTICKS_DRIVER_STATION_FEED_URL": "",
+        "MATCHSTICKS_DS_FEED_URL": "ds-feed",
+        "GHDS_FEED_URL": "old-feed",
+    ]) == "", "中间键存在即权威（空值不落回 DS / GHDS_）")
+    check(DSEnvironment.string("FEED_URL", environment: [
         "MATCHSTICKS_DS_FEED_URL": "",
         "GHDS_FEED_URL": "old-feed",
-    ]) == "", "过渡键存在即权威（空值不落回 GHDS_）")
+    ]) == "", "DS 键存在即权威（空值不落回 GHDS_）")
 
     check(DSEnvironment.isEnabled("AUTO_SIM", environment: [
-        "MATCHSTICKS_DRIVER_STATION_AUTO_SIM": "1",
+        "MATCHSTICKS_DRIVER_STAION_AUTO_SIM": "1",
     ]), "新开关键")
     check(DSEnvironment.isEnabled("AUTO_SIM", environment: [
+        "MATCHSTICKS_DRIVER_STATION_AUTO_SIM": "1",
+    ]), "中间开关键回退")
+    check(DSEnvironment.isEnabled("AUTO_SIM", environment: [
         "MATCHSTICKS_DS_AUTO_SIM": "1",
-    ]), "过渡开关键回退")
+    ]), "DS 开关键回退")
     check(DSEnvironment.isEnabled("AUTO_SIM", environment: ["GHDS_AUTO_SIM": "1"]), "旧开关键回退")
+    check(!DSEnvironment.isEnabled("AUTO_SIM", environment: [
+        "MATCHSTICKS_DRIVER_STAION_AUTO_SIM": "0",
+        "MATCHSTICKS_DRIVER_STATION_AUTO_SIM": "1",
+        "MATCHSTICKS_DS_AUTO_SIM": "1",
+        "GHDS_AUTO_SIM": "1",
+    ]), "新开关键 0 压制三级旧键")
     check(!DSEnvironment.isEnabled("AUTO_SIM", environment: [
         "MATCHSTICKS_DRIVER_STATION_AUTO_SIM": "0",
         "MATCHSTICKS_DS_AUTO_SIM": "1",
         "GHDS_AUTO_SIM": "1",
-    ]), "新开关键 0 压制两级旧键")
+    ]), "中间开关键 0 压制 DS / GHDS_")
     check(!DSEnvironment.isEnabled("AUTO_SIM", environment: [
         "MATCHSTICKS_DS_AUTO_SIM": "0",
         "GHDS_AUTO_SIM": "1",
-    ]), "过渡开关键 0 压制 GHDS_")
+    ]), "DS 开关键 0 压制 GHDS_")
     check(!DSEnvironment.isEnabled("AUTO_SIM", environment: ["GHDS_AUTO_SIM": "true"]),
           "开关仅接受 1")
 
-    // 只读最新前缀：测试专用路径覆盖不得回退 MATCHSTICKS_DS_ / GHDS_ alias
+    // 只读最新前缀：测试专用路径覆盖不得回退任何旧 alias
     check(DSEnvironment.currentString("APPLICATION_SUPPORT", environment: [
-        "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": "/tmp/newest-support",
+        "MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT": "/tmp/newest-support",
     ]) == "/tmp/newest-support", "currentString 读取最新前缀")
     check(DSEnvironment.currentString("APPLICATION_SUPPORT", environment: [
-        "MATCHSTICKS_DS_APPLICATION_SUPPORT": "/tmp/interim-support",
-    ]) == nil, "currentString 不读过渡 alias")
+        "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": "/tmp/interim-support",
+    ]) == nil, "currentString 不读中间 alias")
+    check(DSEnvironment.currentString("APPLICATION_SUPPORT", environment: [
+        "MATCHSTICKS_DS_APPLICATION_SUPPORT": "/tmp/ds-support",
+    ]) == nil, "currentString 不读 DS alias")
     check(DSEnvironment.currentString("APPLICATION_SUPPORT", environment: [
         "GHDS_APPLICATION_SUPPORT": "/tmp/old-support",
     ]) == nil, "currentString 不读旧 alias")
     check(DSEnvironment.currentString("APPLICATION_SUPPORT", environment: [
-        "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": "/tmp/newest-support",
-        "MATCHSTICKS_DS_APPLICATION_SUPPORT": "/tmp/interim-support",
+        "MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT": "/tmp/newest-support",
+        "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": "/tmp/interim-support",
+        "MATCHSTICKS_DS_APPLICATION_SUPPORT": "/tmp/ds-support",
         "GHDS_APPLICATION_SUPPORT": "/tmp/old-support",
-    ]) == "/tmp/newest-support", "currentString 三级并存时最新键优先")
+    ]) == "/tmp/newest-support", "currentString 四级并存时最新键优先")
 }
 
 // MARK: 设置：四类型回退迁移、新键优先、set nil 双删、测试前缀隔离
@@ -77,7 +106,7 @@ func environmentCompatibilityTests() {
 func settingsMigrationTests() {
     check(SettingsStore.defaultPrefix == "matchsticks." && SettingsStore.legacyPrefix == "ghds.",
           "设置前缀映射固定")
-    let name = "matchsticks-driver-station-settings-" + UUID().uuidString
+    let name = "matchsticks-driver-staion-settings-" + UUID().uuidString
     let defaults = UserDefaults(suiteName: name)!
     defer { defaults.removePersistentDomain(forName: name) }
 
@@ -179,7 +208,7 @@ func settingsMigrationTests() {
 
 private func makeMigrationBase(_ label: String) -> URL {
     let base = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        .appendingPathComponent("matchsticks-driver-station-\(label)-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("matchsticks-driver-staion-\(label)-\(UUID().uuidString)", isDirectory: true)
     try! FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
     return base
 }
@@ -239,44 +268,61 @@ private final class PausedCopyFileManager: FileManager {
     }
 }
 
-// MARK: Application Support：双旧源链式补齐、旧目录保留、不覆盖新文件
+// MARK: Application Support：三旧源链式补齐、旧目录保留、不覆盖新文件
 
 func appSupportDirectoryTests() {
-    check(AppSupportDirectory.name == "MatchSticksDriverStation"
-          && AppSupportDirectory.interimName == "MatchSticksDS"
+    check(AppSupportDirectory.name == "MatchSticksDriverStaion"
+          && AppSupportDirectory.interimName == "MatchSticksDriverStation"
+          && AppSupportDirectory.dsName == "MatchSticksDS"
           && AppSupportDirectory.legacyName == "GHDriverStation",
-          "Application Support 目录映射固定（新 → 过渡 → 旧）")
+          "Application Support 目录映射固定（新 → 中间 → DS → 旧）")
     let fm = FileManager.default
     let base = makeMigrationBase("support")
     defer { try? fm.removeItem(at: base) }
 
-    // 双旧源各放数据：同路径文件以过渡目录（较新）为准，旧目录只补缺口
+    // 三旧源各放数据：同路径文件按 MatchSticksDriverStation → MatchSticksDS → GHDriverStation 取值
     let interim = base.appendingPathComponent(AppSupportDirectory.interimName, isDirectory: true)
+    let ds = base.appendingPathComponent(AppSupportDirectory.dsName, isDirectory: true)
     let legacy = base.appendingPathComponent(AppSupportDirectory.legacyName, isDirectory: true)
     let interimLogs = interim.appendingPathComponent("Logs", isDirectory: true)
+    let dsLogs = ds.appendingPathComponent("Logs", isDirectory: true)
     let legacyLogs = legacy.appendingPathComponent("Logs", isDirectory: true)
     let legacyCaptures = legacy.appendingPathComponent("captures", isDirectory: true)
     makeMigrationDirectory(interimLogs)
+    makeMigrationDirectory(dsLogs)
     makeMigrationDirectory(legacyLogs)
     makeMigrationDirectory(legacyCaptures)
-    try! Data("interim-log".utf8).write(to: interimLogs.appendingPathComponent("old.dslog"))
+    try! Data("station-log".utf8).write(to: interimLogs.appendingPathComponent("old.dslog"))
+    try! Data("ds-log".utf8).write(to: dsLogs.appendingPathComponent("old.dslog"))
+    try! Data("ds-only".utf8).write(to: dsLogs.appendingPathComponent("ds-only.dslog"))
+    try! Data("ds-shared".utf8).write(to: dsLogs.appendingPathComponent("shared.dslog"))
     try! Data("legacy-log".utf8).write(to: legacyLogs.appendingPathComponent("old.dslog"))
+    try! Data("legacy-shared".utf8).write(to: legacyLogs.appendingPathComponent("shared.dslog"))
+    try! Data("legacy-only".utf8).write(to: legacyLogs.appendingPathComponent("legacy-only.dslog"))
     try! Data("old-capture".utf8).write(to: legacyCaptures.appendingPathComponent("old.dsrec"))
 
     let resolved = AppSupportDirectory(baseURL: base)
     check(resolved.waitForMigration(timeout: 10), "后台迁移可等待完成")
     check(resolved.url.lastPathComponent == AppSupportDirectory.name,
-          "优先使用 MatchSticksDriverStation 新目录")
+          "优先使用 MatchSticksDriverStaion 新目录")
     let newLogs = resolved.subdirectory("Logs")
     let newCaptures = resolved.subdirectory("captures")
-    check((try? String(contentsOf: newLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "interim-log",
-          "新旧源同路径文件以过渡目录（较新）内容为准")
+    check((try? String(contentsOf: newLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "station-log",
+          "三旧源同路径文件以 MatchSticksDriverStation（较新）内容为准")
+    check((try? String(contentsOf: newLogs.appendingPathComponent("shared.dslog"), encoding: .utf8)) == "ds-shared",
+          "中间源缺失时同路径文件以 MatchSticksDS 内容为准")
+    check(fm.fileExists(atPath: newLogs.appendingPathComponent("ds-only.dslog").path),
+          "MatchSticksDS 独有文件补齐到新目录")
+    check(fm.fileExists(atPath: newLogs.appendingPathComponent("legacy-only.dslog").path),
+          "GHDriverStation 独有文件补齐到新目录")
     check(fm.fileExists(atPath: newCaptures.appendingPathComponent("old.dsrec").path),
-          "仅旧目录有的录制补齐到新目录")
-    check((try? String(contentsOf: interimLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "interim-log",
-          "过渡目录文件保留且未改写")
+          "最旧目录有的录制补齐到新目录")
+    check((try? String(contentsOf: interimLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "station-log",
+          "MatchSticksDriverStation 文件保留且未改写")
+    check((try? String(contentsOf: dsLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "ds-log",
+          "MatchSticksDS 文件保留且未改写")
     check((try? String(contentsOf: legacyLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "legacy-log",
-          "旧目录文件保留且未改写")
+          "GHDriverStation 文件保留且未改写")
     check(fm.fileExists(atPath: legacyCaptures.appendingPathComponent("old.dsrec").path),
           "旧目录录制保留")
 
@@ -287,45 +333,74 @@ func appSupportDirectoryTests() {
     check(rerun.waitForMigration(timeout: 10), "重复迁移可等待完成")
     check((try? String(contentsOf: conflict, encoding: .utf8)) == "new-log", "补齐不覆盖新目录已有文件")
 
-    // 新目录独有文件保留；后续新出现的旧文件仍可补齐（含更旧目录来源）
+    // 新目录独有文件保留；后续三旧源新出现的文件仍可补齐
     let newOnly = newLogs.appendingPathComponent("new-only.dslog")
     try! Data("new-only".utf8).write(to: newOnly)
     let interimOnly = interimLogs.appendingPathComponent("late-interim.dslog")
     try! Data("late-interim".utf8).write(to: interimOnly)
+    let dsOnly = dsLogs.appendingPathComponent("late-ds.dslog")
+    try! Data("late-ds".utf8).write(to: dsOnly)
     let oldOnly = legacyLogs.appendingPathComponent("late-old.dslog")
     try! Data("late-old".utf8).write(to: oldOnly)
     let late = AppSupportDirectory(baseURL: base)
     check(late.waitForMigration(timeout: 10), "后出现的旧文件迁移可等待完成")
     check((try? String(contentsOf: newOnly, encoding: .utf8)) == "new-only", "新目录独有文件保留")
     check(fm.fileExists(atPath: newLogs.appendingPathComponent("late-interim.dslog").path),
-          "后出现的过渡目录文件继续补齐")
+          "后出现的 MatchSticksDriverStation 文件继续补齐")
+    check(fm.fileExists(atPath: newLogs.appendingPathComponent("late-ds.dslog").path),
+          "后出现的 MatchSticksDS 文件继续补齐")
     check(fm.fileExists(atPath: newLogs.appendingPathComponent("late-old.dslog").path),
-          "后出现的旧目录文件继续补齐")
+          "后出现的 GHDriverStation 文件继续补齐")
     check(migrationTemporaryArtifacts(in: resolved.url).isEmpty, "迁移不遗留临时文件")
 }
 
-// MARK: Application Support：新目录不可用时按新 → 旧顺序回退
+// MARK: Application Support：新目录不可用时按三旧源顺序回退，且回退不迁移
 
 func appSupportChainedFallbackTests() {
     let fm = FileManager.default
 
-    // 新路径被普通文件占位 → 回退过渡目录 MatchSticksDS
-    let interimBlockedBase = makeMigrationBase("fallback-interim")
-    defer { try? fm.removeItem(at: interimBlockedBase) }
-    let interimBlocked = interimBlockedBase
+    // 新路径被普通文件占位 → 回退最近的 MatchSticksDriverStation，且不向回退目录迁移
+    let stationBase = makeMigrationBase("fallback-station")
+    defer { try? fm.removeItem(at: stationBase) }
+    let station = stationBase
         .appendingPathComponent(AppSupportDirectory.interimName, isDirectory: true)
-    makeMigrationDirectory(interimBlocked)
+    let dsLogs = stationBase
+        .appendingPathComponent(AppSupportDirectory.dsName, isDirectory: true)
+        .appendingPathComponent("Logs", isDirectory: true)
+    makeMigrationDirectory(station)
+    makeMigrationDirectory(dsLogs)
+    try! Data("do-not-copy".utf8).write(to: dsLogs.appendingPathComponent("do-not-copy.dslog"))
     try! Data("placeholder".utf8).write(
-        to: interimBlockedBase.appendingPathComponent(AppSupportDirectory.name))
+        to: stationBase.appendingPathComponent(AppSupportDirectory.name))
 
-    let interimFallback = AppSupportDirectory(baseURL: interimBlockedBase)
-    check(interimFallback.url.lastPathComponent == AppSupportDirectory.interimName,
-          "新目录不可用时先回退 MatchSticksDS")
-    check(interimFallback.waitForMigration(timeout: 1), "回退时不启动迁移")
-    check(interimFallback.subdirectory("Logs").path.hasPrefix(interimBlocked.path),
-          "回退过渡目录后的日志仍落在该目录")
+    let stationFallback = AppSupportDirectory(baseURL: stationBase)
+    check(stationFallback.url.lastPathComponent == AppSupportDirectory.interimName,
+          "新目录不可用时先回退 MatchSticksDriverStation")
+    check(stationFallback.waitForMigration(timeout: 1), "回退时不启动迁移")
+    check(stationFallback.subdirectory("Logs").path.hasPrefix(station.path),
+          "回退 MatchSticksDriverStation 后的日志仍落在该目录")
+    check(!fm.fileExists(atPath: station.appendingPathComponent("Logs/do-not-copy.dslog").path),
+          "回退 MatchSticksDriverStation 时不迁移更旧目录")
 
-    // 新路径与过渡路径都不可用 → 回退旧目录 GHDriverStation
+    // 新路径与 MatchSticksDriverStation 都不可用 → 回退 MatchSticksDS
+    let dsBlockedBase = makeMigrationBase("fallback-ds")
+    defer { try? fm.removeItem(at: dsBlockedBase) }
+    let ds = dsBlockedBase
+        .appendingPathComponent(AppSupportDirectory.dsName, isDirectory: true)
+    makeMigrationDirectory(ds)
+    try! Data("placeholder".utf8).write(
+        to: dsBlockedBase.appendingPathComponent(AppSupportDirectory.name))
+    try! Data("placeholder".utf8).write(
+        to: dsBlockedBase.appendingPathComponent(AppSupportDirectory.interimName))
+
+    let dsFallback = AppSupportDirectory(baseURL: dsBlockedBase)
+    check(dsFallback.url.lastPathComponent == AppSupportDirectory.dsName,
+          "MatchSticksDriverStation 不可用时回退 MatchSticksDS")
+    check(dsFallback.waitForMigration(timeout: 1), "回退 MatchSticksDS 时不启动迁移")
+    check(dsFallback.subdirectory("Logs").path.hasPrefix(ds.path),
+          "回退 MatchSticksDS 后的日志仍落在该目录")
+
+    // 新路径、MatchSticksDriverStation、MatchSticksDS 都不可用 → 回退 GHDriverStation
     let legacyBlockedBase = makeMigrationBase("fallback-legacy")
     defer { try? fm.removeItem(at: legacyBlockedBase) }
     let legacyBlocked = legacyBlockedBase
@@ -335,22 +410,35 @@ func appSupportChainedFallbackTests() {
         to: legacyBlockedBase.appendingPathComponent(AppSupportDirectory.name))
     try! Data("placeholder".utf8).write(
         to: legacyBlockedBase.appendingPathComponent(AppSupportDirectory.interimName))
+    try! Data("placeholder".utf8).write(
+        to: legacyBlockedBase.appendingPathComponent(AppSupportDirectory.dsName))
 
     let legacyFallback = AppSupportDirectory(baseURL: legacyBlockedBase)
     check(legacyFallback.url.lastPathComponent == AppSupportDirectory.legacyName,
-          "过渡目录也不可用时回退 GHDriverStation")
+          "前两个旧目录都不可用时回退 GHDriverStation")
     check(legacyFallback.waitForMigration(timeout: 1), "回退旧目录时不启动迁移")
     check(legacyFallback.subdirectory("Logs").path.hasPrefix(legacyBlocked.path),
           "回退旧目录后的日志仍落在该目录")
 
-    // 过渡路径是符号链接 → 不跟随，继续回退旧目录
+    // 三个旧目录都不存在 → 最终仍返回 GHDriverStation 路径，由调用方按需创建
+    let emptyBase = makeMigrationBase("fallback-empty")
+    defer { try? fm.removeItem(at: emptyBase) }
+    try! Data("placeholder".utf8).write(
+        to: emptyBase.appendingPathComponent(AppSupportDirectory.name))
+    let emptyFallback = AppSupportDirectory(baseURL: emptyBase)
+    check(emptyFallback.url == emptyBase.appendingPathComponent(AppSupportDirectory.legacyName, isDirectory: true),
+          "三个旧目录都缺失时最终回退 GHDriverStation")
+    check(emptyFallback.waitForMigration(timeout: 1), "无旧目录可用时不启动迁移")
+    check(!fm.fileExists(atPath: emptyFallback.url.path), "最终回退路径不会在初始化时被创建")
+
+    // MatchSticksDriverStation 是符号链接 → 不跟随，回退下一个可写的 MatchSticksDS
     let symlinkBase = makeMigrationBase("fallback-symlink")
     defer { try? fm.removeItem(at: symlinkBase) }
     let symlinkTarget = symlinkBase.appendingPathComponent("outside", isDirectory: true)
     makeMigrationDirectory(symlinkTarget)
-    let symlinkLegacy = symlinkBase
-        .appendingPathComponent(AppSupportDirectory.legacyName, isDirectory: true)
-    makeMigrationDirectory(symlinkLegacy)
+    let symlinkDS = symlinkBase
+        .appendingPathComponent(AppSupportDirectory.dsName, isDirectory: true)
+    makeMigrationDirectory(symlinkDS)
     try! fm.createSymbolicLink(
         at: symlinkBase.appendingPathComponent(AppSupportDirectory.interimName),
         withDestinationURL: symlinkTarget
@@ -359,10 +447,11 @@ func appSupportChainedFallbackTests() {
         to: symlinkBase.appendingPathComponent(AppSupportDirectory.name))
 
     let symlinkFallback = AppSupportDirectory(baseURL: symlinkBase)
-    check(symlinkFallback.url.lastPathComponent == AppSupportDirectory.legacyName,
-          "过渡目录是符号链接时不跟随，回退旧目录")
+    check(symlinkFallback.url.lastPathComponent == AppSupportDirectory.dsName,
+          "MatchSticksDriverStation 是符号链接时不跟随，回退 MatchSticksDS")
+    check(symlinkFallback.waitForMigration(timeout: 1), "符号链接回退场景不启动迁移")
     let symlinkLeak = symlinkTarget.appendingPathComponent("Logs", isDirectory: true)
-    check(!fm.fileExists(atPath: symlinkLeak.path), "回退不写穿过渡符号链接")
+    check(!fm.fileExists(atPath: symlinkLeak.path), "回退不写穿 MatchSticksDriverStation 符号链接")
 }
 
 // MARK: Application Support：迁移后台执行，不阻塞初始化
@@ -638,14 +727,14 @@ func appSupportFailureCleanupTests() {
     check(migrationTemporaryArtifacts(in: resolved.url).isEmpty, "失败后清理临时文件")
 }
 
-// MARK: Application Support：MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 测试路径覆盖
+// MARK: Application Support：MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 测试路径覆盖
 
 func appSupportOverrideTests() {
     let fm = FileManager.default
     let base = makeMigrationBase("override")
     defer { try? fm.removeItem(at: base) }
-    check(AppSupportDirectory.overrideEnvironmentKey == "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT",
-          "路径覆盖 env 名为 MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT")
+    check(AppSupportDirectory.overrideEnvironmentKey == "MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT",
+          "路径覆盖 env 名为 MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT")
     let environment = [AppSupportDirectory.overrideEnvironmentKey: base.path]
 
     // 覆盖根下放入旧目录数据：验证 DSModel/WebUI/日志/抓包共用同一覆盖来源。
@@ -656,11 +745,11 @@ func appSupportOverrideTests() {
     try! Data("override-old-log".utf8).write(to: legacyLogs.appendingPathComponent("old.dslog"))
 
     check(AppSupportDirectory.applicationSupportBaseURL(environment: environment).path == base.path,
-          "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 覆盖 Application Support 根")
+          "MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 覆盖 Application Support 根")
     let resolved = AppSupportDirectory(environment: environment)
     check(resolved.waitForMigration(timeout: 10), "覆盖根场景迁移可等待完成")
     check(resolved.url.path == base.appendingPathComponent(AppSupportDirectory.name).path,
-          "覆盖根下仍使用 MatchSticksDriverStation 新目录")
+          "覆盖根下仍使用 MatchSticksDriverStaion 新目录")
     let logs = resolved.subdirectory("Logs")
     let captures = resolved.subdirectory("captures")
     check(fm.fileExists(atPath: logs.appendingPathComponent("old.dslog").path),
@@ -668,27 +757,32 @@ func appSupportOverrideTests() {
     check(logs.path.hasPrefix(resolved.url.path), "WebUI/日志目录与覆盖根同源")
     check(captures.path.hasPrefix(resolved.url.path), "抓包目录与覆盖根同源")
 
-    // 旧 alias 不生效：纯解析不触碰真实 Application Support
+    // 三级旧 alias 均不生效：纯解析不触碰真实 Application Support
     let decoy = base.appendingPathComponent("legacy-alias-decoy", isDirectory: true)
-    let interimOnly = ["MATCHSTICKS_DS_APPLICATION_SUPPORT": decoy.path]
-    check(AppSupportDirectory.applicationSupportBaseURL(environment: interimOnly).path != decoy.path,
+    let stationOnly = ["MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": decoy.path]
+    check(AppSupportDirectory.applicationSupportBaseURL(environment: stationOnly).path != decoy.path,
+          "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 不作为 alias")
+    let dsOnly = ["MATCHSTICKS_DS_APPLICATION_SUPPORT": decoy.path]
+    check(AppSupportDirectory.applicationSupportBaseURL(environment: dsOnly).path != decoy.path,
           "MATCHSTICKS_DS_APPLICATION_SUPPORT 不作为 alias")
     let oldOnly = ["GHDS_APPLICATION_SUPPORT": decoy.path]
     check(AppSupportDirectory.applicationSupportBaseURL(environment: oldOnly).path != decoy.path,
           "GHDS_APPLICATION_SUPPORT 不作为 alias")
-    let bothOld = [
+    let allOld = [
+        "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": decoy.path,
         "MATCHSTICKS_DS_APPLICATION_SUPPORT": decoy.path,
         "GHDS_APPLICATION_SUPPORT": decoy.path,
     ]
-    check(AppSupportDirectory.applicationSupportBaseURL(environment: bothOld).path != decoy.path,
-          "两级旧 alias 同时设置也不生效")
+    check(AppSupportDirectory.applicationSupportBaseURL(environment: allOld).path != decoy.path,
+          "三级旧 alias 同时设置也不生效")
     let all = [
         AppSupportDirectory.overrideEnvironmentKey: base.path,
+        "MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT": decoy.path,
         "MATCHSTICKS_DS_APPLICATION_SUPPORT": decoy.path,
         "GHDS_APPLICATION_SUPPORT": decoy.path,
     ]
     check(AppSupportDirectory.applicationSupportBaseURL(environment: all).path == base.path,
-          "三级并存时最新键优先")
+          "四级并存时最新键优先")
 }
 
 // MARK: .dsrec：旧录制魔数 GHDSREC1 保持可回放
@@ -713,5 +807,5 @@ func legacyReplayCompatibilityTests() {
         check(false, "旧 GHDSREC1 录制应可读取（\(error)）")
     }
 
-    check((try? ReplaySource(data: Data("MATCHSTICKS-DRIVER-STATION".utf8))) == nil, "其他魔数仍拒绝")
+    check((try? ReplaySource(data: Data("MATCHSTICKS-DRIVER-STAION".utf8))) == nil, "其他魔数仍拒绝")
 }

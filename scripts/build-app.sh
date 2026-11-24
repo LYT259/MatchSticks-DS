@@ -23,13 +23,13 @@ APP="$OUT_DIR/$APP_NAME.app"
 
 echo "▶ 构建 universal release（arm64 + x86_64）"
 swift build -c release --arch arm64 --arch x86_64
-lipo -info "$BUILD_DIR/MatchSticksDriverStation"
+lipo -info "$BUILD_DIR/MatchSticksDriverStaion"
 
 echo "▶ 组装 .app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BUILD_DIR/MatchSticksDriverStation" "$APP/Contents/MacOS/"
-cp "$BUILD_DIR/MatchSticksDriverStationSim" "$APP/Contents/MacOS/"
+cp "$BUILD_DIR/MatchSticksDriverStaion" "$APP/Contents/MacOS/"
+cp "$BUILD_DIR/MatchSticksDriverStaionSim" "$APP/Contents/MacOS/"
 
 # Sparkle 框架入 bundle + rpath（应用内更新，报告 §5.5）
 if [ ! -d "$BUILD_DIR/Sparkle.framework" ]; then
@@ -38,23 +38,23 @@ if [ ! -d "$BUILD_DIR/Sparkle.framework" ]; then
 fi
 mkdir -p "$APP/Contents/Frameworks"
 cp -R "$BUILD_DIR/Sparkle.framework" "$APP/Contents/Frameworks/"
-install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/MatchSticksDriverStation"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/MatchSticksDriverStaion"
 
 # 中英双语资源：SPM 资源 bundle（en.lproj 双语表所在）须进 Contents/Resources，
 # Bundle.module 才能在打包 app 内解析；缺失即失败——不出「英文系统却只有中文界面」的残缺包
-if [ ! -d "$BUILD_DIR/MatchSticksDriverStation_DSCore.bundle" ]; then
-    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDriverStation_DSCore.bundle——双语表缺失即失败" >&2
+if [ ! -d "$BUILD_DIR/MatchSticksDriverStaion_DSCore.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDriverStaion_DSCore.bundle——双语表缺失即失败" >&2
     exit 1
 fi
-cp -R "$BUILD_DIR/MatchSticksDriverStation_DSCore.bundle" "$APP/Contents/Resources/"
+cp -R "$BUILD_DIR/MatchSticksDriverStaion_DSCore.bundle" "$APP/Contents/Resources/"
 
 # 应用音频与手柄实机图片必须随包分发；缺失即失败，避免安全事件无声或外观缺失
-if [ ! -d "$BUILD_DIR/MatchSticksDriverStation_MatchSticksDriverStation.bundle" ]; then
-    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDriverStation_MatchSticksDriverStation.bundle——应用音频或手柄图片缺失" >&2
+if [ ! -d "$BUILD_DIR/MatchSticksDriverStaion_MatchSticksDriverStaion.bundle" ]; then
+    echo "  ✗ $BUILD_DIR 下未找到 MatchSticksDriverStaion_MatchSticksDriverStaion.bundle——应用音频或手柄图片缺失" >&2
     exit 1
 fi
-cp -R "$BUILD_DIR/MatchSticksDriverStation_MatchSticksDriverStation.bundle" "$APP/Contents/Resources/"
-RESOURCE_DIR="$APP/Contents/Resources/MatchSticksDriverStation_MatchSticksDriverStation.bundle/Contents/Resources"
+cp -R "$BUILD_DIR/MatchSticksDriverStaion_MatchSticksDriverStaion.bundle" "$APP/Contents/Resources/"
+RESOURCE_DIR="$APP/Contents/Resources/MatchSticksDriverStaion_MatchSticksDriverStaion.bundle/Contents/Resources"
 for REQUIRED in FOGHORN.wav ArtworkCredits.txt dualsense.png dualshock4.png xbox-series.png f310.png direwolf4.png \
     extreme3dpro.png extreme3dpro-base.png extreme3dpro-handle.png; do
     if [ ! -f "$RESOURCE_DIR/$REQUIRED" ]; then
@@ -66,7 +66,7 @@ done
 # ── 图标链：全部图标必须来自用户原稿 Sources/.../AppIcons（淘汰程序绘制图标）；
 #    任何缺失/失败都阻断打包——不出无图标包，更不出残留旧图标的包。注入先于 codesign ──
 echo "▶ 图标：iconset → AppIcon.icns + actool Assets.car（浅/深外观）"
-ICON_SRC_DIR="Sources/MatchSticksDriverStation/Resources/AppIcons"
+ICON_SRC_DIR="Sources/MatchSticksDriverStaion/Resources/AppIcons"
 # 四张白名单原稿缺一不可：day/night 供 bundle 图标（icns + Assets.car），
 # mono-day/mono-night 供应用内单色变体。损坏（非图片内容/非 1024×1024）同样阻断——
 # sips 对损坏文件不报错，但尺寸输出为 <nil>，因此必须比对解析值而非退出码
@@ -252,7 +252,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleName</key><string>$APP_NAME</string>
     <key>CFBundleDisplayName</key><string>$APP_NAME</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-    <key>CFBundleExecutable</key><string>MatchSticksDriverStation</string>
+    <key>CFBundleExecutable</key><string>MatchSticksDriverStaion</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key><string>$VERSION</string>
@@ -284,7 +284,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <!-- Sparkle 应用内更新（报告 §5.5）：appcast 托管 GitHub Releases；
          公钥对应私钥 ~/.ghds-release-keys/ghds-ed25519（历史路径按兼容例外保留，本机保管，勿入库） -->
     <key>SUFeedURL</key>
-    <string>${SU_FEED_URL:-https://github.com/LYT259/MatchSticks-Driver-Station/releases/latest/download/appcast.xml}</string>
+    <string>${SU_FEED_URL:-https://github.com/LYT259/MatchSticks-DriverStaion/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
     <string>${SU_PUBLIC_ED_KEY:-YHHW4wKUsjO8HlZkuZc4vdJWZj4y4ftbiFcEsJkNop4=}</string>
 </dict>
@@ -306,20 +306,20 @@ STRINGS
 
 # ad-hoc 签名（打包红线：保留有效签名；未公证分发按报告 §5.5 方案 A）
 codesign --force --deep -s - "$APP"
-# --deep --strict：连同嵌套可执行文件（MatchSticksDriverStationSim）一起做资源密封校验；
+# --deep --strict：连同嵌套可执行文件（MatchSticksDriverStaionSim）一起做资源密封校验；
 # 打包红线「签名损坏=只剩 xattr 终端路的死胡同」依赖这道门禁真正兜住嵌套代码
-codesign --verify --deep --strict --verbose=2 "$APP" >/dev/null && echo "  ✓ 签名校验通过（deep+strict，含嵌套 MatchSticksDriverStationSim）"
+codesign --verify --deep --strict --verbose=2 "$APP" >/dev/null && echo "  ✓ 签名校验通过（deep+strict，含嵌套 MatchSticksDriverStaionSim）"
 
 echo "▶ 打 DMG"
 rm -rf "$OUT_DIR/stage"
 mkdir -p "$OUT_DIR/stage"
 cp -R "$APP" "$OUT_DIR/stage/"
 ln -sf /Applications "$OUT_DIR/stage/Applications"
-DMG="$OUT_DIR/MatchSticks-Driver-Station-$VERSION.dmg"
+DMG="$OUT_DIR/MatchSticks-DriverStaion-$VERSION.dmg"
 rm -f "$DMG"
 hdiutil create -volname "$APP_NAME" -srcfolder "$OUT_DIR/stage" -ov -format UDZO "$DMG" | tail -1
 
 echo "▶ SHA256"
-(cd "$OUT_DIR" && shasum -a 256 "MatchSticks-Driver-Station-$VERSION.dmg" | tee SHA256SUMS)
+(cd "$OUT_DIR" && shasum -a 256 "MatchSticks-DriverStaion-$VERSION.dmg" | tee SHA256SUMS)
 
 echo "✅ 完成：$APP / $DMG"

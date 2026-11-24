@@ -138,7 +138,7 @@ private final class F310XInputSession {
         self.locationID = locationID
         self.onEnded = onEnded
         self.onError = onError
-        queue = DispatchQueue(label: "matchsticks.driverstation.f310-xinput.\(locationID)")
+        queue = DispatchQueue(label: "matchsticks.driverstaion.f310-xinput.\(locationID)")
         queue.setSpecific(key: queueKey, value: locationID)
         var openError: Error?
         queue.sync {

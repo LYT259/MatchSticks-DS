@@ -230,8 +230,8 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     func source(_ path: String) -> String {
         (try? String(contentsOf: repositoryRoot.appendingPathComponent(path), encoding: .utf8)) ?? ""
     }
-    let modelSource = source("Sources/MatchSticksDriverStation/DSModel.swift")
-    let discoverySource = source("Sources/MatchSticksDriverStation/LocalNetworkDiscovery.swift")
+    let modelSource = source("Sources/MatchSticksDriverStaion/DSModel.swift")
+    let discoverySource = source("Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift")
     let buildAppSource = source("scripts/build-app.sh")
     let englishTable = source("Sources/DSCore/Resources/en.lproj/Localizable.strings")
     check(!modelSource.isEmpty && !discoverySource.isEmpty && !buildAppSource.isEmpty && !englishTable.isEmpty,

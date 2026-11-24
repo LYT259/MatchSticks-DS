@@ -1,16 +1,17 @@
 import Foundation
 import Darwin
 
-// MARK: - Application Support 数据目录（新品牌 + 旧目录链式保留迁移）
+// MARK: - Application Support 数据目录（新品牌 + 三旧目录链式保留迁移）
 //
-// 新目录：Application Support/MatchSticksDriverStation
-// 旧目录：Application Support/MatchSticksDS（上一代品牌，过渡期数据）
-//       Application Support/GHDriverStation（更早版本数据）
+// 新目录：Application Support/MatchSticksDriverStaion
+// 旧目录：Application Support/MatchSticksDriverStation（上一轮中间兼容）
+//       Application Support/MatchSticksDS（更早品牌，过渡期数据）
+//       Application Support/GHDriverStation（最早版本数据）
 //
 // 迁移规则：
 // - 初始化只解析目录并创建新目录根；递归补齐在后台串行队列执行，
 //   `waitForMigration(timeout:)` 供测试等待（生产路径不被迁移阻塞）
-// - 双旧源按新 → 旧顺序串行补齐（MatchSticksDS 先、GHDriverStation 后）：
+// - 三旧源按新 → 旧顺序串行补齐（MatchSticksDriverStation → MatchSticksDS → GHDriverStation）：
 //   合并绝不覆盖，先合并的较新数据天然优先，较旧目录只补剩余缺口
 // - 只复制旧目录中缺失的普通文件；已存在的目标文件/符号链接绝不覆盖，
 //   已存在的目标目录只补齐缺失子项
@@ -18,19 +19,20 @@ import Darwin
 //   目标要么不存在，要么是完整文件；并发迁移只有一个发布成功
 // - 任何失败都清理临时文件并保留旧目录；下一次启动可重试
 // - 源与目标符号链接一律跳过（不跟随，避免复制到目录树之外）
-// - 新目录无法创建/使用时按新 → 旧顺序回退（MatchSticksDS → GHDriverStation），
-//   保证日志、录制与 WebUI 继续可用；回退旧目录时不向旧目录迁移
+// - 新目录无法创建/使用时按相同顺序回退到第一个已存在且可写的旧目录；
+//   三个旧目录都不可用则返回 GHDriverStation，回退旧目录时不迁移
 //
-// 测试隔离：`MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT` 覆盖 Application Support 根
-// （只认最新前缀，不设 MATCHSTICKS_DS_ / GHDS_ alias；生产默认路径不变）。
+// 测试隔离：`MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT` 覆盖 Application Support 根
+// （只认最新前缀，不设任何旧前缀 alias；生产默认路径不变）。
 
 public struct AppSupportDirectory {
-    public static let name = "MatchSticksDriverStation"
-    /// 上一代品牌目录（比 legacyName 新一级的迁移源 / 回退点）
-    public static let interimName = "MatchSticksDS"
+    public static let name = "MatchSticksDriverStaion"
+    /// 上一轮品牌目录（第一旧源 / 第一回退点）
+    public static let interimName = "MatchSticksDriverStation"
+    public static let dsName = "MatchSticksDS"
     public static let legacyName = "GHDriverStation"
     /// 仅用于测试/并行会话隔离：覆盖 Application Support 根目录
-    /// （其下仍是 MatchSticksDriverStation / MatchSticksDS / GHDriverStation）。
+    /// （其下仍是 MatchSticksDriverStaion / MatchSticksDriverStation / MatchSticksDS / GHDriverStation）。
     public static let overrideEnvironmentKey = DSEnvironment.prefix + "APPLICATION_SUPPORT"
 
     public let url: URL
@@ -40,7 +42,7 @@ public struct AppSupportDirectory {
     /// 进程内串行：多个 AppSupportDirectory 实例（或多窗口）同时启动时，
     /// 迁移不会互相叠加；跨进程并发仍由目标文件的原子发布兜底。
     private static let migrationQueue = DispatchQueue(
-        label: "matchsticks.driverstation.application-support-migration",
+        label: "matchsticks.driverstaion.application-support-migration",
         qos: .utility
     )
 
@@ -55,6 +57,7 @@ public struct AppSupportDirectory {
         )
         let candidate = base.appendingPathComponent(Self.name, isDirectory: true)
         let interim = base.appendingPathComponent(Self.interimName, isDirectory: true)
+        let ds = base.appendingPathComponent(Self.dsName, isDirectory: true)
         let legacy = base.appendingPathComponent(Self.legacyName, isDirectory: true)
         let group = DispatchGroup()
 
@@ -66,7 +69,7 @@ public struct AppSupportDirectory {
 
         if Self.isSymbolicLink(candidate) {
             // 新目录本身是符号链接：不跟随，按新 → 旧顺序回退。
-            chosen = Self.fallbackDirectory(interim: interim, legacy: legacy, fileManager: fileManager)
+            chosen = Self.fallbackDirectory(interim: interim, ds: ds, legacy: legacy, fileManager: fileManager)
         } else if Self.isWritableDirectory(candidate, fileManager: fileManager) {
             chosen = candidate
             shouldMigrate = true
@@ -77,7 +80,7 @@ public struct AppSupportDirectory {
                     chosen = candidate
                     shouldMigrate = true
                 } else {
-                    chosen = Self.fallbackDirectory(interim: interim, legacy: legacy, fileManager: fileManager)
+                    chosen = Self.fallbackDirectory(interim: interim, ds: ds, legacy: legacy, fileManager: fileManager)
                 }
             } catch {
                 // 并发创建时另一个实例可能已把目录建好：能写就继续用。
@@ -85,18 +88,18 @@ public struct AppSupportDirectory {
                     chosen = candidate
                     shouldMigrate = true
                 } else {
-                    chosen = Self.fallbackDirectory(interim: interim, legacy: legacy, fileManager: fileManager)
+                    chosen = Self.fallbackDirectory(interim: interim, ds: ds, legacy: legacy, fileManager: fileManager)
                 }
             }
         } else {
             // 同名普通文件占位或目录不可写：按新 → 旧顺序回退（调用方按需创建子目录）。
-            chosen = Self.fallbackDirectory(interim: interim, legacy: legacy, fileManager: fileManager)
+            chosen = Self.fallbackDirectory(interim: interim, ds: ds, legacy: legacy, fileManager: fileManager)
         }
 
         self.url = chosen
         if shouldMigrate {
             Self.beginMigration(
-                from: [interim, legacy],
+                from: [interim, ds, legacy],
                 to: candidate,
                 fileManager: fileManager,
                 group: group
@@ -104,16 +107,23 @@ public struct AppSupportDirectory {
         }
     }
 
-    /// 新目录不可用时的回退：优先上一代 MatchSticksDS，再退 GHDriverStation。
-    /// 与旧版行为一致，最终兜底目录允许尚不存在（`subdirectory(create:)` 按需创建）。
-    private static func fallbackDirectory(interim: URL, legacy: URL, fileManager: FileManager) -> URL {
+    /// 新目录不可用时，按 MatchSticksDriverStation → MatchSticksDS → GHDriverStation
+    /// 选择第一个已存在且可写的旧目录；均不可用则返回 GHDriverStation。
+    /// 最终兜底目录允许尚不存在（`subdirectory(create:)` 按需创建）。
+    private static func fallbackDirectory(
+        interim: URL,
+        ds: URL,
+        legacy: URL,
+        fileManager: FileManager
+    ) -> URL {
         if isWritableDirectory(interim, fileManager: fileManager) { return interim }
+        if isWritableDirectory(ds, fileManager: fileManager) { return ds }
         return legacy
     }
 
     /// 解析 Application Support 根目录。`baseURL` 显式注入优先；
-    /// 否则只认 `MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT`
-    /// （MATCHSTICKS_DS_ / GHDS_ 前缀不设 alias），最后回退系统默认的 Application Support。
+    /// 否则只认 `MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT`
+    /// （所有旧前缀均不设 alias），最后回退系统默认的 Application Support。
     public static func applicationSupportBaseURL(
         fileManager: FileManager = .default,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -145,8 +155,9 @@ public struct AppSupportDirectory {
 
     // MARK: 迁移
 
-    /// 双旧源串行补齐：一次入队按新 → 旧顺序依次合并（MatchSticksDS 先、
-    /// GHDriverStation 后），较新数据先落位、较旧数据只补缺口。
+    /// 三旧源串行补齐：一次入队按新 → 旧顺序依次合并
+    /// （MatchSticksDriverStation → MatchSticksDS → GHDriverStation），
+    /// 较新数据先落位、较旧数据只补缺口。
     private static func beginMigration(
         from sources: [URL],
         to destination: URL,

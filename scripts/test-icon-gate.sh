@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$PWD"
 BUILD_SH="$ROOT/scripts/build-app.sh"
-ICON_SRC="$ROOT/Sources/MatchSticksDriverStation/Resources/AppIcons"
+ICON_SRC="$ROOT/Sources/MatchSticksDriverStaion/Resources/AppIcons"
 MASTERS=(app-icon-day.png app-icon-night.png app-icon-mono-day.png app-icon-mono-night.png)
 
 for M in "${MASTERS[@]}"; do

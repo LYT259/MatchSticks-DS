@@ -1,10 +1,10 @@
 # Cloudflare Pages 镜像部署配置（国内访问 GitHub 慢/不可达时的发布页镜像，报告 §5.5）
 #
 # 部署（等用户凭证/点名后执行）：
-#   npx wrangler pages deploy mirror/public --project-name=matchsticks-driver-station-mirror
-# 域名建议：matchsticks-driver-station-mirror.pages.dev（Pages 免费档；静态文件 ≤25MB/个）
+#   npx wrangler pages deploy mirror/public --project-name=matchsticks-driver-staion-mirror
+# 域名建议：matchsticks-driver-staion-mirror.pages.dev（Pages 免费档；静态文件 ≤25MB/个）
 # 注意：dmg 若超过 25MB 则镜像页只托管 appcast-mirror.xml + 安装教程，下载链接仍指
 # GitHub 主站 + 国内可用镜像由用户侧代理；appcast-mirror 的 enclosure 指向镜像可达地址。
-name = "matchsticks-driver-station-mirror"
+name = "matchsticks-driver-staion-mirror"
 compatibility_date = "2026-10-01"
 pages_build_output_dir = "public"

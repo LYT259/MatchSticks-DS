@@ -6,34 +6,37 @@
 #   ② 控制环吞吐汇总行持续出现且频率 ≥ 下限（控制包真在按节拍发）；
 #   ③ WebUI /api/status 报 commState=connected（127.0.0.1:6768）；
 #   ④ 模拟 radio:8080 触发应用层「Radio 状态：已响应」事件；
-#   ⑤ 本次新建的 MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 支持目录出现新会话日志
+#   ⑤ 本次新建的 MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 支持目录出现新会话日志
 #      （按本次启动时间校验 mtime，迁移来的旧日志不能冒充通过证据）；
 #   ⑥ 正式域 org.ghfrc.driverstation 全量 UserDefaults 键级前后一致（不只看 4 个键）：只有 AppKit 为
 #      SwiftUI Window 场景自动持久化的 NSWindow Frame main/mini 允许变化并单独报告，其余任何键变化都失败。
-# 全部产物来自 build-app.sh 打出的 .app（含包内 MatchSticksDriverStationSim）。
+# 全部产物来自 build-app.sh 打出的 .app（含包内 MatchSticksDriverStaionSim）。
 #
-# 隔离与清理：每次运行 mktemp 独立 WORK；前置发现已有的 MatchSticksDriverStation /
-# MatchSticksDS / GHDS / 模拟器进程直接退出报告，绝不 pkill -x 或按宽匹配抢占；结束只清理
-# 由本脚本记录的 PID 或唯一 WORK 路径下的进程。测试设置只写 org.ghfrc.driverstation.test.* suite。
+# 隔离与清理：每次运行 mktemp 独立 WORK；前置发现已有的 MatchSticksDriverStaion /
+# MatchSticksDriverStation / MatchSticksDS / GHDS / 模拟器进程直接退出报告（旧进程名仅用于冲突
+# 检测），绝不 pkill -x 或按宽匹配抢占；结束只清理由本脚本记录的 PID 或唯一 WORK 路径下的进程。
+# 测试设置只写 org.ghfrc.driverstation.test.* suite。
 #
 # 用法：bash scripts/test-e2e.sh
-# 可调：MATCHSTICKS_DRIVER_STATION_E2E_HZ_FLOOR（默认 40——本机控制环 50Hz；慢机器场景用 8）
+# 可调：MATCHSTICKS_DRIVER_STAION_E2E_HZ_FLOOR（默认 40——本机控制环 50Hz；慢机器场景用 8）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode-beta.app/Contents/Developer}"
 export DEVELOPER_DIR
-HZ_FLOOR="${MATCHSTICKS_DRIVER_STATION_E2E_HZ_FLOOR:-${MATCHSTICKS_DS_E2E_HZ_FLOOR:-${GHDS_E2E_HZ_FLOOR:-40}}}"
+HZ_FLOOR="${MATCHSTICKS_DRIVER_STAION_E2E_HZ_FLOOR:-${MATCHSTICKS_DRIVER_STATION_E2E_HZ_FLOOR:-${MATCHSTICKS_DS_E2E_HZ_FLOOR:-${GHDS_E2E_HZ_FLOOR:-40}}}}"
 
 # 测试隔离：每次运行生成唯一、合法的反 DNS suite 名，导出给被测进程。
-# 新前缀 MATCHSTICKS_DRIVER_STATION_*；旧 MATCHSTICKS_DS_SETTINGS_SUITE / GHDS_SETTINGS_SUITE
-# 作为兼容 alias 一并导出，保证任何仍读旧名的被测路径也落在隔离 suite 上。退出时只删本脚本
-# 创建的 suite（含 cfprefsd 留下的空 plist），不碰正式域。
-MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE="org.ghfrc.driverstation.test.e2e.$$.$(date +%Y%m%d%H%M%S).$RANDOM"
-MATCHSTICKS_DS_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE"
-GHDS_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE"
-export MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE MATCHSTICKS_DS_SETTINGS_SUITE GHDS_SETTINGS_SUITE
+# 新前缀 MATCHSTICKS_DRIVER_STAION_*；旧 MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE /
+# MATCHSTICKS_DS_SETTINGS_SUITE / GHDS_SETTINGS_SUITE 作为兼容 alias 四级同名一并导出，
+# 保证任何仍读旧名的被测路径也落在隔离 suite 上。退出时只删本脚本创建的 suite
+# （含 cfprefsd 留下的空 plist），不碰正式域。
+MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE="org.ghfrc.driverstation.test.e2e.$$.$(date +%Y%m%d%H%M%S).$RANDOM"
+MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE"
+MATCHSTICKS_DS_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE"
+GHDS_SETTINGS_SUITE="$MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE"
+export MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE MATCHSTICKS_DS_SETTINGS_SUITE GHDS_SETTINGS_SUITE
 cleanup_settings_suite() {
-    local suite="${MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE:-}"
+    local suite="${MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE:-}"
     case "$suite" in
         org.ghfrc.driverstation.test.*) ;;
         *) return 0 ;;
@@ -58,8 +61,8 @@ SIM_PID=""
 work_app_pids() {
     [ -n "${WORK:-}" ] || return 0
     {
-        pgrep -f "$WORK/.*/Contents/MacOS/MatchSticksDriverStation" 2>/dev/null || true
-        pgrep -f "$WORK/.*/Contents/MacOS/MatchSticksDriverStationSim" 2>/dev/null || true
+        pgrep -f "$WORK/.*/Contents/MacOS/MatchSticksDriverStaion" 2>/dev/null || true
+        pgrep -f "$WORK/.*/Contents/MacOS/MatchSticksDriverStaionSim" 2>/dev/null || true
     } | sort -u
 }
 stop_work_processes() {
@@ -84,7 +87,7 @@ cleanup() {
     cleanup_settings_suite
     if [ -n "${WORK:-}" ]; then
         case "$WORK" in
-            "$TMP_BASE"/matchsticks-driver-station-packaged-e2e.*) rm -rf -- "$WORK" ;;
+            "$TMP_BASE"/matchsticks-driver-staion-packaged-e2e.*) rm -rf -- "$WORK" ;;
         esac
     fi
 }
@@ -94,36 +97,37 @@ trap 'exit 130' INT TERM
 fail() { echo "✗ $1" >&2; exit 1; }
 
 # 前置：不抢占真实使用或其他会话。发现即报告退出，不自动强杀。
+# 旧进程名（MatchSticksDriverStation / MatchSticksDS / GHDS 及其模拟器）仅在此用于冲突检测。
 require_no_existing_processes() {
     local name pids report=""
-    for name in MatchSticksDriverStation MatchSticksDS GHDS MatchSticksDriverStationSim MatchSticksDSSim GHDSSim; do
+    for name in MatchSticksDriverStaion MatchSticksDriverStaionSim MatchSticksDriverStation MatchSticksDriverStationSim MatchSticksDS MatchSticksDSSim GHDS GHDSSim; do
         pids="$(pgrep -x "$name" 2>/dev/null || true)"
         if [ -n "$pids" ]; then
             report="${report}${report:+; }$name PID $(printf '%s' "$pids" | tr '\n' ' ')"
         fi
     done
     if [ -n "$report" ]; then
-        fail "检测到已在运行的 MatchSticksDriverStation/MatchSticksDS/GHDS/模拟器进程：${report}。本测试不会强杀，请先退出后再跑。"
+        fail "检测到已在运行的 MatchSticksDriverStaion/MatchSticksDriverStation/MatchSticksDS/GHDS/模拟器进程：${report}。本测试不会强杀，请先退出后再跑。"
     fi
 }
 require_no_existing_processes
 
-WORK="$(mktemp -d "$TMP_BASE/matchsticks-driver-station-packaged-e2e.XXXXXX")"
+WORK="$(mktemp -d "$TMP_BASE/matchsticks-driver-staion-packaged-e2e.XXXXXX")"
 SUPPORT_ROOT="$WORK/support"
 mkdir -p "$SUPPORT_ROOT"
 
 # 日志断言使用中文键：固定测试 suite 的语言，避免宿主系统语言把断言变成假失败。
 # 新旧设置前缀都写（新版 matchsticks.*，兼容读取的旧 ghds.*），只落在隔离 suite。
-defaults write "$MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE" matchsticks.language -string chinese
-defaults write "$MATCHSTICKS_DRIVER_STATION_SETTINGS_SUITE" ghds.language -string chinese
+defaults write "$MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE" matchsticks.language -string chinese
+defaults write "$MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE" ghds.language -string chinese
 
 echo "▶ 打包（universal release + ad-hoc 签名 + dmg）"
-bash scripts/build-app.sh "${MATCHSTICKS_DRIVER_STATION_E2E_VERSION:-${MATCHSTICKS_DS_E2E_VERSION:-${GHDS_E2E_VERSION:-0.0.0-e2etest}}}" >/dev/null
-cp -R "dist/MatchSticks Driver Station.app" "$WORK/MatchSticksDriverStation-E2E.app"
+bash scripts/build-app.sh "${MATCHSTICKS_DRIVER_STAION_E2E_VERSION:-${MATCHSTICKS_DRIVER_STATION_E2E_VERSION:-${MATCHSTICKS_DS_E2E_VERSION:-${GHDS_E2E_VERSION:-0.0.0-e2etest}}}}" >/dev/null
+cp -R "dist/MatchSticks Driver Station.app" "$WORK/MatchSticksDriverStaion-E2E.app"
 
 # 在任何被测进程写入设置前确定正式域：从 Info.plist 读取并要求等于预期生产 bundle ID。
 EXPECTED_PROD_DOMAIN=org.ghfrc.driverstation
-PROD_DOMAIN="$(plutil -extract CFBundleIdentifier raw "$WORK/MatchSticksDriverStation-E2E.app/Contents/Info.plist" 2>/dev/null || true)"
+PROD_DOMAIN="$(plutil -extract CFBundleIdentifier raw "$WORK/MatchSticksDriverStaion-E2E.app/Contents/Info.plist" 2>/dev/null || true)"
 [ -n "$PROD_DOMAIN" ] || fail "无法从打包 app 读取 CFBundleIdentifier"
 [ "$PROD_DOMAIN" = "$EXPECTED_PROD_DOMAIN" ] || fail "打包 app 的 CFBundleIdentifier=${PROD_DOMAIN}，预期 ${EXPECTED_PROD_DOMAIN}（正式域断言会失真）"
 
@@ -143,37 +147,37 @@ snapshot_production_domain() {
 echo "▶ 记录正式域全量设置快照（${PROD_DOMAIN}，不输出实际值）"
 snapshot_production_domain "$WORK/production-before.plist"
 
-echo "▶ 启动包内 MatchSticksDriverStationSim + 打包版 app（AUTO_SIM 连 127.0.0.1，radio 端口 8080）"
-"$WORK/MatchSticksDriverStation-E2E.app/Contents/MacOS/MatchSticksDriverStationSim" --quiet --radio-port 8080 >/dev/null 2>&1 &
+echo "▶ 启动包内 MatchSticksDriverStaionSim + 打包版 app（AUTO_SIM 连 127.0.0.1，radio 端口 8080）"
+"$WORK/MatchSticksDriverStaion-E2E.app/Contents/MacOS/MatchSticksDriverStaionSim" --quiet --radio-port 8080 >/dev/null 2>&1 &
 SIM_PID=$!
 sleep 1
 
-# 支持目录隔离：MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 覆盖 Application Support 根，
-# 应用实际写入 $SUPPORT_ROOT/MatchSticksDriverStation/…，不读写真实用户日志。
-# 应用侧对该键只认新前缀（DSEnvironment.currentString），下面的 MATCHSTICKS_DS_APPLICATION_SUPPORT
-# 仅为同值无害兜底，不是隔离生效依据。其余测试钩子三级同名导出：MATCHSTICKS_DRIVER_STATION_*
-# 为新前缀，MATCHSTICKS_DS_* / GHDS_* 保留给仍读旧名的兼容读取路径；三套取值一致，测试语义以新前缀为准。
+# 支持目录隔离：MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 覆盖 Application Support 根，
+# 应用实际写入 $SUPPORT_ROOT/MatchSticksDriverStaion/…，不读写真实用户日志。
+# 应用侧对该键只认最新前缀（DSEnvironment.currentString），不读 MATCHSTICKS_DRIVER_STATION_ /
+# MATCHSTICKS_DS_ / GHDS_ 的任何 alias，因此只导出这一个键，隔离是否生效以它为唯一依据。
+# 其余测试钩子四级同名导出：MATCHSTICKS_DRIVER_STAION_* 为新前缀，MATCHSTICKS_DRIVER_STATION_* /
+# MATCHSTICKS_DS_* / GHDS_* 保留给仍读旧名的兼容读取路径；四套取值一致，测试语义以新前缀为准。
 RUN_START_EPOCH="$(date +%s)"
-MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT="$SUPPORT_ROOT" \
-MATCHSTICKS_DS_APPLICATION_SUPPORT="$SUPPORT_ROOT" \
-MATCHSTICKS_DRIVER_STATION_LOG_FILE="$WORK/e2e.log" MATCHSTICKS_DS_LOG_FILE="$WORK/e2e.log" GHDS_LOG_FILE="$WORK/e2e.log" \
-MATCHSTICKS_DRIVER_STATION_AUTO_SIM=1 MATCHSTICKS_DS_AUTO_SIM=1 GHDS_AUTO_SIM=1 \
-MATCHSTICKS_DRIVER_STATION_DISABLE_UPDATE=1 MATCHSTICKS_DS_DISABLE_UPDATE=1 GHDS_DISABLE_UPDATE=1 \
-  "$WORK/MatchSticksDriverStation-E2E.app/Contents/MacOS/MatchSticksDriverStation" >/dev/null 2>&1 &
+MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT="$SUPPORT_ROOT" \
+MATCHSTICKS_DRIVER_STAION_LOG_FILE="$WORK/e2e.log" MATCHSTICKS_DRIVER_STATION_LOG_FILE="$WORK/e2e.log" MATCHSTICKS_DS_LOG_FILE="$WORK/e2e.log" GHDS_LOG_FILE="$WORK/e2e.log" \
+MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1 MATCHSTICKS_DRIVER_STATION_AUTO_SIM=1 MATCHSTICKS_DS_AUTO_SIM=1 GHDS_AUTO_SIM=1 \
+MATCHSTICKS_DRIVER_STAION_DISABLE_UPDATE=1 MATCHSTICKS_DRIVER_STATION_DISABLE_UPDATE=1 MATCHSTICKS_DS_DISABLE_UPDATE=1 GHDS_DISABLE_UPDATE=1 \
+  "$WORK/MatchSticksDriverStaion-E2E.app/Contents/MacOS/MatchSticksDriverStaion" >/dev/null 2>&1 &
 APP_PID=$!
 
-# 尽早确认支持目录隔离生效：若 MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 被忽略，
+# 尽早确认支持目录隔离生效：若 MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 被忽略，
 # 应用已经开始写真实用户日志；这里在进入长观测窗前就失败，避免继续污染。
 wait_for_support_log() {
     local i=0 first
     while [ "$i" -lt 30 ]; do
-        first="$(find "$SUPPORT_ROOT/MatchSticksDriverStation/Logs" -type f -name '*.dslog' -print -quit 2>/dev/null || true)"
+        first="$(find "$SUPPORT_ROOT/MatchSticksDriverStaion/Logs" -type f -name '*.dslog' -print -quit 2>/dev/null || true)"
         [ -n "$first" ] && return 0
         kill -0 "$APP_PID" 2>/dev/null || fail "打包版进程启动后立即退出"
         sleep 1
         i=$((i + 1))
     done
-    fail "30s 内新支持目录未产生 .dslog（MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 未生效？）"
+    fail "30s 内新支持目录未产生 .dslog（MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 未生效？）"
 }
 wait_for_support_log
 
@@ -222,7 +226,7 @@ done
 kill -0 "$APP_PID" 2>/dev/null || fail "观测窗结束时进程已退出"
 echo "  ✓ 进程全程存活"
 
-echo "▶ Radio 可达性断言（MatchSticksDriverStationSim --radio-port 8080）"
+echo "▶ Radio 可达性断言（MatchSticksDriverStaionSim --radio-port 8080）"
 # 不杀模拟器制造离线：只读日志，离线场景由单元测试覆盖
 grep -Eq "Radio 状态：已响应|Radio status: responding" "$WORK/e2e.log" 2>/dev/null || {
     grep "Radio" "$WORK/e2e.log" 2>/dev/null | tail -5
@@ -242,10 +246,10 @@ echo "▶ 日志落盘检查（/api/logs + 本次新支持目录）"
 LOGS="$(curl -s --max-time 3 http://127.0.0.1:6768/api/logs 2>/dev/null || true)"
 printf '%s' "$LOGS" | grep -q '"name"' || fail "打包版未产生日志文件（/api/logs 为空）"
 
-SESSION_LOG_DIR="$SUPPORT_ROOT/MatchSticksDriverStation/Logs"
+SESSION_LOG_DIR="$SUPPORT_ROOT/MatchSticksDriverStaion/Logs"
 FIRST_SUPPORT_LOG="$(find "$SESSION_LOG_DIR" -type f \( -name '*.dslog' -o -name '*.wpilog' \) -print -quit 2>/dev/null || true)"
 [ -n "$FIRST_SUPPORT_LOG" ] \
-    || fail "本次新支持目录未产生 .dslog/.wpilog（${SESSION_LOG_DIR}；MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 未生效？）"
+    || fail "本次新支持目录未产生 .dslog/.wpilog（${SESSION_LOG_DIR}；MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT 未生效？）"
 HAS_DSLOG=0
 HAS_WPILOG=0
 MATCHED_API_NAME=0

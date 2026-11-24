@@ -54,7 +54,7 @@
 "已连接机器人，无需刷新；刷新仅在未连接时重新搜索。" = "The robot is already connected; refresh only re-searches while disconnected.";
 "失能机器人" = "Disable the robot";
 
-/* ===== 侧栏与页面导航（MatchSticksDriverStationApp：操作 / 监测两组，监测含 Mac · 机器人 · 摄像头 · 控制台）===== */
+/* ===== 侧栏与页面导航（MatchSticksDriverStaionApp：操作 / 监测两组，监测含 Mac · 机器人 · 摄像头 · 控制台）===== */
 "驾驶" = "Drive";
 "连接" = "Connection";
 "手柄" = "Joysticks";
@@ -104,9 +104,9 @@
 "模拟器已停止。" = "Simulator stopped.";
 "启动模拟器" = "Start Simulator";
 "无法定位模拟器，请检查应用是否完整。" = "Cannot locate the simulator; check the app bundle.";
-"无法定位 MatchSticksDriverStationSim（无可执行目录）" = "Cannot locate MatchSticksDriverStationSim (no executable directory)";
-"当前应用未包含模拟器。请使用包含 MatchSticksDriverStationSim 的完整应用。" = "This app build does not include the simulator. Use the full app with MatchSticksDriverStationSim bundled.";
-"未找到 MatchSticksDriverStationSim：%@" = "MatchSticksDriverStationSim not found: %@";
+"无法定位 MatchSticksDriverStaionSim（无可执行目录）" = "Cannot locate MatchSticksDriverStaionSim (no executable directory)";
+"当前应用未包含模拟器。请使用包含 MatchSticksDriverStaionSim 的完整应用。" = "This app build does not include the simulator. Use the full app with MatchSticksDriverStaionSim bundled.";
+"未找到 MatchSticksDriverStaionSim：%@" = "MatchSticksDriverStaionSim not found: %@";
 "模拟器启动失败，连接设置未更改。" = "Simulator failed to start; connection settings unchanged.";
 "模拟器启动失败：%@（未改动手动 IP）" = "Simulator failed to start: %@ (manual IP unchanged)";
 "模拟器已启动，连接目标已切换为本机。" = "Simulator started; connection target switched to local.";
@@ -161,7 +161,7 @@
 "保存电池、丢包、CPU、CAN 与运行状态，生成 .dslog 和 .wpilog，可在 AdvantageScope 中查看。" = "Saves battery, packet loss, CPU, CAN, and run state to .dslog and .wpilog, viewable in AdvantageScope.";
 "录制通信数据包" = "Record Communication Packets";
 "生成 .dsrec 文件，供连接排查与协议回归使用；也支持模拟器会话。" = "Writes .dsrec files for connection debugging and protocol regression; simulator sessions supported.";
-"文件保存于用户资源库的 Application Support / MatchSticksDriverStation：Logs 为会话日志，captures 为通信录制。" = "Files are saved under Application Support / MatchSticksDriverStation in your Library: Logs for session logs, captures for packet recordings.";
+"文件保存于用户资源库的 Application Support / MatchSticksDriverStaion：Logs 为会话日志，captures 为通信录制。" = "Files are saved under Application Support / MatchSticksDriverStaion in your Library: Logs for session logs, captures for packet recordings.";
 "正在录制通信数据包" = "Recording packets";
 "会话日志已开启" = "Session logs on";
 "会话日志已关闭" = "Session logs off";
@@ -404,7 +404,7 @@
 "暂不能重启更新：%@。角标保留；满足条件后即可点击。" = "Can't restart for update: %@. The badge stays; click once conditions allow.";
 "点击重启并安装新版本。机器人使能中、通信活跃或急停锁存期间点击无效（安全门）。" = "Click to restart and install the new version. No effect while the robot is enabled, comms are active, or E-Stop is latched (safety gate).";
 "驾驶台状态未接入（安全门保守阻断）" = "Driver station state not wired (safety gate blocking conservatively)";
-"更新组件已禁用（MATCHSTICKS_DRIVER_STATION_DISABLE_UPDATE=1）" = "Updater disabled (MATCHSTICKS_DRIVER_STATION_DISABLE_UPDATE=1)";
+"更新组件已禁用（MATCHSTICKS_DRIVER_STAION_DISABLE_UPDATE=1）" = "Updater disabled (MATCHSTICKS_DRIVER_STAION_DISABLE_UPDATE=1)";
 "未配置" = "not configured";
 "更新组件就绪（当前版本 %@，feed %@）" = "Updater ready (version %@, feed %@)";
 "更新组件未启动：%@（不影响使用）" = "Updater not started: %@ (app still works)";
@@ -469,8 +469,8 @@
 "抓包录制开始：%@" = "Packet recording started: %@";
 "NT4 首个机器人写入：%@" = "First NT4 robot write: %@";
 "MatchSticks Driver Station 控制环已启动（20ms）" = "MatchSticks Driver Station control loop started (20 ms)";
-"MATCHSTICKS_DRIVER_STATION_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1" = "MATCHSTICKS_DRIVER_STATION_AUTO_SIM=1: auto-connecting to local simulator 127.0.0.1";
-"MATCHSTICKS_DRIVER_STATION_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）" = "MATCHSTICKS_DRIVER_STATION_AUTO_MRC=1: switching to MRC V2 protocol (SystemCore)";
+"MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1：自动连接本机模拟器 127.0.0.1" = "MATCHSTICKS_DRIVER_STAION_AUTO_SIM=1: auto-connecting to local simulator 127.0.0.1";
+"MATCHSTICKS_DRIVER_STAION_AUTO_MRC=1：切换 MRC V2 协议（SystemCore）" = "MATCHSTICKS_DRIVER_STAION_AUTO_MRC=1: switching to MRC V2 protocol (SystemCore)";
 "Radio 状态：已响应" = "Radio status: responding";
 "Radio 状态：无响应" = "Radio status: no response";
 "本机网络状态：%@" = "Local network status: %@";
