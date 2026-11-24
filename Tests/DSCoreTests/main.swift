@@ -399,6 +399,9 @@ runTest("socketCompatLoopbackRoundTrip", socketCompatLoopbackRoundTripTests)
 runTest("socketCompatExclusiveBind", socketCompatExclusiveBindTests)
 runTest("socketCompatUDPPortUnreachable", socketCompatUDPPortUnreachableTests)
 runTest("socketCompatBoundary", socketCompatBoundaryTests)
+#if os(Windows)
+runTest("windowsConnectRefusedProbe", windowsConnectRefusedProbeTests)
+#endif
 // 手柄造型（GamepadProfile：识别/映射/容错；轴序样本锚定 2026-11-18 真机实测）
 runTest("gamepadProfileDetection", gamepadProfileDetectionTests)
 runTest("gamepadFamilySupport", gamepadFamilySupportTests)

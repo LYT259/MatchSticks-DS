@@ -234,6 +234,11 @@ func appSupportDirectoryTests() {
     let newCaptures = resolved.subdirectory("captures")
     check(fm.fileExists(atPath: newLogs.appendingPathComponent("old.dslog").path), "旧日志补齐到新目录")
     check(fm.fileExists(atPath: newCaptures.appendingPathComponent("old.dsrec").path), "旧录制补齐到新目录")
+    // 发布必须是硬链接：Windows 上 Foundation 的 linkItem 建的是符号链接，目标会指向随后被清理的临时文件而悬空
+    //（2026-11-24 首次真实 Windows 运行 RED）。临时文件清理后目标仍须是独立的普通文件。
+    check((try? fm.destinationOfSymbolicLink(atPath: newLogs.appendingPathComponent("old.dslog").path)) == nil
+          && (try? fm.destinationOfSymbolicLink(atPath: newCaptures.appendingPathComponent("old.dsrec").path)) == nil,
+          "补齐的文件不是符号链接（硬链接发布，不依赖随后被清理的临时文件）")
     check(fm.fileExists(atPath: legacyLogs.appendingPathComponent("old.dslog").path), "旧目录文件保留")
     check(fm.fileExists(atPath: legacyCaptures.appendingPathComponent("old.dsrec").path), "旧目录录制保留")
     check((try? String(contentsOf: legacyLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "old-log",

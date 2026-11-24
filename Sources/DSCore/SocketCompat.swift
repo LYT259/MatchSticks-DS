@@ -96,10 +96,12 @@ public enum SocketCompat {
         code == einprogress || code == ewouldblock
     }
 
-    /// 非阻塞 recv/send 的「暂无数据/缓冲暂满」
+    /// 非阻塞 recv/send 的「暂无数据/缓冲暂满」。
+    /// Windows 上另含带 SO_RCVTIMEO 的阻塞接收到期：Winsock 报 WSAETIMEDOUT，而 POSIX 同一场合是 EAGAIN
+    ///（不对齐的话「对端无应答」在 Windows 会被当成连接重置一类的硬错误）。
     public static func wouldBlock(_ code: Int32) -> Bool {
         #if os(Windows)
-        return code == ewouldblock
+        return code == ewouldblock || code == etimedout
         #else
         return code == eagain || code == ewouldblock
         #endif
@@ -328,6 +330,8 @@ public enum SocketCompat {
     /// Windows 用宽字符版 GetAddrInfoW / FreeAddrInfoW（ADDRINFOW）：ANSI 名字 getaddrinfoA 在 WinSDK 模块里
     /// 是宏别名、不导入（2026-11-24 实测 `cannot find 'getaddrinfoA' in scope`）；写法同 swift-corelibs-foundation 的 Host。
     public static func resolveIPv4Hosts(_ name: String) -> [String] {
+        // Windows 的 GetAddrInfoW 把空名字当成「本机」（返回本机地址而不是失败）；mDNS 候选绝不能由空名字产生。
+        guard !name.isEmpty else { return [] }
         ensureInitialized()
         var ips: [String] = []
         #if os(Windows)
@@ -422,7 +426,19 @@ public enum SocketCompat {
                 #endif
             }
         }
+        #if os(Windows)
+        if rc != 0 {
+            let code = lastError
+            // Winsock 对「未绑定」套接字的 getsockname 报 WSAEINVAL；POSIX 返回通配地址 0.0.0.0:0。
+            // 本层只创建 AF_INET 套接字，这里的 WSAEINVAL 只可能是未绑定：按 POSIX 语义回通配地址，
+            // 调用方（DirectInterface.bindAccepted）据此判「无匹配」而不是失败。
+            if code == einval { return (anyAddress(port: 0), 0) }
+            return (addr, code)
+        }
+        return (addr, 0)
+        #else
         return (addr, rc == 0 ? 0 : lastError)
+        #endif
     }
 
     /// getsockname；非 IPv4 套接字或读取失败返回 nil

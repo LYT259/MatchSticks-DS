@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(WinSDK)
+import WinSDK
+#endif
 
 // MARK: - Application Support 数据目录（新品牌 + 旧目录保留式迁移）
 //
@@ -224,10 +227,45 @@ public struct AppSupportDirectory {
             guard matches else { return }
             // 硬链接发布：目标已出现则失败（EEXIST），不会被覆盖；
             // 目标只在临时文件完整且校验通过后出现，读侧不会看到半文件。
-            try fileManager.linkItem(at: temp, to: target)
+            try publishHardLink(from: temp, to: target, fileManager: fileManager)
         } catch {
             // 失败保持旧目录不动；defer 清理临时文件，下次启动重试。
         }
+    }
+
+    /// 把已校验的临时文件以硬链接发布为目标（同目录、原子出现；目标已存在即失败，绝不覆盖）。
+    /// - Darwin / Linux：FileManager.linkItem 就是 link(2)。
+    /// - Windows：Foundation 的 linkItem 实际创建的是**符号链接**（swift-foundation 的 linkOrCopyFile 对非复制
+    ///   分支调 createSymbolicLink）——目标会指向随后被清理的临时文件而悬空。2026-11-24 首次真实 Windows 运行
+    ///   实测：迁移「没补齐」且临时文件残留。这里直接用 WinSDK 的 CreateHardLinkW；文件系统不支持硬链接时
+    ///   退回同目录 MoveFileExW（不带 REPLACE_EXISTING：目标已存在同样失败）。
+    private static func publishHardLink(from temp: URL, to target: URL, fileManager: FileManager) throws {
+        #if os(Windows)
+        var linked = false
+        var linkError: DWORD = 0
+        temp.path.withCString(encodedAs: UTF16.self) { source in
+            target.path.withCString(encodedAs: UTF16.self) { destination in
+                linked = CreateHardLinkW(destination, source, nil)
+                if !linked { linkError = GetLastError() }
+            }
+        }
+        if linked { return }
+        // 目标已存在：与 link(2) 的 EEXIST 同义——失败且不覆盖，也不走移动兜底
+        if linkError == DWORD(ERROR_ALREADY_EXISTS) {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: target.path])
+        }
+        var moved = false
+        temp.path.withCString(encodedAs: UTF16.self) { source in
+            target.path.withCString(encodedAs: UTF16.self) { destination in
+                moved = MoveFileExW(source, destination, MOVEFILE_WRITE_THROUGH)
+            }
+        }
+        guard moved else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: target.path])
+        }
+        #else
+        try fileManager.linkItem(at: temp, to: target)
+        #endif
     }
 
     /// 分块比较源文件与临时副本，避免把大日志整体读进内存。

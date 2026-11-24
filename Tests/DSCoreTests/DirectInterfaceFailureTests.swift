@@ -275,7 +275,9 @@ func directInterfaceBindFailureSafetyTests() {
     defer { responder.stop() }
 
     let loIndex = SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName)
-    check(loIndex != 0, "绑定失败安全：\(SocketCompat.loopbackInterfaceName) 存在")
+    // Windows 不实现接口钉绑：interfaceIndex 按定义返回 0；本测试验证的是「绑定失败不得绕过安全闩锁」的控制流
+    check(!SocketCompat.supportsInterfaceBinding || loIndex != 0,
+          "绑定失败安全：\(SocketCompat.loopbackInterfaceName) 存在")
     let snapshot = BindFailureSnapshotBox(true)
     let script = BindFailureBindScript(.bound(name: SocketCompat.loopbackInterfaceName, index: loIndex))
     let events = BindFailureEventBox()
