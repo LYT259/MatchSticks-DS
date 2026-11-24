@@ -91,6 +91,7 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 - Winsock 的 `select` 对非阻塞 connect 的完成/失败从不置位（实测 6×300ms 均返回 0），`WSAPoll` 立即报出 `POLLERR|POLLHUP|POLLOUT`；失败时 `POLLOUT` 也会置位，且不保证反映在 `SO_ERROR`（实测恒为 0）。
 - 带 `SO_RCVTIMEO` 的阻塞 `recvfrom` 到期报 `WSAETIMEDOUT`（POSIX 是 `EAGAIN`）；未绑定套接字的 `getsockname` 报 `WSAEINVAL`（POSIX 返回 `0.0.0.0:0`）。
 - Windows 的 TCP 对被拒的连接请求会先重发 SYN，约 2s 后才报 `WSAECONNREFUSED`（POSIX 立即返回）。验证「refused」分类的测试在 Windows 上按平台给足截止时间（见 `OM5PReadinessTests` / `Phase2Tests.radioProbeTests`），生产默认探测截止 2s 正是为此留的余量。
+- Winsock 的 accept 积压一满就对端直接被拒（RST），回环积压造不出「静默黑洞」；`RadioProbe` 的黑洞场景在 Windows 上改用不会被应答的保留地址（`192.0.2.1`，RFC 5737）。
 - swift-foundation 在 Windows 上的 `FileManager.linkItem` 建的是**符号链接**而不是硬链接（`linkOrCopyFile` 的非复制分支调 `createSymbolicLink`）；数据目录迁移的「硬链接发布」因此在 Windows 上产生指向已清理临时文件的悬空链接，改为直接用 `CreateHardLinkW`（不支持硬链接的文件系统退回同目录 `MoveFileExW`）。
 
 ## 影响

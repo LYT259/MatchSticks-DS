@@ -218,21 +218,40 @@ func radioProbeClassificationTests() {
     let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.4, timeout: probeTimeout))
 
     // 1. 黑洞（物理断线等价物）→ 不可达
+    // Windows 的 accept 积压一满就对端直接被拒（RST → refused → 可达，2026-11-24 首次真实 Windows 运行实测），
+    // 回环积压造不出「静默黑洞」；改用不会被应答的保留地址 192.0.2.1（RFC 5737 TEST-NET-1）：
+    // SYN 得不到任何应答 → 超时 / 不可达 → 不可达。
+    #if os(Windows)
+    probe.hostProvider = { (host: "192.0.2.1", port: 9) }
+    check(true, "黑洞就绪（Windows：保留地址 192.0.2.1 得不到应答）")
+    #else
     let hole = LoopbackBlackhole()
     check(hole.start(), "黑洞就绪")
     probe.hostProvider = { (host: "127.0.0.1", port: hole.port) }
+    #endif
     probe.start()
     check(waitUntil(8.0) { probe.probeAttempts >= 2 }, "黑洞阶段探测已运行 ≥2 次")
     check(!probe.isReachable, "黑洞链路（超时）→ 不可达")
 
     // 2. 关闭端口 → RST（真机 OM5P:80 形态）→ 必须仍判可达（假阴性修复）
+    #if os(Windows)
+    let deadPort = loopbackListen(backlog: 4)
+    SocketCompat.closeSocket(deadPort.fd)
+    probe.hostProvider = { (host: "127.0.0.1", port: deadPort.port) }
+    #else
     hole.stop()
+    #endif
     check(waitUntil(8.0) { probe.isReachable }, "RST 拒绝 = 主机在线 → 仍可达（OM5P:80 假阴性修复）")
 
     // 3. 再次黑洞 → 重新判离线（证明上一状态的 true 来自 refused 而非残留）
+    #if os(Windows)
+    probe.hostProvider = { (host: "192.0.2.1", port: 9) }
+    check(true, "黑洞 2 就绪（保留地址）")
+    #else
     let hole2 = LoopbackBlackhole()
     check(hole2.start(), "黑洞 2 就绪")
     probe.hostProvider = { (host: "127.0.0.1", port: hole2.port) }
+    #endif
     check(waitUntil(8.0) { !probe.isReachable }, "黑洞 2（超时）→ 重新不可达")
 
     // 4. 活监听 → connected → 可达
