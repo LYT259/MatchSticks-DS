@@ -79,8 +79,8 @@ final class DriverStationWindowFlow {
 
 @MainActor
 enum DriverStationWindowPresenter {
-    static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("MatchSticksDS.main-window")
-    static let miniWindowIdentifier = NSUserInterfaceItemIdentifier("MatchSticksDS.mini-window")
+    static let mainWindowIdentifier = NSUserInterfaceItemIdentifier("MatchSticksDriverStaion.main-window")
+    static let miniWindowIdentifier = NSUserInterfaceItemIdentifier("MatchSticksDriverStaion.mini-window")
 
     /// 把窗口效果落到真实 NSWindow 上。openMini/openMain 只在目标窗口尚不存在时
     /// 兜底调用（SwiftUI openWindow 可注入；隐藏过的窗口始终存在，走 makeKey/orderOut）。

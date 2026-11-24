@@ -8,7 +8,7 @@ func gamepadRenderingTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let overlay = (try? String(contentsOf: root.appendingPathComponent(
-        "Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStaion/Views/GamepadArtwork/GamepadArtworkOverlay.swift"), encoding: .utf8)) ?? ""
     check(overlay.contains("ThumbstickScene("), "正式手柄界面使用三维摇杆组件")
     check(!overlay.contains("NativeStickCap") && !overlay.contains("stickCapOffset"),
           "正式手柄界面不再平移裁剪摇杆图")
@@ -16,7 +16,7 @@ func gamepadRenderingTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     for skin in [GamepadSkin.f310, .direwolf4, .dualshock4, .dualsense, .xboxSeries] {
         let spec = GamepadArtworkCatalog.spec(for: skin)
         guard let source = NSImage(contentsOf: root.appendingPathComponent(
-            "Sources/MatchSticksDS/Resources/Gamepads/\(spec.imageName).png")) else {
+            "Sources/MatchSticksDriverStaion/Resources/Gamepads/\(spec.imageName).png")) else {
             check(false, "\(skin.rawValue) 合成渲染资源可读取")
             continue
         }
@@ -52,7 +52,7 @@ func gamepadRenderingTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
         } else {
             check(false, "\(skin.rawValue) 按下高亮圆环可测量")
         }
-        if let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+        if let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
            let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
             let url = URL(fileURLWithPath: directory, isDirectory: true)
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -98,7 +98,7 @@ private func saveMotionSheet(left: ThumbstickSceneView, right: ThumbstickSceneVi
         }
     }
     sheet.unlockFocus()
-    guard let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+    guard let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
           let image = sheet.cgImage(forProposedRect: nil, context: nil, hints: nil),
           let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
     let root = URL(fileURLWithPath: directory, isDirectory: true)
@@ -109,7 +109,7 @@ private func saveMotionSheet(left: ThumbstickSceneView, right: ThumbstickSceneVi
 /// Enlarged per-state close-ups of both sticks, written only for review runs.
 @MainActor
 private func saveStickCloseUps(spec: GamepadArtworkSpec, source: NSImage, skin: GamepadSkin) {
-    guard skin != .generic, let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+    guard skin != .generic, let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
           let data = stickCloseUps(spec: spec, source: source, skin: skin) else { return }
     let root = URL(fileURLWithPath: directory, isDirectory: true)
     try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -193,7 +193,7 @@ private func renderHostedGamepad(check: (@autoclosure () -> Bool, String) -> Voi
         }
     }
     check(opaque > 1_000, "SwiftUI 正式布局实际绘制完整手柄而不是空白")
-    if let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+    if let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
        let data = bitmap.representation(using: .png, properties: [:]) {
         let root = URL(fileURLWithPath: directory, isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

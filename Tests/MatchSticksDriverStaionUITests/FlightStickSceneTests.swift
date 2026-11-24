@@ -8,9 +8,9 @@ func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     let root = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let overlay = (try? String(contentsOf: root.appendingPathComponent(
-        "Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStaion/Views/GamepadArtwork/GamepadArtworkOverlay.swift"), encoding: .utf8)) ?? ""
     let artwork = (try? String(contentsOf: root.appendingPathComponent(
-        "Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift"), encoding: .utf8)) ?? ""
+        "Sources/MatchSticksDriverStaion/Views/GamepadArtwork/GamepadArtwork.swift"), encoding: .utf8)) ?? ""
     check(overlay.contains("FlightStickScene("), "Extreme 正式布局使用三维装配")
     check(!overlay.contains("rotation3DEffect") && !overlay.contains("rotationEffect") &&
           !overlay.contains("offset(pose.offset)") && !artwork.contains("flightAnchor") &&
@@ -115,7 +115,7 @@ func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
 
 @MainActor
 private func saveFlightReview(_ image: NSImage, name: String) {
-    guard let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+    guard let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
           let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
           let data = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return }
     let root = URL(fileURLWithPath: directory, isDirectory: true)

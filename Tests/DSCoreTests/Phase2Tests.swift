@@ -297,7 +297,7 @@ func wpilogTests() {
     check(header2 == [0x01, 0x2C, 0x01, 0x01, 0x01], "多字节 entry 变长（" + header2.map { String(format: "%02X", $0) }.joined() + "）")
 
     // 全文件往返：START/double/boolean/string/FINISH
-    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-ds-\(Int.random(in: 0...999_999)).wpilog")
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-driver-staion-\(Int.random(in: 0...999_999)).wpilog")
     var ts = Int64(1_700_000_000_000)
     let writer = try! WPILogWriter(fileURL: url, timestampProvider: { ts })
     let batteryID = writer.startEntry(name: "/DS/Battery", type: "double", metadata: "{\"unit\":\"V\"}")
@@ -341,7 +341,7 @@ func wpilogTests() {
 // MARK: SettingsStore 单测
 
 func settingsStoreTests() {
-    let name = "matchsticks-ds-test-" + String(Int.random(in: 0...999_999))
+    let name = "matchsticks-driver-staion-test-" + String(Int.random(in: 0...999_999))
     let defaults = UserDefaults(suiteName: name)!
     defer { defaults.removePersistentDomain(forName: name) }
     let store = SettingsStore(defaults: defaults, prefix: "p1.")
@@ -466,7 +466,7 @@ func dslogTests() {
     }
 
     // 全文件往返
-    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-ds-\(Int.random(in: 0...999_999)).dslog")
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-driver-staion-\(Int.random(in: 0...999_999)).dslog")
     let writer = try! DSLogWriter(fileURL: url, version: 2, timestamp: date)
     writer.append(e)
     var e2 = DSLogEntry()
@@ -496,7 +496,7 @@ func recordReplayScenario() {
     Thread.sleep(forTimeInterval: 0.05)
 
     let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    let recURL = dir.appendingPathComponent("matchsticks-ds-e2e-\(Int.random(in: 0...999_999)).dsrec")
+    let recURL = dir.appendingPathComponent("matchsticks-driver-staion-e2e-\(Int.random(in: 0...999_999)).dsrec")
     let recorder = try! PacketRecorder(fileURL: recURL)
     let boot = Date()
 
@@ -557,7 +557,7 @@ import DSCore
 // UI 冻结看门狗冻结使能 / brownout 解码 / 30s 长跑稳定性。
 
 /// bind 并断言成功。**此前所有 bind 返回值都被丢弃**，症状是「应答数为 0」的
-/// 误导性失败——真凶往往是残留的 MatchSticksDS/MatchSticksDSSim 进程占着 1110/1150（2026-09-16
+/// 误导性失败——真凶往往是残留的 MatchSticksDriverStaion/MatchSticksDriverStaionSim 进程占着 1110/1150（2026-09-16
 /// 通宵段就因残留实例误判过一次负向测试）。失败时给出可执行的排查提示。
 @discardableResult
 func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: Bool = false, what: String) -> Bool {
@@ -577,7 +577,7 @@ func bindChecked(_ sock: Int32, port: UInt16, host: String = "127.0.0.1", soft: 
         guard soft else {
             let held = portInUse(port)
             check(false, "\(what)：bind \(host):\(port) 失败（errno \(errno)）"
-                + (held ? " —— 端口被占用，先 `pgrep -lf MatchSticksDS` 清残留进程"
+                + (held ? " —— 端口被占用，先 `pgrep -lf MatchSticksDriverStaion` 清残留进程"
                         : "（端口探测空闲，可能是权限问题）"))
             return false
         }
@@ -1275,7 +1275,7 @@ func practiceSequencerCatchUpTests() {
 
 func recorderTests() {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    let url = dir.appendingPathComponent("matchsticks-ds-test-\(Int.random(in: 0...999_999)).dsrec")
+    let url = dir.appendingPathComponent("matchsticks-driver-staion-test-\(Int.random(in: 0...999_999)).dsrec")
 
     let recorder = try! PacketRecorder(fileURL: url)
     recorder.record(.controlOut, Data([1, 2, 3]))

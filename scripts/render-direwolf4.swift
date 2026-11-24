@@ -2,7 +2,7 @@ import AppKit
 
 let scale = 4.0
 let width = 1968, height = 1364
-let resource = "Sources/MatchSticksDS/Resources/Gamepads"
+let resource = "Sources/MatchSticksDriverStaion/Resources/Gamepads"
 
 final class SourcePixels {
     let image: CGImage

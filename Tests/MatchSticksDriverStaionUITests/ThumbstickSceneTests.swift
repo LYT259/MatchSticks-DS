@@ -6,7 +6,7 @@ import DSCore
 func thumbstickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     let resourceRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("Sources/MatchSticksDS/Resources/Gamepads")
+        .appendingPathComponent("Sources/MatchSticksDriverStaion/Resources/Gamepads")
     for skin in [GamepadSkin.f310, .generic, .direwolf4, .dualshock4, .dualsense, .xboxSeries] {
         let spec = GamepadArtworkCatalog.spec(for: skin)
         guard let source = NSImage(contentsOf: resourceRoot.appendingPathComponent("\(spec.imageName).png")) else {
@@ -298,7 +298,7 @@ private func rgbaBytes(_ image: CGImage) -> [UInt8]? {
 
 @MainActor
 private func saveReview(_ image: NSImage, skin: GamepadSkin, state: String) {
-    guard skin != .generic, let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DS_RENDER_REVIEW"],
+    guard skin != .generic, let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
           let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
           let data = NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:]) else { return }
     let root = URL(fileURLWithPath: directory, isDirectory: true)

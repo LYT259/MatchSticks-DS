@@ -19,7 +19,7 @@ ROOT="$PWD"
 GEO="$ROOT/scripts/icon-geometry.swift"
 CAL="$ROOT/scripts/calibrate-icon.swift"
 ASSETS="$ROOT/scripts/icon-assets"
-ICON_SRC="$ROOT/Sources/MatchSticksDS/Resources/AppIcons"
+ICON_SRC="$ROOT/Sources/MatchSticksDriverStaion/Resources/AppIcons"
 MASK="$ASSETS/baseplate-mask-1024.png"
 ORIG="$ASSETS/originals"
 

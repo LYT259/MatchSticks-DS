@@ -39,7 +39,7 @@ func direwolfArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
           "生成器没有把原始图片放大后冒充高清")
 
     guard let image = NSImage(contentsOf: root.appendingPathComponent(
-        "Sources/MatchSticksDS/Resources/Gamepads/direwolf4.png"))?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+        "Sources/MatchSticksDriverStaion/Resources/Gamepads/direwolf4.png"))?.cgImage(forProposedRect: nil, context: nil, hints: nil),
           let data = image.dataProvider?.data else {
         check(false, "冰原狼高清资源可读取")
         return
@@ -51,7 +51,7 @@ func direwolfArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     }
     for (name, region) in [("left-stick", GamepadArtworkRegion.leftStick),
                            ("right-stick", .rightStick), ("well-left", .leftStick), ("well-right", .rightStick)] {
-        let url = root.appendingPathComponent("Sources/MatchSticksDS/Resources/Gamepads/direwolf4-\(name).png")
+        let url = root.appendingPathComponent("Sources/MatchSticksDriverStaion/Resources/Gamepads/direwolf4-\(name).png")
         guard let preview = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             check(false, "冰原狼独立 \(name) 资源存在")
             continue

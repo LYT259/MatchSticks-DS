@@ -19,8 +19,8 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
     func source(_ relativePath: String) -> String {
         (try? String(contentsOf: repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8)) ?? ""
     }
-    let appSource = source("Sources/MatchSticksDS/MatchSticksDSApp.swift")
-    let miniSource = source("Sources/MatchSticksDS/Views/MiniView.swift")
+    let appSource = source("Sources/MatchSticksDriverStaion/MatchSticksDriverStaionApp.swift")
+    let miniSource = source("Sources/MatchSticksDriverStaion/Views/MiniView.swift")
     check(!appSource.isEmpty && !miniSource.isEmpty,
           "mini driver station tests load their source fixtures")
 

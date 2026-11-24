@@ -2,7 +2,7 @@ import Foundation
 import Sparkle
 import DSCore
 
-// MARK: - Sparkle 装配层（MatchSticks DS 专属；不进 test-ui.sh 编译清单）
+// MARK: - Sparkle 装配层（MatchSticks Driver Station 专属；不进 test-ui.sh 编译清单）
 //
 // UX（报告 §5.5 / CLAUDE.md 分发章）：启动静默查 → 静默后台下载 → 固定角落进度角标
 // （可忽略、无弹窗）→ 点击一键重启安装；下载失败静默跳过、下次启动再试、永不阻塞使用。
@@ -29,9 +29,9 @@ final class UpdateCenter {
     /// 事件日志（接入 DSModel.log；亦随 Diag 镜像到 stderr/文件，E2E 断言用）
     var logLine: ((String) -> Void)?
 
-    /// E2E 测试钩子：MATCHSTICKS_DS_UPDATE_AUTOTAP=1 时就绪后替操作员点击角标
-    /// （安全门照常现场求值；旧 GHDS_UPDATE_AUTOTAP 仍兼容）；
-    /// MATCHSTICKS_DS_UPDATE_AUTOTAP_DELAY=<秒> 可延时点击（Leg B 等连接建立后再点，消除竞态）
+    /// E2E 测试钩子：MATCHSTICKS_DRIVER_STAION_UPDATE_AUTOTAP=1 时就绪后替操作员点击角标
+    /// （安全门照常现场求值；旧 MATCHSTICKS_DRIVER_STATION_ / MATCHSTICKS_DS_ / GHDS_ 前缀仍兼容）；
+    /// MATCHSTICKS_DRIVER_STAION_UPDATE_AUTOTAP_DELAY=<秒> 可延时点击（Leg B 等连接建立后再点，消除竞态）
     private let autoTap = DSEnvironment.isEnabled("UPDATE_AUTOTAP")
     private let autoTapDelay = TimeInterval(DSEnvironment.string("UPDATE_AUTOTAP_DELAY") ?? "") ?? 0
 
@@ -57,15 +57,15 @@ final class UpdateCenter {
         // 仅 .app bundle 内启用（.build 裸跑 / UI 干测试不打扰）；可用环境变量显式关闭
         guard Bundle.main.bundlePath.hasSuffix(".app") else { return }
         guard !DSEnvironment.isEnabled("DISABLE_UPDATE") else {
-            // 日志同时说明新旧 env；旧 GHDS_ 前缀仍经 DSEnvironment 回退生效。
+            // 日志同时说明旧 env；所有旧前缀仍经 DSEnvironment 逐级回退生效。
             let legacyNote: String
             switch LanguageManager.shared.currentEffective {
             case .chinese:
-                legacyNote = "；旧 GHDS_DISABLE_UPDATE=1 同样生效"
+                legacyNote = "；旧 MATCHSTICKS_DRIVER_STATION_DISABLE_UPDATE / MATCHSTICKS_DS_DISABLE_UPDATE / GHDS_DISABLE_UPDATE=1 同样生效"
             case .english:
-                legacyNote = " / legacy GHDS_DISABLE_UPDATE=1 also applies"
+                legacyNote = " / legacy MATCHSTICKS_DRIVER_STATION_DISABLE_UPDATE / MATCHSTICKS_DS_DISABLE_UPDATE / GHDS_DISABLE_UPDATE also apply"
             }
-            logLine?(tr("更新组件已禁用（MATCHSTICKS_DS_DISABLE_UPDATE=1）") + legacyNote)
+            logLine?(tr("更新组件已禁用（MATCHSTICKS_DRIVER_STAION_DISABLE_UPDATE=1）") + legacyNote)
             return
         }
         let delegate = UpdateDelegate(center: self)
@@ -276,7 +276,8 @@ private final class UpdateDelegate: NSObject, SPUUpdaterDelegate {
     weak var center: UpdateCenter?
     init(center: UpdateCenter) { self.center = center }
 
-    /// feed 地址：环境变量 MATCHSTICKS_DS_FEED_URL（旧 GHDS_FEED_URL 兼容）覆盖
+    /// feed 地址：环境变量 MATCHSTICKS_DRIVER_STAION_FEED_URL
+    /// （旧 MATCHSTICKS_DRIVER_STATION_ / MATCHSTICKS_DS_ / GHDS_ 前缀兼容）覆盖
     /// （本地升级链路 E2E 用）；否则回落 Info.plist SUFeedURL（生产 = GitHub Releases 托管 appcast）。
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
         DSEnvironment.string("FEED_URL")

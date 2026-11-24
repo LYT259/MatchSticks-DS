@@ -172,7 +172,7 @@ public final class RadioProbe {
     public var onResult: ((Bool) -> Void)?
 
     public let configuration: Configuration
-    private let queue = DispatchQueue(label: "matchsticks.ds.radio-probe", qos: .utility)
+    private let queue = DispatchQueue(label: "matchsticks.driverstaion.radio-probe", qos: .utility)
     private var timer: DispatchSourceTimer?
     private let lock = NSLock()
     private var reachableValue = false
