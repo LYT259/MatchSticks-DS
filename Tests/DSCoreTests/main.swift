@@ -388,6 +388,7 @@ runTest("refreshConnectionSafety", refreshConnectionSafetyScenario)
 runTest("refreshConnectionRescue", refreshConnectionRescueScenario)
 runAllPhase2Tests()
 runTest("timeoutSequencerTests", timeoutSequencerTests)
+runTest("practiceCountdown", practiceCountdownTests)
 runAllPhase4Tests()
 runAllOM5PReadinessTests()
 // 手柄造型（GamepadProfile：识别/映射/容错；轴序样本锚定 2026-11-18 真机实测）
