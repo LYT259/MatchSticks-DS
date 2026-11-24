@@ -68,15 +68,15 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 `scripts/validate-all.sh` 是三端的唯一入口（Mac 本机、实体 Linux SSH 主机、GitHub Actions Windows）。三端必须验证同一个提交，否则「全绿」没有意义：
 
 - **预检先行**：环境变量、所需工具、仓库根、Mac 必需脚本齐全、工作树干净、HEAD 已推送且与 `origin` 一致（一次只读 `git ls-remote`）、`gh auth status`、workflow 文件已提交。任何一项不过，就不运行任何测试、SSH 或 Actions 调用。
-- **Mac** 跑当前 HEAD（工作树干净，所以磁盘内容等于 HEAD）。清单 = 8 个必需基础脚本（缺任一即 fail-closed）+ 自动发现的全部 `scripts/test-*.sh`，去重后每个脚本只跑一次：必需脚本按声明顺序（快到慢），其余按路径名排序。
-- **Linux**：`git archive HEAD` 经 stdin 送入远端 `tar -xf -`，解包到远端每次 `mktemp -d` 新建的独立目录。只传已提交的跟踪文件——不含 `.git`、未跟踪文件与任何本地文件；不做删除式同步；退出（含失败与 Ctrl-C）只删除本次创建的那一个目录。
+- **Mac** 跑当前 HEAD（工作树干净，所以磁盘内容等于 HEAD）；Mac 开始前固定 `HEAD_SHA`，Linux 与 Windows 均消费该 SHA，Linux 结束与三端汇总前再次复核 HEAD，任何变化都失败。清单 = 8 个必需基础脚本（缺任一即 fail-closed）+ 自动发现的全部 `scripts/test-*.sh`，去重后每个脚本只跑一次：必需脚本按声明顺序（快到慢），其余按路径名排序。
+- **Linux**：`git archive <HEAD_SHA>` 经 stdin 送入远端 `tar -xf -`，解包到远端每次 `mktemp -d` 新建的独立目录。只传已提交的跟踪文件——不含 `.git`、未跟踪文件与任何本地文件；不做删除式同步；退出（含失败与 Ctrl-C）只删除本次创建的那一个目录。归档前用 `df -Pk /tmp /` 确认两个挂载点各有至少 1 GiB 可用空间，不足即明确失败，不运行 `DSCoreTests`。远端 PATH 使用实际探测成功的 `MATCHSTICKS_DS_LINUX_SWIFT_BIN`；`SWIFTPM_CACHE_PATH` 与 `CLANG_MODULE_CACHE_PATH` 指向本次临时目录，`SWIFTPM_MANIFEST_CACHE=local` 将 manifest cache 留在该包的远端 build 目录，避免写入根分区默认缓存位置。
 - **Windows**：消费 GitHub Actions 上 `headSha` 等于同一 SHA 的运行。`pull_request`（目标 beta/stable）、beta/stable 的 `push` 与此前对本分支的 `workflow_dispatch` 运行一并消费，全部成功才算通过。一条都没有时才 `dispatch`，且至多一次；workflow 尚未进入默认分支、`dispatch` 不可用时立即失败并给出处置办法，不空等、不重发。
 - **GitHub 调用纪律**：任何 `gh` 调用失败即停并报告，不自动重试；`dispatch` 只在「没有同 SHA 的运行且 workflow 处于启用状态」时发生一次。
 - **汇总**：三行各记同一个 `commit=<SHA>`，三端全部通过时才输出一致性结论。
 
 `scripts/test-core.sh` 是三平台共用的核心回归入口：只构建并运行 `DSCoreTests`（自带 runner，不依赖 XCTest），Sparkle 与 SwiftUI 主程序不参与。
 
-`.github/workflows/full-validation.yml` 是 Windows 一端：`windows-2025` 原生 Swift（swift.org 6.4.2 固定安装 URL，安装后校验版本）、`actions/checkout` 钉完整提交 SHA、经 vcvarsall 与显式的 Git Bash 路径运行 `scripts/test-core.sh`。触发器为 `pull_request`（目标 beta/stable）、`push`（beta/stable）与 `workflow_dispatch`。项目自 2026-10-04 起停用 GitHub Actions；本次由产品所有者点名，仅为 Windows 验证恢复，且全仓库只有这一个 job。
+`.github/workflows/full-validation.yml` 是 Windows 一端：`windows-2025` 原生 Swift（swift.org 6.4.2 固定安装 URL，安装后校验版本）、`actions/checkout` 钉完整提交 SHA，并以 `github.event.pull_request.head.sha || github.sha` 显式选择 checkout ref——PR 验证精确 head，不验证 `refs/pull/N/merge`；push 与 dispatch 回退到 `github.sha`。随后经 vcvarsall 与显式的 Git Bash 路径运行 `scripts/test-core.sh`。触发器为 `pull_request`（目标 beta/stable）、`push`（beta/stable）与 `workflow_dispatch`。项目自 2026-10-04 起停用 GitHub Actions；本次由产品所有者点名，仅为 Windows 验证恢复，且全仓库只有这一个 job。
 
 ## 影响
 
@@ -91,15 +91,15 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 - **引入 Network.framework（`NWListener`/`NWConnection`）统一三平台**：Apple 的网络栈在 macOS 27 beta 上 `NWListener` 对本项目的端口返回 `EINVAL`（见项目协作约定「待定项」），且 Linux/Windows 上没有；不采用。
 - **引入跨平台网络库（SwiftNIO 等）**：会打破 DSCore 零外部依赖，并把协议时序交给第三方；DS 需要对原始套接字行为（绑定、接口钉绑、超时分类）有完全控制；不采用。
 - **用 CryptoKit 之外的系统加密库算 SHA-1**：三平台 API 各不相同，且握手摘要不需要密码学强度；74 行纯 Swift 实现更小、更可测；不采用。
-- **Linux 端用 `rsync` 同步整个工作树**：会把未提交改动和本地文件带到远端，三端验证的不再是同一个 commit；改用 `git archive HEAD`；不采用。
+- **Linux 端用 `rsync` 同步整个工作树**：会把未提交改动和本地文件带到远端，三端验证的不再是同一个 commit；改用 `git archive <固定 SHA>`；不采用。
 
 ## 验证与后续
 
 - **测试**：`Tests/DSCoreTests/PortabilityTests.swift` 的 9 项测试注册在 `Tests/DSCoreTests/main.swift`，三平台同一套断言——WebSocket 握手摘要向量（含 55/56/64/119/120 字节分组边界与多字节 UTF-8）、IPv4 解析与格式化（文法对齐 `inet_pton`）、地址构造、OpenStep `.strings` 解析、`SettingsStore` 类型判定、仅经 `SocketCompat` 的回环 UDP/TCP 往返、同地址同端口独占绑定、UDP 对「对端端口不可达」的表现，以及一条静态守卫 `socketCompatBoundary`：`Sources/DSCore` 里除 `SocketCompat.swift` 外不得直接调用套接字 C API（Swift 方法调用与声明、`getaddrinfo`/`getifaddrs` 两处有意例外不算）。这条守卫补的是 Windows 可移植性的缺口：`DSClient` 曾对连接结果里要丢弃的已连接套接字直接调 C `close(fd)`，在 macOS 上完全正常，Windows 上则必须 `closesocket`——本机编译不了 Windows 分支，行为测试在 macOS 上也区分不了两种写法，所以用三端都能执行的静态守卫拦住（修复前该测试为 RED）。原有测试里的原始 BSD 调用全部切到 `SocketCompat`；Windows 不实现的接口钉绑处给出明确断言（`.noMatch`/`nil`），不假绿。
 - **Mac**：`swift build`（全部 target）与 `scripts/test-core.sh` 通过（0 failures）。
-- **Linux**：用 swift.org 6.4.2 开源工具链 + 官方静态 SDK 交叉编译 `swift build --swift-sdk x86_64-swift-linux-musl --product DSCoreTests`，0 error，产出静态 ELF。**这不是运行验证**：实体 Linux 主机截至 2026-11-23 尚未安装 Swift，运行时结果要等 `scripts/validate-all.sh` 在可达主机上跑过才有。
+- **Linux**：实体 Linux 主机的 Swift 工具链已准备，非交互 SSH 可通过 `MATCHSTICKS_DS_LINUX_SWIFT_BIN` 使用已验证的 swift；但 `DSCoreTests` 仍待在该主机真实运行。此前的交叉编译与本次离线脚本/夹具检查都不是运行验证。
 - **Windows**：本机无法编译 Windows 分支。`SocketCompat` 的 Windows 路径按 SDK 头文件逐项核对过（`FIONBIO`、`SO_EXCLUSIVEADDRUSE`、`SD_BOTH`、`SIO_UDP_CONNRESET` 的取值，`SOCK_DGRAM`/`AF_INET`/`WSAE*` 可导入），但编译与运行都需要 `.github/workflows/full-validation.yml` 在 GitHub 托管的 Windows 上真跑。
-- **脚本**：`scripts/validate-all.sh` 的行为由本地夹具覆盖（预检、`git archive` 同步与清理、Windows 同 SHA 多事件消费、`dispatch` 至多一次、GitHub 读失败不重试、脚本自动发现去重），在 `/bin/bash` 3.2 与 UTF-8 locale 下全部通过；夹具放在被忽略的 `.build/script-tests/`，不入库。真实的 SSH 与 Actions 链路只有等推送后才能验证。
+- **脚本**：`scripts/test-validation-scripts.sh` 覆盖 workflow 精确 head checkout、`ss` UDP 本地地址样例、`git archive <固定 SHA>`、HEAD 变化失败、磁盘空间预检、缓存隔离、Swift PATH 与全部 `test-*.sh` 自动发现；`validate-all` 流程使用临时目录和 mock 的 git/swift/ssh/gh，夹具运行时文件位于被忽略的 `.build/`，测试脚本本身入库。真实的 SSH、Linux `DSCoreTests` 与 Actions 链路仍未在本次修复中运行。
 - 后续：若 `DSCore` 开始依赖 Apple 专有框架，或产品范围扩展到 Linux/Windows，必须新增 ADR 并重新评估本 ADR 的第 1 节。
 
 ## 相关文档

@@ -5,7 +5,8 @@ name: Full validation (Windows)
 # 构建并运行 DSCoreTests（同一套断言，经 Winsock）。不是 WSL，不是 Linux 冒充 Windows。
 #
 # 触发：
-#   - pull_request 目标 beta/stable —— 首次随 PR 即在 Windows 真跑。workflow_dispatch 只有在 workflow 文件
+#   - pull_request 目标 beta/stable —— 首次随 PR 即在 Windows 真跑；checkout 显式使用 PR head SHA，
+#     不验证 GitHub 临时生成的 merge ref。workflow_dispatch 只有在 workflow 文件
 #     进入默认分支 stable 之后才可用，首个 PR 只能靠这个触发器；
 #   - push 到 beta/stable；
 #   - workflow_dispatch（scripts/validate-all.sh 在文件已进入 stable 后走这条）。
@@ -51,6 +52,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Install Swift 6.4.2 (swift.org, pinned URL) and locate the toolchain
         shell: pwsh
