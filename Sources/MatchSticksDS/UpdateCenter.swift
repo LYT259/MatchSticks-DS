@@ -128,6 +128,12 @@ final class UpdateCenter {
         self.delegate = delegate
         self.driver = driver
         routing.transport = SystemUpdateRequestTransport()
+        routing.interceptionObserver = { [weak self] in
+            DispatchQueue.main.async {
+                self?.logLine?("更新请求命中专用传输（标记与凭证已移除）")
+            }
+        }
+        UpdateRequestRouting.installSparkleSessionRouting()
         URLProtocol.registerClass(UpdateURLProtocol.self)
 
         do {
@@ -353,7 +359,10 @@ final class UpdateCenter {
             return
         }
         guard nsError.domain == SUSparkleErrorDomain,
-              let code = SUError(rawValue: Int32(nsError.code)) else { return }
+              let code = SUError(rawValue: Int32(nsError.code)) else {
+            failedCycle()
+            return
+        }
         switch code {
         case .noUpdateError:
             flow.updateNotFound()
@@ -362,14 +371,17 @@ final class UpdateCenter {
         case .installationCanceledError, .installationAuthorizeLaterError:
             apply(scheduler.checkFinished(.noUpdate))
         default:
-            // appcast 拉取失败（含私有仓库 404）/ 下载失败：静默、不阻塞，退避后重试
-            flow.failedQuietly()
-            let action = scheduler.checkFinished(.failed)
-            if case .wait(let delay) = action {
-                logLine?(tr("更新检查失败（静默跳过，%d 秒后重试）：%@", Int(delay), error.localizedDescription))
-            }
-            apply(action)
+            failedCycle()
         }
+    }
+
+    private func failedCycle() {
+        flow.failedQuietly()
+        let action = scheduler.checkFinished(.failed)
+        if case .wait(let delay) = action {
+            logLine?(tr("更新检查失败（静默跳过，%d 秒后重试）：%@", Int(delay), ""))
+        }
+        apply(action)
     }
 }
 

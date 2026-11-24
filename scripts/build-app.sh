@@ -291,6 +291,19 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Sparkle downloader XPC 是独立进程，进程内 URLProtocol / route / 凭据清理不会覆盖它。
+# 任何未来开启 SUEnableDownloaderService 的改动都必须显式重审更新路由，不能由打包静默带入。
+python3 - "$APP/Contents/Info.plist" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    info = plistlib.load(stream)
+if "SUEnableDownloaderService" in info:
+    print("  ✗ 产物 Info.plist 不得包含 SUEnableDownloaderService（会绕过进程内更新路由）", file=sys.stderr)
+    sys.exit(1)
+PY
+
 echo "PBPB" > "$APP/Contents/PkgInfo"
 
 # 权限弹窗与版权文案双语（Info.plist 键的 per-language 覆盖；中文为主表值，英文走 en.lproj）

@@ -1,7 +1,7 @@
 # ADR-0004：更新渠道（stable / beta）与连通性门控
 
 - 状态：已接受（Accepted）
-- 日期：2026-11-23（同日第二轮 review 修订：默认路由 → 非 Wi‑Fi 路径的实际探测 fallback、调度器活性规则、E2E 渠道覆盖；2026-11-24 第三轮修订：Sparkle feed / enclosure 请求跟随同一探测 route）
+- 日期：2026-11-23（同日第二轮 review 修订：默认路由 → 非 Wi‑Fi 路径的实际探测 fallback、调度器活性规则、E2E 渠道覆盖；2026-11-24 第三轮修订：Sparkle feed / enclosure 请求跟随同一探测 route；同日第四轮修订：更新传输解析、跳转、凭据与生产 session 路由加固）
 - 决策：产品所有者（LYT259）
 - 编号核查：新建前检查本地全部分支与 `origin/*` 的 `docs/decisions/`：`0001`（更名）已合入 beta；`0002-natural-controller-motion.md` 存在于 `fix/natural-controller-motion`、`fix/flight-scene-integration`、`fix/direwolf4-hires-assets` 三个分支（均未合入 beta）；`0003` 已分配给三平台验证 ADR。本 ADR 取 `0004`，避免与并行分支撞号。
 
@@ -49,12 +49,14 @@
   4. 结果带「作出判定的路径」：有线成功时事件日志记「默认路由不可达，经有线 Ethernet 连通 GitHub：default route: <原因>; Ethernet: HTTP/1.1 404 Not Found」；两条都失败时 detail 同时保留两条路径的失败原因。
 - **为什么是禁止 Wi‑Fi 而不是 `requiredInterfaceType = .wiredEthernet`**：2026-11-23 在 macOS 27.3 上用独立脚本实测——`requiredInterfaceType`（`.wiredEthernet` / `.wifi`）与 `requiredInterface`（取自 satisfied 的有线 `NWPathMonitor` 路径的真实 `NWInterface`）全部停在 `.preparing → .waiting(ENETDOWN)` 永不恢复，而同机 `NWPathMonitor` 明确报告 `en9:wiredEthernet` satisfied；`prohibitedInterfaceTypes = [.wifi]` 7 ms 内 `.ready`（TLS 握手 ~0.5 s），对 GitHub feed 的 `HEAD` 返回 `HTTP/1.1 404 Not Found`（私有仓库，即可达）。同一实测还发现把 `.loopback` 一并禁用同样 ENETDOWN，所以只禁 Wi‑Fi。这与 AGENTS.md 已记录的 macOS 27 Network.framework 回归（NWListener EINVAL）同类；语义上「不经 radio Wi‑Fi 能否连上 GitHub」正是用户要的检查，且不依赖按类型选路。
 - **路由与机器人连接**：只约束探测与更新连接的接口类型；本实现**不**修改网络服务优先级、**不**关闭 Wi‑Fi、**不**绑定或干扰机器人 UDP 1110/1150 / TCP 1740 socket，也不修改系统代理。
-- **Sparkle 请求跟随同一判定**：Sparkle 2.10.0 没有公开 `NSURLSession` / downloader 注入点（`SPUDownloader.m` 固定创建默认 session），因此使用进程内 `UpdateURLProtocol`，并只通过两个公开委托钩子标记请求：
+- **Sparkle 请求跟随同一判定**：Sparkle 2.10.0 没有公开 `NSURLSession` / downloader 注入点（`SPUDownloader.m` 固定创建默认配置的独立 session），因此使用进程内 `UpdateURLProtocol`，并只通过两个公开委托钩子标记请求：
   1. `feedParametersForUpdater:sendingSystemProfile:` 在 appcast query 中加入本进程、本探测周期随机 token；
-  2. `updater:willDownloadUpdate:withRequest:` 在 enclosure request 加入同名私有 header。release notes、机器人、WebUI、Star 及其他未标记请求不命中；URL 内嵌凭证被拒绝，token / Cookie / Authorization 不转发源站，也不写日志。
-  3. `UpdateCenter` 在探测成功后以**作出判定的同一路径**激活 adapter：默认成功 → feed 与 enclosure 只走默认；默认失败、有线成功 → 两者都走 `wiredEthernet`。默认内部 URLSession 显式禁用自定义 protocol 防递归；有线路径使用 `NWConnection` + TLS SNI + `prohibitedInterfaceTypes = [.wifi]`，HTTP 重定向（最多 5 次）在连接内部跟随，避免重定向落回默认路由。
-  4. 固定 `Content-Length`、chunked 与 close-delimited body 都按块交付给 Sparkle 的 download task，不把完整 enclosure 缓冲为一个 `Data`；传输错误、取消、重复回调均有界收尾。探测/下载路径丢失会清除 route，周期失败回到原有封顶退避，下一次重新先默认后有线探测。
-- **验证边界**：行为测试使用真实 `URLSession → URLProtocol → transport` 与回环 HTTP 服务，覆盖两种 route、重定向、chunked、256 KiB 流式 body、断线和取消；它不等同于真实 Sparkle 五腿 E2E。尤其是「默认 Wi‑Fi 有网关但无外网 + 非 Wi‑Fi 可达 GitHub」的真实 Sparkle feed/download 闭环仍由主代理在最终集成后串行实测。
+  2. `updater:willDownloadUpdate:withRequest:` 在 enclosure request 加入同名私有 header。release notes、机器人、WebUI、Star 及其他未标记请求不命中；带标记但 URL 内嵌凭据、非 HTTP(S)、越界端口或 URLComponents 解析失败的请求被 adapter 接住并失败，不交给后续 protocol。token / Cookie / Authorization / Proxy-Authorization 不转发源站。
+  3. `UpdateCenter` 在探测成功后以**作出判定的同一路径**激活 adapter：默认成功 → feed 与 enclosure 只走默认；默认失败、有线成功 → 两者都走 `wiredEthernet`。默认内部 URLSession 显式禁用自定义 protocol 防递归；有线路径使用 `NWConnection` + TLS SNI + `prohibitedInterfaceTypes = [.wifi]`，安全 HTTP(S) 重定向（最多 5 次）在连接内部跟随，避免重定向落回默认路由。HTTPS → HTTP、非 HTTP(S)、内嵌凭据和无法解析的跳转目标一律拒绝；跳转 request 再次清理 query/header token 与凭据。旧连接的 pending receive 以具体 `NWConnection` 身份隔离，不得读取或取消新连接。
+  4. `URLProtocol.registerClass` 只保证 shared session 可见，不覆盖 Sparkle 创建的独立实例 session；因此除全局注册外，还对公开的 `defaultSessionConfiguration` 工厂做一次进程内、幂等注入，把同一 adapter 加入 Sparkle 式 default-configuration session。`canInit` 仍只匹配当前进程随机 token，未标记流量不受影响；默认内部 transport 继续显式禁用自定义 protocol，避免递归。真实 default-configuration `URLSession` 实例的行为测试证明该链实际命中，而不是仅以 registerClass 返回值推断。
+  5. 固定 `Content-Length`、chunked 与 close-delimited body 都按块交付给 Sparkle 的 download task，不把完整 enclosure 缓冲为一个 `Data`。`Content-Length` 与 chunk size 经 `Int(exactly:)` 转换，`2^63` 与 `UInt64.max` 明确失败而非崩溃；chunk size / trailer 无 CRLF 的累计行缓冲上限为 64 KiB。最终 HTTP 状态限定 200...599（信息性响应 100...199，101 除外），不同重复 `Content-Length` 拒绝；传输错误、取消、重复回调均有界收尾。默认与有线路径以及默认 probe 均设置 `urlCredentialStorage = nil`，默认 probe 不跟随重定向。探测/下载路径丢失会清除 route，周期失败回到原有封顶退避，下一次重新先默认后有线探测。
+  6. **日志与 token 边界**：应用自身更新日志只记录固定文案，不记录随机 token、Authorization、Proxy-Authorization、Cookie，或可能含请求 URL 的 Sparkle 错误详情；命中专用 transport 的日志同样不含 URL 与 header。**Sparkle / CFNetwork 自身的 `os_log` 可能记录请求 URL，因此可能包含进程内、单探测周期有效的随机路由 token。该 token 不具备鉴权或授权价值，账号凭据也不由这些 hook 写入。** 不宣称 Sparkle 系统日志绝无 token，也不宣称应用日志会记录 token。
+- **验证边界**：行为测试使用真实 `URLSession → URLProtocol → transport`、全局注册 + Sparkle 式 default-configuration 实例与回环 HTTP 服务，覆盖两种 route、安全/不安全重定向、chunked、256 KiB 流式 body、断线、取消、恶意 framing、状态码、凭据与转义保真；它不等同于真实 Sparkle 五腿 E2E。尤其是「默认 Wi‑Fi 有网关但无外网 + 非 Wi‑Fi 可达 GitHub」的真实 Sparkle feed/download 闭环仍由主代理在最终集成后串行实测。
 - **重试状态机**（`UpdateCheckScheduler`，纯逻辑、无定时器与网络，输入返回动作由 `UpdateCenter` 执行）：启动 → 探测 → 可达 → 触发 Sparkle 检查；不可达 → 退避计时重试，首延 3 秒、逐次翻倍、**封顶 15 分钟、永不放弃**（默认路由与 Ethernet 都不可用同样如此），探测成功后退避归零。
 - **路径唤醒**：`NWPathMonitor` 同时观察默认路径与有线路径（`NWPathMonitor(requiredInterfaceType: .wiredEthernet)`），任一可用即 satisfied，翻转时唤醒调度器：等待中 → 立即探测；探测中 → 记录标记，失败后立即再探一次；**路径不可用时不取消计时**——等待期间永远持有一个唤醒源（计时或路径事件），Sparkle 不会为「无路径」回调，离线时每次到期探测快速失败并继续退避，代价只是几次 HEAD。
 - **统一闸门**：`SPUUpdaterDelegate.updater(_:mayPerform:)` 在可达未经真实请求确认时拒绝**一切**检查——包括 Sparkle 自己的 24 小时周期检查。Sparkle 对抛出的错误走 `abortUpdateDriver(error, YES)`（`SPUUpdater.m` 847–854），仍会回调 `didFinishUpdateCycleFor:error:`（同文件 810–811）并盖 `updateLastUpdateCheckDate`；被拒的周期在该回调里识别自家错误域并回到探测路径（空闲时立即探测，已在退避或探测中则照旧）。Sparkle 不再在离线时空跑。
@@ -70,13 +72,15 @@
 
 ## 后果
 
-- 行为测试：`scripts/test-ui.sh` 新增渠道持久化（`UpdateChannelTests`）、重试状态机（`UpdateSchedulerTests`：含看门狗有界重试与路径不可用不丢计时）、可达探测顺序（`UpdateReachabilityTests`：先默认后非 Wi‑Fi、默认成功不重复、Ethernet 成功 / 失败、顺序与防重入、回环跳过、重复回调、与调度器组合的无限退避阶梯）、更新请求路由（`UpdateRequestRoutingTests`：真实 feed / enclosure 请求同一判定、非更新流量不拦截、随机 token 与凭证清理、重定向 / chunked / 流式 / 断线 / 取消）、角标展开 / 收起不改下载状态 / 就绪安装（`UpdateBadgeBehaviorTests`）。生产传输（URLSession + NWConnection + TLS）由 `swift build` 编译，真实 Sparkle E2E 另行验证。
+- 行为测试：`scripts/test-ui.sh` 覆盖渠道持久化（`UpdateChannelTests`）、重试状态机（`UpdateSchedulerTests`：含看门狗有界重试与路径不可用不丢计时）、可达探测顺序与生产 URL/凭据边界（`UpdateReachabilityTests`）、更新请求路由与回环恶意响应（`UpdateRequestRoutingTests`：真实 feed / enclosure 同一判定、全局注册 + Sparkle 式 default-configuration 实例实际命中、非更新流量不拦截、随机 token 与凭证清理、percent-encoded path/query 保真、安全/不安全重定向、chunked / 流式 / 断线 / 取消、`2^63` / `UInt64.max`、64 KiB 无行尾上限、冲突长度与状态码）、角标展开 / 收起不改下载状态 / 就绪安装（`UpdateBadgeBehaviorTests`）。生产传输由 `swift build` 编译，真实 Sparkle E2E 另行验证。
 - E2E（`scripts/test-update.sh`，需主代理在无其他实例占用的环境串行执行）：
   - Leg A（stable 渠道，双条目 appcast）：9.9.8 → **9.9.9**，日志中不出现 9.9.10——证明 beta 条目对 stable 不可见；升级链路全流程与安全门放行不变。
   - Leg D（beta 渠道，独立设置 suite 预写 `matchsticks.updateChannel=beta`，同一双条目 appcast）：9.9.8 → **9.9.10**——证明 beta 条目对 beta 可见、设置持久化 → 启动恢复 → `allowedChannels` → appcast 过滤的真实链路。
   - Leg E（beta 渠道，仅含 stable 条目的 `appcast-stable-only.xml`）：9.9.8 → **9.9.9**——证明 beta 同时接收 stable。
   - Leg C（升级源离线启动）：离线期间日志**不得出现**「GitHub 可达，开始检查更新」与「更新检查失败」（Sparkle 一次检查都没发起），升级源上线后恰好出现一次「开始检查更新」并自动下载、就绪、AUTOTAP 放行重启到 9.9.9。
   - Leg B（通信活跃阻断 + 退出路径不自动重启）原样保留。
+  - 五条 leg 均要求应用日志至少两次「命中专用传输」，证明真实 feed / enclosure 请求经过生产 URLProtocol；本地 Python 源记录完整请求行与 headers，断言 appcast 与两种 enclosure 实际到达，且源站日志没有 query/header token、Authorization、Proxy-Authorization 或 Cookie。App 日志同样不得出现标记或凭据。该断言不替代上列 Sparkle 系统日志边界说明。
+  - `build-app.sh` 与 `test-update.sh` 的产物准备均守卫 Info.plist 不得含 `SUEnableDownloaderService`，防止未来改走独立 downloader XPC 后绕过进程内 route、URLProtocol 与凭据清理；真实五腿仍在最终集成后串行执行。
 - 范围外但需同步：`docs/release-kit.md` 的 appcast 模板与发版 checklist 需补「双渠道」规则（beta 条目挂正式 release 的 appcast）；README「应用内更新」条目需补渠道与重试描述；CLAUDE.md「自动更新」段补充渠道。由主代理统一处理。
 - 私有仓库期间：GitHub 可达但 appcast 404 时会按封顶退避持续重试（每 15 分钟一次 HEAD + appcast 请求），不阻塞使用；转 public 或镜像部署后自动恢复。
 

@@ -178,6 +178,7 @@ require_no_existing_processes
 
 WORK="$(mktemp -d "$TMP_BASE/matchsticks-ds-update-e2e.XXXXXX")"
 mkdir -p "$WORK/web"
+HTTP_REQUEST_LOG="$WORK/http-requests.log"
 
 # 日志断言使用中文键：固定测试 suite 的语言，避免宿主系统语言把断言变成假失败。
 # 新旧设置前缀都写（新版 matchsticks.*，兼容读取的旧 ghds.*），只落在隔离 suite。
@@ -245,6 +246,24 @@ assert_version() {
     local app="$1" expected="$2" actual
     actual="$(version_of "$app" 2>/dev/null || true)"
     [ "$actual" = "$expected" ] || fail "版本断言失败：$app = ${actual:-<空>}，预期 $expected"
+}
+assert_no_downloader_service() {
+    local app="$1"
+    python3 - "$app/Contents/Info.plist" <<'PY' || fail "产物禁止包含 SUEnableDownloaderService（防止未来绕过进程内路由改走 XPC）：$app"
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    info = plistlib.load(stream)
+if "SUEnableDownloaderService" in info:
+    sys.exit(1)
+PY
+}
+assert_routing_hit() {
+    local label="$1" logfile="$2" count
+    count="$(grep -Ec "更新请求命中专用传输|Update request routed through dedicated transport" "$logfile" || true)"
+    [ "${count:-0}" -ge 2 ] \
+        || fail "$label：未证明生产 URLProtocol 实际命中 feed 与 enclosure（命中日志 ${count:-0}，要求至少 2）"
 }
 wait_for_support_log() {
     local label="$1" support="$2" timeout="${3:-30}" i=0 first
@@ -320,6 +339,7 @@ assert_bundle_id "$WORK/beta.app"
 assert_version "$WORK/old.app" 9.9.8
 assert_version "$WORK/new.app" 9.9.9
 assert_version "$WORK/beta.app" 9.9.10
+for app in "$WORK/old.app" "$WORK/new.app" "$WORK/beta.app"; do assert_no_downloader_service "$app"; done
 
 echo "▶ 记录正式域全量设置快照（${PROD_DOMAIN}，不输出实际值）"
 BEFORE_PRODUCTION="$(snapshot_production_domain "$WORK/production-before.plist")"
@@ -348,6 +368,9 @@ prepare_leg_app "$WORK/MatchSticksDS-E.app" "$SUPPORT_E" "$WORK/legE.log" "" 0 "
 for app in A B C D E; do assert_bundle_id "$WORK/MatchSticksDS-$app.app"; done
 assert_bundle_id "$WORK/new.app"
 assert_bundle_id "$WORK/beta.app"
+for app in A B C D E; do assert_no_downloader_service "$WORK/MatchSticksDS-$app.app"; done
+assert_no_downloader_service "$WORK/new.app"
+assert_no_downloader_service "$WORK/beta.app"
 
 sign_payload new.app new-9.9.9.zip
 STABLE_SIG="$SIG" STABLE_LEN="$LEN"
@@ -408,7 +431,34 @@ wait_log() { # $1=文件 $2=扩展正则 $3=超时秒
 }
 
 start_feed_server() {
-    python3 -m http.server "$FEED_PORT" --directory "$WORK/web" --bind 127.0.0.1 >/dev/null 2>&1 &
+    python3 - "$FEED_PORT" "$WORK/web" "$HTTP_REQUEST_LOG" <<'PY' &
+import functools
+import http.server
+import sys
+import threading
+
+port, directory, request_log = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+log_lock = threading.Lock()
+
+class LoggingHandler(http.server.SimpleHTTPRequestHandler):
+    def log_request_headers(self):
+        with log_lock, open(request_log, "a", encoding="utf-8") as stream:
+            stream.write(f"{self.command} {self.path} {self.request_version}\n")
+            stream.write(str(self.headers))
+            stream.write("\n")
+
+    def do_GET(self):
+        self.log_request_headers()
+        super().do_GET()
+
+    def do_HEAD(self):
+        self.log_request_headers()
+        super().do_HEAD()
+
+handler = functools.partial(LoggingHandler, directory=directory)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+server.serve_forever()
+PY
     HTTP_PID=$!
     sleep 1
     kill -0 "$HTTP_PID" 2>/dev/null \
@@ -484,6 +534,7 @@ grep -Eq "发现新版本 9\.9\.9|New version 9\.9\.9 found" "$WORK/legA.log" ||
 grep -Eq "下载就绪|Version 9.9.9 downloaded" "$WORK/legA.log" || fail "Leg A：未见「下载就绪」日志"
 grep -Eq "安全门放行|safety gate open" "$WORK/legA.log" || fail "Leg A：未见「安全门放行」日志"
 ! grep -Eq "被安全门阻断|blocked by safety gate" "$WORK/legA.log" || fail "Leg A：放行态出现阻断日志（不应发生）"
+assert_routing_hit "Leg A" "$WORK/legA.log"
 assert_support_logs "Leg A" "$SUPPORT_A"
 echo "  ✓ Leg A：stable 渠道 9.9.8 → 9.9.9 升级并重启存活，beta 条目 9.9.10 全程不可见，bundle ID 保持 ${EXPECTED_PROD_BUNDLE}"
 stop_leg_app A
@@ -501,6 +552,7 @@ grep -Eq "发现新版本 9\.9\.10|New version 9\.9\.10 found" "$WORK/legD.log" 
 grep -Eq "下载就绪|Version 9\.9\.10 downloaded" "$WORK/legD.log" || fail "Leg D：未见「下载就绪」日志"
 grep -Eq "安全门放行|safety gate open" "$WORK/legD.log" || fail "Leg D：未见「安全门放行」日志"
 ! grep -Eq "被安全门阻断|blocked by safety gate" "$WORK/legD.log" || fail "Leg D：放行态出现阻断日志（不应发生）"
+assert_routing_hit "Leg D" "$WORK/legD.log"
 assert_support_logs "Leg D" "$SUPPORT_D"
 echo "  ✓ Leg D：beta 渠道 9.9.8 → 9.9.10：设置持久化 → 启动恢复 → allowedChannels → appcast 过滤链路真实生效"
 stop_leg_app D
@@ -518,6 +570,7 @@ grep -Eq "发现新版本 9\.9\.9|New version 9\.9\.9 found" "$WORK/legE.log" ||
 grep -Eq "下载就绪|Version 9\.9\.9 downloaded" "$WORK/legE.log" || fail "Leg E：未见「下载就绪」日志"
 grep -Eq "安全门放行|safety gate open" "$WORK/legE.log" || fail "Leg E：未见「安全门放行」日志"
 ! grep -Eq "被安全门阻断|blocked by safety gate" "$WORK/legE.log" || fail "Leg E：放行态出现阻断日志（不应发生）"
+assert_routing_hit "Leg E" "$WORK/legE.log"
 assert_support_logs "Leg E" "$SUPPORT_E"
 echo "  ✓ Leg E：beta 渠道从仅 stable 的 appcast 升级到 9.9.9（默认渠道永远包含在允许集合内）"
 stop_leg_app E
@@ -552,6 +605,7 @@ grep -Eq "发现新版本 9\.9\.9|New version 9.9.9 found" "$WORK/legC.log" || f
 grep -Eq "下载就绪|Version 9\.9\.9 downloaded" "$WORK/legC.log" || fail "Leg C：未见「下载就绪」日志"
 grep -Eq "安全门放行|safety gate open" "$WORK/legC.log" || fail "Leg C：未见「安全门放行」日志"
 ! grep -Eq "被安全门阻断|blocked by safety gate" "$WORK/legC.log" || fail "Leg C：放行态出现阻断日志（不应发生）"
+assert_routing_hit "Leg C" "$WORK/legC.log"
 assert_support_logs "Leg C" "$SUPPORT_C"
 echo "  ✓ Leg C：升级源离线期间零 Sparkle 检查、只退避重试；上线后恰好一次检查并自动下载、就绪、重启到 9.9.9"
 stop_leg_app C
@@ -580,6 +634,7 @@ grep -E "被安全门阻断|blocked by safety gate" "$WORK/legB.log" | sed -n '1
 # 存活期契约：阻断后版本必须不变（活进程期间安装的唯一触发 = 点击 + 安全门放行）
 sleep 2
 [ "$(version_of "$WORK/MatchSticksDS-B.app")" = "9.9.8" ] || fail "Leg B：阻断后存活期间版本被改为 $(version_of "$WORK/MatchSticksDS-B.app")"
+assert_routing_hit "Leg B" "$WORK/legB.log"
 assert_support_logs "Leg B" "$SUPPORT_B"
 stop_pid "$APP_B_PID" 20
 wait "$APP_B_PID" 2>/dev/null || true
@@ -599,6 +654,21 @@ echo "  ✓ Leg B：通信活跃阻断点击安装；存活期版本不变；强
 stop_pid "$SIM_PID"
 SIM_PID=""
 stop_work_processes
+[ -s "$HTTP_REQUEST_LOG" ] || fail "本地升级源未记录任何请求行与 headers"
+grep -Eq '^GET /appcast\.xml HTTP/' "$HTTP_REQUEST_LOG" \
+    || fail "本地源站未收到真实 appcast GET（feed 请求未到达？）"
+grep -Eq '^GET /appcast-stable-only\.xml HTTP/' "$HTTP_REQUEST_LOG" \
+    || fail "本地源站未收到 Leg E 的 stable-only appcast GET"
+grep -Eq '^GET /new-9\.9\.9\.zip HTTP/' "$HTTP_REQUEST_LOG" \
+    || fail "本地源站未收到 stable enclosure GET"
+grep -Eq '^GET /new-9\.9\.10\.zip HTTP/' "$HTTP_REQUEST_LOG" \
+    || fail "本地源站未收到 beta enclosure GET"
+if grep -Eiq 'matchsticksds_update_request=|matchsticksds-update-request:|authorization:|proxy-authorization:|cookie:' "$HTTP_REQUEST_LOG"; then
+    fail "本地源站日志发现 query/header token、Authorization 或 Cookie（不输出敏感值）"
+fi
+if grep -Eiq 'matchsticksds_update_request=|matchsticksds-update-request:|authorization:|cookie:' "$WORK"/leg*.log; then
+    fail "App 日志发现 update token、Authorization 或 Cookie（不输出敏感值）"
+fi
 AFTER_PRODUCTION="$(snapshot_production_domain "$WORK/production-after.plist")"
 if [ "$BEFORE_PRODUCTION" != "$AFTER_PRODUCTION" ]; then
     python3 - "$WORK/production-before.plist" "$WORK/production-after.plist" <<'PY'
@@ -617,4 +687,4 @@ PY
 fi
 
 echo ""
-echo "✅ Sparkle 升级链路 E2E 通过（Leg A stable→9.9.9 且 beta 条目不可见；Leg D beta→9.9.10；Leg E beta 收 stable；Leg C 离线零检查、上线后自动重试升级；Leg B 通信活跃安全门阻断 + 强退后不自动重启；正式域全量设置未变）"
+echo "✅ Sparkle 升级链路 E2E 通过（Leg A stable→9.9.9 且 beta 条目不可见；Leg D beta→9.9.10；Leg E beta 收 stable；Leg C 离线零检查、上线后自动重试升级；Leg B 通信活跃安全门阻断 + 强退后不自动重启；生产 URLProtocol 实际命中且源站零 token/凭证；正式域全量设置未变）"
