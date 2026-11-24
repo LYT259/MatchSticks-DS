@@ -20,9 +20,13 @@ import WinSDK
 // - connect 等待：Darwin 用 select 写/异常集合（poll 在 macOS 上对 RST 不可靠，见 DSClient 注释），
 //   Linux 用 poll，Windows 用 select（Winsock fd_set）；
 // - SIGPIPE：Linux 的 send 带 MSG_NOSIGNAL；Darwin/Windows 无此语义，行为保持不变；
-// - 地址解析/格式化用纯 Swift，IPv4 文法与 inet_pton 一致（允许前导零、拒绝 >255）；
+// - 数字地址解析/格式化用纯 Swift，IPv4 文法与 inet_pton 一致（允许前导零、拒绝 >255）；
+//   主机名解析（DSClient 的 mDNS）经 resolveIPv4Hosts：Darwin / Linux 用 getaddrinfo，
+//   Windows 用宽字符版 GetAddrInfoW / FreeAddrInfoW（getaddrinfoA 是宏别名，WinSDK 模块不导入）；
 // - 接口绑定（IP_BOUND_IF）只在 Darwin 实现，Linux 用 SO_BINDTOIFINDEX；Windows 不实现
-//   （该特性用于排除 macOS 的 Clash TUN 虚拟网卡，Windows 按系统路由）；
+//   （该特性用于排除 macOS 的 Clash TUN 虚拟网卡，Windows 按系统路由）——三平台各有编译分支，
+//   Windows 分支不落入 Darwin 分支；
+// - 可变参数的 C 函数（_open 等）Swift 不导入：打开空设备改用定参的 _sopen_s；
 // - 「可重绑但不共享」的绑定语义三平台对齐（见 setReuseAddress）：DS 固定绑定 UDP 1150、被占即失败的不变量
 //   在 Windows 上不能靠 SO_REUSEADDR（它允许任意无特权进程强绑已占用端口），改用 SO_EXCLUSIVEADDRUSE。
 //
@@ -319,6 +323,52 @@ public enum SocketCompat {
         ipv4AddressString(hostOrderAddress(of: &addr))
     }
 
+    /// 主机名 → IPv4 点分字面量列表（AF_INET / SOCK_DGRAM；真的做名字解析，不限数字字面量）。
+    /// 解析失败或没有 IPv4 结果返回空。可能先于任何套接字创建被调用，故先确保 Winsock 已初始化。
+    /// Windows 用宽字符版 GetAddrInfoW / FreeAddrInfoW（ADDRINFOW）：ANSI 名字 getaddrinfoA 在 WinSDK 模块里
+    /// 是宏别名、不导入（2026-11-24 实测 `cannot find 'getaddrinfoA' in scope`）；写法同 swift-corelibs-foundation 的 Host。
+    public static func resolveIPv4Hosts(_ name: String) -> [String] {
+        ensureInitialized()
+        var ips: [String] = []
+        #if os(Windows)
+        var hints = ADDRINFOW()
+        hints.ai_family = AF_INET
+        hints.ai_socktype = SOCK_DGRAM
+        var result: UnsafeMutablePointer<ADDRINFOW>?
+        let status = name.withCString(encodedAs: UTF16.self) { GetAddrInfoW($0, nil, &hints, &result) }
+        guard status == 0, let first = result else { return [] }
+        defer { FreeAddrInfoW(first) }
+        var cursor: UnsafeMutablePointer<ADDRINFOW>? = first
+        while let info = cursor {
+            let entry = info.pointee
+            if entry.ai_family == AF_INET, let raw = entry.ai_addr {
+                ips.append(raw.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
+                    ipString(of: &sin.pointee)
+                })
+            }
+            cursor = entry.ai_next
+        }
+        #else
+        var hints = addrinfo()
+        hints.ai_family = .init(AF_INET)
+        hints.ai_socktype = .init(SOCK_DGRAM)
+        var result: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(name, nil, &hints, &result) == 0, let first = result else { return [] }
+        defer { freeaddrinfo(first) }
+        var cursor: UnsafeMutablePointer<addrinfo>? = first
+        while let info = cursor {
+            let entry = info.pointee
+            if Int(entry.ai_family) == afINET, let raw = entry.ai_addr {
+                ips.append(raw.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
+                    ipString(of: &sin.pointee)
+                })
+            }
+            cursor = entry.ai_next
+        }
+        #endif
+        return ips
+    }
+
     // MARK: 操作（返回值与 C 一致：结果码 / 字节数，负数表示失败）
 
     public static func bindSocket(_ fd: Int32, _ addr: inout sockaddr_in) -> Int32 {
@@ -561,7 +611,10 @@ public enum SocketCompat {
     /// 回读套接字当前钉住的接口索引；未绑定或读取失败返回 nil
     public static func boundInterfaceIndex(_ fd: Int32) -> UInt32? {
         guard fd >= 0, supportsInterfaceBinding else { return nil }
-        #if os(Linux)
+        // 三个平台各有一个编译分支：Windows 不能落进 Darwin 分支（IP_BOUND_IF 与 POSIX 句柄类型在那里都不存在）
+        #if os(Windows)
+        return nil
+        #elseif os(Linux)
         var value: Int32 = 0
         var length = socklen_t(MemoryLayout<Int32>.size)
         guard getsockopt(fd, SOL_SOCKET, linuxSO_BINDTOIFINDEX, &value, &length) == 0 else { return nil }
@@ -577,7 +630,10 @@ public enum SocketCompat {
     /// 非套接字 fd（用于 getsockname 失败分类测试）
     public static func openNullDevice() -> Int32 {
         #if os(Windows)
-        return _open("NUL", _O_RDONLY)
+        // _open 是可变参数的 C 函数，Swift 不导入；_sopen_s 是它的定参版（swift-tools-support-core 同此用法）。
+        // 标志位按 UCRT 头文件的值写字面量：_O_RDONLY = 0x0000（fcntl.h）、_SH_DENYNO = 0x80（share.h）。
+        var fd: Int32 = -1
+        return _sopen_s(&fd, "NUL", 0x0000, 0x80, 0) == 0 ? fd : invalidHandle
         #else
         return open("/dev/null", O_RDONLY)
         #endif

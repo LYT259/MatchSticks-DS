@@ -77,6 +77,19 @@ func socketCompatAddressTests() {
           "loopbackAddress 为 127.0.0.1（不是 1.0.0.127）")
 }
 
+/// 主机名解析为 IPv4 点分字面量列表，三平台同一调用面（DSClient 的 mDNS 解析只经这里）：
+/// 数字字面量原样返回；localhost 解析到回环；空名字解析失败返回空（不触网，离线也稳定）。
+/// Darwin / Linux 用 getaddrinfo，Windows 用宽字符版 GetAddrInfoW / FreeAddrInfoW。
+/// 修复前 RED：解析分支直接写在 DSClient 里，Windows 分支调用的 getaddrinfoA 根本不在 WinSDK 模块里
+///（首次真实 Windows 运行 45349581329：`cannot find 'getaddrinfoA' in scope`）。
+func socketCompatResolveHostTests() {
+    check(SocketCompat.resolveIPv4Hosts("127.0.0.1") == ["127.0.0.1"], "数字字面量原样返回")
+    let loopback = SocketCompat.resolveIPv4Hosts("localhost")
+    check(loopback.contains("127.0.0.1"), "localhost 解析到回环（得到 \(loopback)）")
+    check(loopback.allSatisfy { SocketCompat.parseIPv4($0) != nil }, "结果只含 IPv4 点分字面量")
+    check(SocketCompat.resolveIPv4Hosts("").isEmpty, "空名字解析失败返回空")
+}
+
 func openStepStringsTableTests() {
     let table = OpenStepStringsTable.parse("""
     /* 块注释 "key" = "not an entry"; */
@@ -281,9 +294,10 @@ func socketCompatUDPPortUnreachableTests() {
 // 三平台差异全部收口在 SocketCompat。绕过它的直接调用在 macOS 上照样编译、照样通过，却会在 Windows 上
 // 编译失败或行为错误——例如对 boundedTCPConnect 返回的已连接套接字调 C close()，Windows 必须用
 // closesocket。本机编译不了 Windows 分支，这条守卫在 Mac / Linux / Windows 上都能执行。
-// 有意保留的两处直接调用不在此列：getaddrinfo（DSClient，mDNS 解析）与 getifaddrs（DirectInterface，
-// 接口枚举），见 docs/decisions/0005-portable-dscore-validation.md。
-// 修复前 RED：DSClient.swift 对已连接 TCP 套接字调 close(fd)。
+// 有意保留的直接调用只剩 getifaddrs（DirectInterface，接口枚举），见 docs/decisions/0005-portable-dscore-validation.md。
+// 主机名解析（getaddrinfo / GetAddrInfoW）同样收口在 SocketCompat.resolveIPv4Hosts：Windows 上 WinSDK 模块
+// 不导入 getaddrinfoA（2026-11-24 首次真实 Windows 运行实测），业务文件里的解析分支既编不过也不该存在。
+// 修复前 RED：DSClient.swift 对已连接 TCP 套接字调 close(fd)；其后 DSClient.swift 直接调 getaddrinfo。
 
 func socketCompatBoundaryTests() {
     let sourcesDir = URL(fileURLWithPath: #filePath)
@@ -301,7 +315,8 @@ func socketCompatBoundaryTests() {
     let socketAPIs = ["socket", "bind", "listen", "accept", "connect", "recv", "recvfrom", "send", "sendto",
                       "shutdown", "setsockopt", "getsockopt", "getsockname", "getpeername", "fcntl", "poll",
                       "inet_pton", "inet_ntop", "if_nametoindex", "WSAStartup", "closesocket", "ioctlsocket",
-                      "__darwin_fd_set"]
+                      "__darwin_fd_set", "getaddrinfo", "getaddrinfoA", "freeaddrinfo", "freeaddrinfoA",
+                      "GetAddrInfoW", "FreeAddrInfoW"]
     let patterns = [
         "(^|[^.A-Za-z0-9_])(\(socketAPIs.joined(separator: "|")))\\s*\\(",
         // C close(fd)：带一个标识符参数；本模块的 Swift close() 方法都不带参数（第 2 组 = 函数名，与上一条一致）

@@ -632,37 +632,8 @@ public final class DSClient {
         guard team > 0, config.manualIP == nil else { return }
         resolverQueue.async { [weak self] in
             let name = "roboRIO-\(team)-FRC.local"
-            // getaddrinfo 是 Winsock API：Windows 上必须先 WSAStartup（套接字创建之前就可能走到这里）
-            SocketCompat.ensureInitialized()
-            var hints = addrinfo()
-            hints.ai_family = .init(AF_INET)
-            hints.ai_socktype = .init(SOCK_DGRAM)
-            var result: UnsafeMutablePointer<addrinfo>?
-            #if os(Windows)
-            // ws2tcpip.h 用 `#define getaddrinfo getaddrinfoA` 做 ANSI/UNICODE 分派，宏别名不保证能导入 Swift：直接调 A 版
-            let resolved = getaddrinfoA(name, nil, &hints, &result) == 0
-            #else
-            let resolved = getaddrinfo(name, nil, &hints, &result) == 0
-            #endif
-            guard resolved, let first = result else { return }
-            defer {
-                #if os(Windows)
-                freeaddrinfoA(result)
-                #else
-                freeaddrinfo(result)
-                #endif
-            }
-            var ips: [String] = []
-            var info: UnsafeMutablePointer<addrinfo>? = first
-            while let i = info {
-                if Int(i.pointee.ai_family) == SocketCompat.afINET, let raw = i.pointee.ai_addr {
-                    let ip = raw.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sin in
-                        SocketCompat.ipString(of: &sin.pointee)
-                    }
-                    ips.append(ip)
-                }
-                info = i.pointee.ai_next
-            }
+            // 名字解析是 Winsock API：可能先于任何套接字创建走到这里，Winsock 初始化由 resolveIPv4Hosts 负责
+            let ips = SocketCompat.resolveIPv4Hosts(name)
             guard !ips.isEmpty else { return }
             self?.queue.async { self?.resolvedMDNS = ips }
         }

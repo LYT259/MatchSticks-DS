@@ -31,23 +31,25 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 | 差异点 | macOS | Linux | Windows | 实现位置（SocketCompat.swift） |
 |---|---|---|---|---|
 | 句柄 | `Int32` fd | 同 macOS | `Int32`；`INVALID_SOCKET` 与 -1 互转，超出 Int32 的句柄按创建失败处理，绝不截断 | :596–608 |
-| 错误码 | `errno` | `errno` | `WSAGetLastError()`，`WSAE*` 常量经本层取用 | :52–88、:104–111 |
-| 初始化 | 无 | 无 | `WSAStartup(2.2)`，进程内幂等（`ensureInitialized()`） | :132–145 |
-| UDP 套接字 | — | — | 关闭 `SIO_UDP_CONNRESET`：对端端口不可达不再表现为连接重置 | :115–129 |
-| 非阻塞 | `fcntl(O_NONBLOCK)` | 同 macOS | `ioctlsocket(FIONBIO)`，常量按 SDK 头文件写字面量 | :147–197 |
-| 「可重绑但不共享」 | `SO_REUSEADDR` | UDP 不设（否则两个套接字可重复绑定同端口）；TCP 监听口设 | `SO_EXCLUSIVEADDRUSE`（Winsock 的 `SO_REUSEADDR` 允许无特权进程强绑已占用端口） | :199–231 |
-| 接收超时 | `timeval` | `timeval` | 毫秒 `DWORD` | :233–244 |
-| 非阻塞 connect 的等待 | `select` 写/异常集合（`poll` 对实网 RST 可能不醒） | `poll` | `select`（Winsock `fd_set`） | :448–518 |
-| 对端关闭写入 | 默认 | `MSG_NOSIGNAL`（不得以 SIGPIPE 杀死控制环进程） | 默认 | :609–625 |
-| 地址解析与格式化 | 纯 Swift，文法同 `inet_pton` | 同 macOS | 同 macOS | :259–320 |
-| 接口枚举与钉绑 | `getifaddrs` + `IP_BOUND_IF` | `getifaddrs` + `SO_BINDTOIFINDEX`（62） | 不实现（`supportsInterfaceBinding = false`，按系统路由） | :520–575 |
+| 错误码 | `errno` | `errno` | `WSAGetLastError()`，`WSAE*` 常量经本层取用 | :56–92、:108–115 |
+| 初始化 | 无 | 无 | `WSAStartup(2.2)`，进程内幂等（`ensureInitialized()`） | :136–149 |
+| UDP 套接字 | — | — | 关闭 `SIO_UDP_CONNRESET`：对端端口不可达不再表现为连接重置 | :119–133 |
+| 非阻塞 | `fcntl(O_NONBLOCK)` | 同 macOS | `ioctlsocket(FIONBIO)`，常量按 SDK 头文件写字面量 | :151–201 |
+| 「可重绑但不共享」 | `SO_REUSEADDR` | UDP 不设（否则两个套接字可重复绑定同端口）；TCP 监听口设 | `SO_EXCLUSIVEADDRUSE`（Winsock 的 `SO_REUSEADDR` 允许无特权进程强绑已占用端口） | :203–235 |
+| 接收超时 | `timeval` | `timeval` | 毫秒 `DWORD` | :237–248 |
+| 非阻塞 connect 的等待 | `select` 写/异常集合（`poll` 对实网 RST 可能不醒） | `poll` | `select`（Winsock `fd_set`） | :498–568 |
+| 对端关闭写入 | 默认 | `MSG_NOSIGNAL`（不得以 SIGPIPE 杀死控制环进程） | 默认 | :666–681 |
+| 地址解析与格式化 | 纯 Swift，文法同 `inet_pton` | 同 macOS | 同 macOS | :263–324 |
+| 主机名解析（mDNS） | `getaddrinfo` | 同 macOS | `GetAddrInfoW` / `FreeAddrInfoW`（`ADDRINFOW`；`getaddrinfoA` 是宏别名，WinSDK 模块不导入） | :326–370 |
+| 接口枚举与钉绑 | `getifaddrs` + `IP_BOUND_IF` | `getifaddrs` + `SO_BINDTOIFINDEX`（62） | 不实现（`supportsInterfaceBinding = false`，按系统路由） | :570–628 |
 
 「可重绑但不共享」一行是安全相关的：DS 固定绑定 UDP 1150，「被占即失败」是不变量。Winsock 默认语义会把它变成静默串包，所以 Windows 改用独占选项；Linux 内核允许两个都设 `SO_REUSEADDR` 的 UDP 套接字重复绑定同地址同端口（单播只投给其一），所以 Linux 的 UDP 不设该选项。对应测试见下文第 6 节。
 
-两处有意保留的直接系统调用：
+一处有意保留的直接系统调用：
 
-- `getaddrinfo`（解析 `roboRIO-<队号>-FRC.local`）：`DSClient.scheduleMDNSResolveLocked`（`Sources/DSCore/DSClient.swift`）。Windows 分支直接调 `getaddrinfoA`/`freeaddrinfoA`（`ws2tcpip.h` 用宏做 ANSI/UNICODE 分派，宏别名不保证可导入），并先调用 `SocketCompat.ensureInitialized()`——它可能先于任何套接字创建被执行。
 - `getifaddrs`（枚举本机接口）：`DirectInterface.enumerateCandidates`（`Sources/DSCore/DirectInterface.swift`），位于 `#if os(Windows)` 之外；Windows 分支不枚举，直连钉绑按「无匹配」处理。
+
+主机名解析（解析 `roboRIO-<队号>-FRC.local`）已收口到 `SocketCompat.resolveIPv4Hosts`（`Sources/DSCore/SocketCompat.swift`），由 `DSClient.scheduleMDNSResolveLocked` 调用：Darwin / Linux 用 `getaddrinfo`，Windows 用宽字符版 `GetAddrInfoW` / `FreeAddrInfoW`。`getaddrinfoA` 在 `ws2tcpip.h` 里是宏别名，WinSDK 模块并不导入——2026-11-24 首次真实 Windows 运行实测 `cannot find 'getaddrinfoA' in scope`，此后才把解析分支从业务文件移进本层。该函数先调用 `SocketCompat.ensureInitialized()`——它可能先于任何套接字创建被执行。
 
 ### 3. SHA1：握手摘要用纯 Swift
 
@@ -80,7 +82,7 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 
 ## 影响
 
-- DSCore 的每个平台差异都收口在 `SocketCompat.swift` 一处，新增平台相关行为时只有这里需要条件编译；业务文件里的 `#if` 只剩三个文件：`DSClient`（libc 导入、`getaddrinfoA`）、`DirectInterface`（libc 导入、Linux 的 `tun/tap` 虚拟网卡前缀、旧内核不支持 `SO_BINDTOIFINDEX` 时按无匹配处理、Windows 不枚举接口）与 `Localization`（Combine）。
+- DSCore 的每个平台差异都收口在 `SocketCompat.swift` 一处，新增平台相关行为时只有这里需要条件编译；业务文件里的 `#if` 只剩三个文件：`DSClient`（libc 导入）、`DirectInterface`（libc 导入、Linux 的 `tun/tap` 虚拟网卡前缀、旧内核不支持 `SO_BINDTOIFINDEX` 时按无匹配处理、Windows 不枚举接口）与 `Localization`（Combine）。
 - 协议、控制环、看门狗、安全闩锁的回归证据从「一台 Mac」扩展为三个平台的同一套断言。
 - 代价：`SocketCompat` 是一层薄封装，调用点比直接写系统调用略长；Windows 分支在本机无法编译，只能靠真实 CI 验证（见下）。
 - 产品范围、分发方式、打包与签名链路均不变。
@@ -95,7 +97,7 @@ Windows 另有一组独立差异：Winsock 的句柄、错误码（`WSAE*`）、
 
 ## 验证与后续
 
-- **测试**：`Tests/DSCoreTests/PortabilityTests.swift` 的 9 项测试注册在 `Tests/DSCoreTests/main.swift`，三平台同一套断言——WebSocket 握手摘要向量（含 55/56/64/119/120 字节分组边界与多字节 UTF-8）、IPv4 解析与格式化（文法对齐 `inet_pton`）、地址构造、OpenStep `.strings` 解析、`SettingsStore` 类型判定、仅经 `SocketCompat` 的回环 UDP/TCP 往返、同地址同端口独占绑定、UDP 对「对端端口不可达」的表现，以及一条静态守卫 `socketCompatBoundary`：`Sources/DSCore` 里除 `SocketCompat.swift` 外不得直接调用套接字 C API（Swift 方法调用与声明、`getaddrinfo`/`getifaddrs` 两处有意例外不算）。这条守卫补的是 Windows 可移植性的缺口：`DSClient` 曾对连接结果里要丢弃的已连接套接字直接调 C `close(fd)`，在 macOS 上完全正常，Windows 上则必须 `closesocket`——本机编译不了 Windows 分支，行为测试在 macOS 上也区分不了两种写法，所以用三端都能执行的静态守卫拦住（修复前该测试为 RED）。原有测试里的原始 BSD 调用全部切到 `SocketCompat`；Windows 不实现的接口钉绑处给出明确断言（`.noMatch`/`nil`），不假绿。
+- **测试**：`Tests/DSCoreTests/PortabilityTests.swift` 的 10 项测试注册在 `Tests/DSCoreTests/main.swift`，三平台同一套断言——WebSocket 握手摘要向量（含 55/56/64/119/120 字节分组边界与多字节 UTF-8）、IPv4 解析与格式化（文法对齐 `inet_pton`）、地址构造、主机名解析为 IPv4 列表（`getaddrinfo` / `GetAddrInfoW`）、OpenStep `.strings` 解析、`SettingsStore` 类型判定、仅经 `SocketCompat` 的回环 UDP/TCP 往返、同地址同端口独占绑定、UDP 对「对端端口不可达」的表现，以及一条静态守卫 `socketCompatBoundary`：`Sources/DSCore` 里除 `SocketCompat.swift` 外不得直接调用套接字 C API（Swift 方法调用与声明、`getifaddrs` 一处有意例外不算；`getaddrinfo` / `GetAddrInfoW` 同样在禁止之列——2026-11-24 首次真实 Windows 运行后补入）。这条守卫补的是 Windows 可移植性的缺口：`DSClient` 曾对连接结果里要丢弃的已连接套接字直接调 C `close(fd)`，在 macOS 上完全正常，Windows 上则必须 `closesocket`——本机编译不了 Windows 分支，行为测试在 macOS 上也区分不了两种写法，所以用三端都能执行的静态守卫拦住（修复前该测试为 RED）。原有测试里的原始 BSD 调用全部切到 `SocketCompat`；Windows 不实现的接口钉绑处给出明确断言（`.noMatch`/`nil`），不假绿。
 - **Mac**：`swift build`（全部 target）与 `scripts/test-core.sh` 通过（0 failures）。
 - **Linux**：实体 Linux 主机的 Swift 工具链已准备，非交互 SSH 可通过 `MATCHSTICKS_DS_LINUX_SWIFT_BIN` 使用已验证的 swift；但 `DSCoreTests` 仍待在该主机真实运行。此前的交叉编译与本次离线脚本/夹具检查都不是运行验证。
 - **Windows**：本机无法编译 Windows 分支。`SocketCompat` 的 Windows 路径按 SDK 头文件逐项核对过（`FIONBIO`、`SO_EXCLUSIVEADDRUSE`、`SD_BOTH`、`SIO_UDP_CONNRESET` 的取值，`SOCK_DGRAM`/`AF_INET`/`WSAE*` 可导入），但编译与运行都需要 `.github/workflows/full-validation.yml` 在 GitHub 托管的 Windows 上真跑。
