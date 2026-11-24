@@ -12,8 +12,7 @@ struct FlightStickPose: Equatable {
     let pitch: Double
     let roll: Double
     let twist: Double
-    let offset: CGSize
-    static let zero = FlightStickPose(pitch: 0, roll: 0, twist: 0, offset: .zero)
+    static let zero = FlightStickPose(pitch: 0, roll: 0, twist: 0)
 }
 
 struct GamepadArtworkSpec {
@@ -28,19 +27,7 @@ struct GamepadArtworkSpec {
             value.isFinite ? min(1, max(-1, CGFloat(value))) : 0
         }
         let x = clamp(left.x), y = clamp(left.yUp)
-        let scale = min(size.width / referenceSize.width, size.height / referenceSize.height)
-        return FlightStickPose(
-            pitch: Double(y * 7), roll: Double(x * 7), twist: Double(clamp(twist.x) * 16),
-            offset: CGSize(width: x * 30 * scale, height: -y * 30 * scale))
-    }
-
-    func flightAnchor(in size: CGSize) -> UnitPoint {
-        guard let flightPivot, size.width > 0, size.height > 0,
-              referenceSize.width > 0, referenceSize.height > 0 else { return .center }
-        let scale = min(size.width / referenceSize.width, size.height / referenceSize.height)
-        return UnitPoint(
-            x: ((size.width - referenceSize.width * scale) / 2 + flightPivot.x * scale) / size.width,
-            y: ((size.height - referenceSize.height * scale) / 2 + flightPivot.y * scale) / size.height)
+        return FlightStickPose(pitch: Double(y * 7), roll: Double(x * 7), twist: Double(clamp(twist.x) * 16))
     }
 
     func region(_ region: GamepadArtworkRegion, in size: CGSize) -> CGRect {
@@ -58,17 +45,6 @@ struct GamepadArtworkSpec {
             height: source.height * scale)
     }
 
-    func stickCapOffset(for stick: GamepadArtworkRegion,
-                        state: GamepadStickState, in size: CGSize) -> CGSize {
-        let cap = stick == .leftStick ? GamepadArtworkRegion.leftStickCap : .rightStickCap
-        let wellRect = region(stick, in: size)
-        let capRect = region(cap, in: size)
-        let travelX = max(0, (wellRect.width - capRect.width) / 2)
-        let travelY = max(0, (wellRect.height - capRect.height) / 2)
-        let x = min(1, max(-1, CGFloat(state.x.isFinite ? state.x : 0)))
-        let yUp = min(1, max(-1, CGFloat(state.yUp.isFinite ? state.yUp : 0)))
-        return CGSize(width: x * travelX, height: -yUp * travelY)
-    }
 }
 
 enum GamepadArtworkCatalog {
@@ -149,9 +125,9 @@ enum GamepadArtworkCatalog {
         imageName: "f310", referenceSize: CGSize(width: 755, height: 556),
         regions: [
             .leftStick: CGRect(x: 210, y: 290, width: 135, height: 140),
-            .leftStickCap: CGRect(x: 230, y: 310, width: 95, height: 95),
+            .leftStickCap: CGRect(x: 230.5, y: 306.5, width: 95.5, height: 98.5),
             .rightStick: CGRect(x: 405, y: 290, width: 135, height: 140),
-            .rightStickCap: CGRect(x: 425, y: 310, width: 95, height: 95),
+            .rightStickCap: CGRect(x: 427.5, y: 306.5, width: 95.5, height: 98.5),
             .dpad: CGRect(x: 110, y: 165, width: 145, height: 145),
             .faceNorth: CGRect(x: 540, y: 155, width: 75, height: 75),
             .faceEast: CGRect(x: 590, y: 210, width: 65, height: 70),
@@ -186,11 +162,11 @@ enum GamepadArtworkCatalog {
             .share: CGRect(x: 476, y: 615, width: 53, height: 127),
             .backR: CGRect(x: 930, y: 364, width: 67, height: 72),
         ],
-        movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 797, y: 662))
+        movingImageName: "extreme3dpro-handle", flightPivot: CGPoint(x: 765.5, y: 710))
 
     private static let direwolf4 = GamepadArtworkSpec(
-        imageName: "direwolf4", referenceSize: CGSize(width: 492, height: 341),
-        regions: [
+        imageName: "direwolf4", referenceSize: CGSize(width: 492 * 4, height: 341 * 4),
+        regions: Dictionary(uniqueKeysWithValues: [
             .leftStick: CGRect(x: 83.87, y: 55.40, width: 86.77, height: 85.50),
             .leftStickCap: CGRect(x: 103.56, y: 69.02, width: 49.37, height: 49.40),
             .rightStick: CGRect(x: 265.56, y: 135.41, width: 76.17, height: 79.66),
@@ -203,7 +179,7 @@ enum GamepadArtworkCatalog {
             .back: CGRect(x: 190.72, y: 73.16, width: 32.58, height: 24.90),
             .start: CGRect(x: 265.21, y: 73.60, width: 31.71, height: 24.15),
             .guide: CGRect(x: 230.46, y: 33.47, width: 29.08, height: 35.97),
-        ])
+        ].map { ($0.key, $0.value.applying(CGAffineTransform(scaleX: 4, y: 4))) }))
 }
 
 enum GamepadArtworkImageSource {
@@ -222,45 +198,18 @@ enum GamepadArtworkImageSource {
         return image
     }
 
-    static func imageWithoutStickCaps(named name: String, capRegions: [CGRect]) -> NSImage? {
-        let key = "\(name)#without-sticks-\(capRegions)" as NSString
-        if let cached = cache.object(forKey: key) { return cached }
-        guard let source = image(named: name)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
-              let base = imageWithoutStickCaps(source, capRegions: capRegions) else { return nil }
-        let result = NSImage(cgImage: base, size: NSSize(width: base.width, height: base.height))
-        cache.setObject(result, forKey: key)
-        return result
-    }
-
-    static func imageWithoutStickCaps(_ image: CGImage, capRegions: [CGRect]) -> CGImage? {
+    static func imageMaskingStickCaps(_ image: CGImage, capRegions: [CGRect]) -> CGImage? {
         let width = image.width, height = image.height
-        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+        guard width > 0, height > 0,
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                                       bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let capacity = width * height * 4
-        let original = Array(UnsafeBufferPointer(start: context.data!.bindMemory(to: UInt8.self, capacity: capacity), count: capacity))
-        let output = context.data!.bindMemory(to: UInt8.self, capacity: capacity)
-        for region in capRegions where region.width > 0 && region.height > 0 {
-            let clearing = region.insetBy(dx: -region.width * 0.08, dy: -region.height * 0.08)
-            let center = CGPoint(x: clearing.midX, y: clearing.midY)
-            let radiusX = clearing.width / 2, radiusY = clearing.height / 2
-            for y in max(0, Int(clearing.minY.rounded(.down)))...min(height - 1, Int(clearing.maxY.rounded(.up))) {
-                for x in max(0, Int(clearing.minX.rounded(.down)))...min(width - 1, Int(clearing.maxX.rounded(.up))) {
-                    let dx = (CGFloat(x) + 0.5 - center.x) / radiusX
-                    let dy = (CGFloat(y) + 0.5 - center.y) / radiusY
-                    guard dx * dx + dy * dy <= 1 else { continue }
-                    let sourceX = Int((center.x + dx * radiusX * 1.2).rounded())
-                    let sourceY = Int((center.y + dy * radiusY * 1.2).rounded())
-                    let destination = (y * width + x) * 4
-                    guard sourceX >= 0, sourceX < width, sourceY >= 0, sourceY < height else {
-                        output[destination + 3] = 0
-                        continue
-                    }
-                    let source = (sourceY * width + sourceX) * 4
-                    for channel in 0..<4 { output[destination + channel] = original[source + channel] }
-                }
-            }
+        context.setBlendMode(.clear)
+        for region in capRegions where region.origin.x.isFinite && region.origin.y.isFinite &&
+            region.width.isFinite && region.height.isFinite && region.width > 0 && region.height > 0 {
+            context.fillEllipse(in: CGRect(x: region.minX, y: CGFloat(height) - region.maxY,
+                                           width: region.width, height: region.height))
         }
         return context.makeImage()
     }

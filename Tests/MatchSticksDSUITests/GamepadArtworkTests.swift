@@ -14,11 +14,15 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     check(mapped == CGRect(x: 50, y: 50, width: 100, height: 50),
           "artwork 统一 aspect-fit 映射与纵向留白")
 
-    let zero = spec.stickCapOffset(for: .leftStick, state: .init(x: 0, yUp: 0, pressed: false), in: container)
-    check(zero == .zero, "artwork 摇杆零值严格回中")
-    let moved = spec.stickCapOffset(for: .leftStick, state: .init(x: 2, yUp: -2, pressed: false), in: container)
-    check(moved.width == 37.5 && moved.height == 12.5,
-          "artwork 摇杆行程按井帽差值钳制且不拉伸（得到 \(moved)")
+    let capFrame = spec.region(.leftStickCap, in: container)
+    let zero = ThumbstickMotion.pose(cap: capFrame, state: .init(x: 0, yUp: 0, pressed: false))
+    check(zero.tiltX == 0 && zero.tiltY == 0 && zero.travel == .zero && mapped.contains(zero.pivot),
+          "artwork 三维摇杆零值严格回中且轴心在井口内")
+    let moved = ThumbstickMotion.pose(cap: capFrame, state: .init(x: 2, yUp: -2, pressed: false))
+    check(moved == ThumbstickMotion.pose(cap: capFrame, state: .init(x: 1, yUp: -1, pressed: false)) &&
+              moved.travel.width > 0 && moved.travel.height > 0 &&
+              hypot(moved.travel.width, moved.travel.height) < capFrame.width / 2,
+          "artwork 三维摇杆斜向行程按圆形量程归一化且不超过帽顶半径（得到 \(moved.travel)")
 
     check(GamepadArtworkCatalog.spec(for: .dualsense).imageName == "dualsense",
           "PS5 使用 DualSense 实机资源")
@@ -37,7 +41,8 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     check(abs((ps4.regions[.leftStickCap]?.midY ?? -1) - (ps4.regions[.rightStickCap]?.midY ?? 0)) <= 1,
           "PS4 对称布局的双摇杆中心应在同一水平线")
     let d4 = GamepadArtworkCatalog.spec(for: .direwolf4)
-    check(d4.referenceSize == CGSize(width: 492, height: 341), "冰原狼 4 使用飞智配置软件中的原生正视素材")
+    check(d4.referenceSize == CGSize(width: 1968, height: 1364),
+          "冰原狼 4 使用原轮廓和颜色重建的高清正视素材")
     check((d4.regions[.rightStickCap]?.midY ?? 0) > (d4.regions[.leftStickCap]?.midY ?? 0) &&
           (d4.regions[.rightStickCap]?.midX ?? 0) > (d4.regions[.leftStickCap]?.midX ?? 0),
           "冰原狼 4 正视保留真实的非对称摇杆布局，不强行拉平")
@@ -53,15 +58,15 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     let flightNeutral = flight.flightPose(left: .init(x: 0, yUp: 0, pressed: false),
                                           twist: .init(x: 0, yUp: 0, pressed: false), in: container)
     check(flightNeutral == .zero, "Extreme 中立姿态不偏移、不倾斜")
-    check(flight.flightAnchor(in: .zero) == .center, "Extreme 零尺寸布局不产生非法枢轴")
+    check(flight.flightPivot == CGPoint(x: 765.5, y: 710),
+          "Extreme 球关节使用座圈等宽轮廓标定的中心")
     let flightRight = flight.flightPose(left: .init(x: 1, yUp: 0, pressed: false),
                                         twist: .init(x: 1, yUp: 0, pressed: false), in: container)
-    check(flightRight.offset.width > 0 && flightRight.roll > 0 && flightRight.twist > 0,
+    check(flightRight.roll > 0 && flightRight.twist > 0,
           "Extreme 杆身实际右倾，并使用独立 Z 轴扭转")
     let flightForward = flight.flightPose(left: .init(x: 0, yUp: 1, pressed: false),
                                           twist: .init(x: 0, yUp: 0, pressed: false), in: container)
-    check(flightForward.offset.height < 0 && flightForward.pitch > 0,
-          "Extreme 前后倾斜方向与屏幕一致")
+    check(flightForward.pitch > 0, "Extreme 前后倾斜方向与屏幕一致")
     let flightInvalid = flight.flightPose(left: .init(x: .nan, yUp: .infinity, pressed: false),
                                           twist: .init(x: .infinity, yUp: 0, pressed: false), in: container)
     check(flightInvalid == .zero, "Extreme 异常轴值安全回中")
@@ -146,7 +151,7 @@ func gamepadArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     }
     let faceNorth = d4.regions[.faceNorth] ?? .zero, faceSouth = d4.regions[.faceSouth] ?? .zero
     let faceWest = d4.regions[.faceWest] ?? .zero, faceEast = d4.regions[.faceEast] ?? .zero
-    check(abs(faceNorth.midX - faceSouth.midX) <= 15 && abs(faceWest.midY - faceEast.midY) <= 15,
+    check(abs(faceNorth.midX - faceSouth.midX) <= 60 && abs(faceWest.midY - faceEast.midY) <= 60,
           "冰原狼 4 原生正视商品图的面键保持菱形几何")
 
     for skin in GamepadSkin.allCases {
