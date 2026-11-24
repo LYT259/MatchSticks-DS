@@ -222,6 +222,16 @@ public enum GamepadProfile {
         candidate == override
     }
 
+    /// 槽位标题用的型号显示名（跟随当前生效造型/配置）：手动指定 → 所选型号名；
+    /// 自动 → 识别到的具体型号（Sony 自报名只是 Wireless Controller，也显示 PS4 DualShock 4）；
+    /// 未识别 → 真实设备名（不把未知设备泛化成「通用手柄」），设备名为空白时才退回「通用手柄」。
+    public static func displayName(vendorID: Int, productID: Int, name: String, override: GamepadSkin?) -> String {
+        if let override { return override.displayName }
+        let detected = detect(vendorID: vendorID, productID: productID, name: name)
+        if detected != .generic { return detected.displayName }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? GamepadSkin.generic.displayName : name
+    }
+
     public static func displayPolarity(vendorID: Int, productID: Int, name: String,
                                        xinputNormalized: Bool) -> GamepadStickPolarity {
         if xinputNormalized {

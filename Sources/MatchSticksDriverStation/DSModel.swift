@@ -329,6 +329,7 @@ final class DSModel {
         case finished
     }
     var practicePhase: PracticePhase = .idle
+    /// 上次 tick 时的阶段剩余（随 tick 更新）；界面显示用 practiceDisplay(at:) 按时钟逐帧外推。
     var practiceRemaining: TimeInterval = 0
     var practiceAutoTime: TimeInterval = 15 {
         didSet { settings.set("practiceAutoTime", practiceAutoTime) }
@@ -367,8 +368,30 @@ final class DSModel {
         return practiceTransitionShiftTime + practiceAllianceShiftTime * 4 + practiceEndgameTime
     }
     var currentPracticePhaseDuration: TimeInterval { sequencer.phaseDuration }
+    /// Practice 计时时钟（单调秒，默认系统 uptime）。定时器只负责唤醒，推进量按两次 tick 的
+    /// 真实差值计算；测试注入确定性时钟，不靠睡眠证明时序。
+    /// systemUptime 单调但**不含系统睡眠**：睡眠期间练习计时随之暂停，醒来后从原处继续，
+    /// 不把睡眠时间一次性扣除。
+    var practiceClock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    /// 显示用剩余时间与进度条比例（同一时间源，文本与进度条共用）。
+    struct PracticeDisplay: Equatable {
+        var remaining: TimeInterval
+        var progress: Double
+    }
+    /// 自上次 tick 按同一时钟外推到 `now`，夹在当前阶段 [0, 时长] 内；不推进状态机。
+    func practiceDisplay(at now: TimeInterval) -> PracticeDisplay {
+        let total = currentPracticePhaseDuration
+        guard practiceActive, total > 0 else { return PracticeDisplay(remaining: 0, progress: 0) }
+        let remaining = min(max(0, sequencer.remaining - practiceElapsed(at: now)), total)
+        return PracticeDisplay(remaining: remaining, progress: 1 - remaining / total)
+    }
+    /// 此刻的显示值（TimelineView 等显示驱动逐帧读取）
+    var livePracticeDisplay: PracticeDisplay { practiceDisplay(at: practiceClock()) }
     var soundsEnabled = true {
-        didSet { settings.set("soundsEnabled", soundsEnabled) }
+        didSet {
+            settings.set("soundsEnabled", soundsEnabled)
+            if !soundsEnabled { practiceCountdownSpeech.stop() }
+        }
     }
     var enableDisableSoundsEnabled = true {
         didSet { settings.set("enableDisableSoundsEnabled", enableDisableSoundsEnabled) }
@@ -462,7 +485,25 @@ final class DSModel {
     private let opModeHashBox = OpModeHashBox()
     private var sequencer = PracticeSequencer()
     let practiceAudio = PracticeAudioPlayer()
+    var practiceCountdownSpeech: any PracticeCountdownSpeaking = PracticeCountdownSpeech()
     private var practiceTimer: Timer?
+    /// 上一次有效 practiceTick 的时钟读数（nil = 尚无有效读数）：显示外推与真实 elapsed 的
+    /// 共同基点。只前进不后退，非有限读数不写入。
+    private var practiceLastTickAt: TimeInterval?
+
+    /// 有效时钟读数：非有限值（NaN/±∞）返回 nil——既不推进，也不写入基点。
+    /// NaN 一旦成为基点，此后 elapsed 恒为 0，比赛永久冻结。
+    private func practiceClockReading() -> TimeInterval? {
+        let now = practiceClock()
+        return now.isFinite ? now : nil
+    }
+
+    /// 自上次有效 tick 到 `now` 的经过时间，夹到 ≥ 0（systemUptime 单调，回退只是防御）；
+    /// 非有限 `now` 不外推，显示停在最后一次有效读数。
+    private func practiceElapsed(at now: TimeInterval) -> TimeInterval {
+        guard now.isFinite else { return 0 }
+        return max(0, now - (practiceLastTickAt ?? now))
+    }
     private var timeoutSequencer = TimeoutSequencer()
     private var timeoutTimer: Timer?
     private var pollTimer: Timer?
@@ -814,8 +855,8 @@ final class DSModel {
     }
 
     private var practiceTimeTag: Float? {
-        guard practicePhase != .idle, practicePhase != .finished else { return nil }
-        return Float(max(0, practiceRemaining))
+        guard practiceActive else { return nil }
+        return Float(livePracticeDisplay.remaining)
     }
 
     var commConnected: Bool {
@@ -984,6 +1025,9 @@ final class DSModel {
     /// 最近一次发布到控制环快照的手柄数据（控制路径行为回归用）
     var latestPublishedJoysticks: [JoystickData] { snapshotBox.get().joysticks }
 
+    /// 最近一次发布到控制环快照的 matchTime（Practice 剩余秒，与界面显示同一时间源）
+    var latestPublishedMatchTime: Float? { snapshotBox.get().matchTime }
+
     // MARK: 操作员指令（安全门全部集中在这里）
 
     private enum EnableSoundSource { case operatorAction, automatic }
@@ -1029,6 +1073,7 @@ final class DSModel {
         pollAndPublishSnapshot()
         cancelTimeout()
         practiceAudio.stop()
+        practiceCountdownSpeech.stop()
         playEstopSound()
         log(tr("E-STOP 触发（Space）"))
     }
@@ -1110,6 +1155,7 @@ final class DSModel {
     func startPractice() {
         guard !sequencer.phase.isActive, !timeoutActive else { return }
         practiceAudio.stop()
+        practiceCountdownSpeech.stop()
         let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026
             ? .init(transitionShift: practiceTransitionShiftTime, allianceShift: practiceAllianceShiftTime,
                     endgame: practiceEndgameTime)
@@ -1119,21 +1165,28 @@ final class DSModel {
             startDelay: practiceStartDelay, teleopBreakdown: breakdown,
             teleopWarningTime: PracticeTimingPreset.forYear(practiceSeasonYear)?.endgameWarningTime
         ))
+        practiceLastTickAt = practiceClockReading()
         applyPracticeEvents(sequencer.start())
+        schedulePracticeTick()
+    }
+
+    func aStop() {
+        practiceCountdownSpeech.stop()
+        applyPracticeEvents(sequencer.abort())
         practiceTimer?.invalidate()
-        // 与 installTimers 一致用 .common 模式：scheduledTimer 默认 .default 模式，
-        // 拖窗口/跟踪菜单期间不触发——比赛时序会在这些时刻停摆
-        let t = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+        practiceTimer = nil
+    }
+
+    /// 排程下一次 tick：与阶段截止时间对齐（最迟 0.1s），进度条在阶段边界不会停在满格等定时器。
+    /// 与 installTimers 一致用 .common 模式：scheduledTimer 默认 .default 模式，
+    /// 拖窗口/跟踪菜单期间不触发。定时器只负责唤醒，不假定准时。
+    private func schedulePracticeTick() {
+        practiceTimer?.invalidate()
+        let t = Timer(timeInterval: min(0.1, max(0, sequencer.remaining)), repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.practiceTick() }
         }
         RunLoop.main.add(t, forMode: .common)
         practiceTimer = t
-    }
-
-    func aStop() {
-        applyPracticeEvents(sequencer.abort())
-        practiceTimer?.invalidate()
-        practiceTimer = nil
     }
 
     func startTimeout() {
@@ -1190,10 +1243,21 @@ final class DSModel {
         }
     }
 
-    private func practiceTick() {
-        applyPracticeEvents(sequencer.tick(0.1))
-        practiceRemaining = max(0, sequencer.remaining)
-        if !sequencer.phase.isActive {
+    /// 定时器唤醒：dt = 两次 tick 的真实差值，主 runloop 停顿后由 PracticeSequencer.tick 一次追上。
+    /// 非有限读数不推进、不写入基点，但照常排程下一次 tick（练习不因此冻结）。
+    /// 内部可见：测试注入 practiceClock 后直接调用，不依赖真实定时器。
+    func practiceTick() {
+        if let now = practiceClockReading() {
+            let elapsed = practiceElapsed(at: now)
+            // 基点只前进不后退（systemUptime 单调，回退只是防御）：回退的读数不作下一次 tick 的起点，
+            // 否则时钟恢复后回退的差值会被当作经过时间一次性扣掉，比赛时序跳变。
+            practiceLastTickAt = max(practiceLastTickAt ?? now, now)
+            applyPracticeEvents(sequencer.tick(elapsed))
+            practiceRemaining = max(0, sequencer.remaining)
+        }
+        if sequencer.phase.isActive {
+            schedulePracticeTick()
+        } else {
             practiceTimer?.invalidate()
             practiceTimer = nil
         }
@@ -1225,6 +1289,7 @@ final class DSModel {
                 default: break
                 }
                 if phase.isActive { log("Practice → \(phase.displayName)") }
+            case .countdown(let cue): playPracticeCountdownCue(cue)
             case .enable: setEnabled(true, soundSource: .automatic)
             case .disable: setEnabled(false, soundSource: .automatic)
             case .finished:
@@ -1268,6 +1333,11 @@ final class DSModel {
             estopSound = NSSound(contentsOf: url, byReference: false)
         }
         _ = estopSound?.play()
+    }
+
+    private func playPracticeCountdownCue(_ cue: PracticeCountdownCue) {
+        guard soundsEnabled, !estopEngaged else { return }
+        practiceCountdownSpeech.speak(cue)
     }
 
     private func playPracticeSound(_ event: PracticeSoundEvent) {
@@ -1428,10 +1498,22 @@ final class DSModel {
         publishVisibleSlotsNow()
     }
 
+    /// 相邻步进（旧入口，等价于拖到前一/后一槽位）。拖放排序请用 moveSlot(from:to:)。
     func moveSlot(_ index: Int, up: Bool) {
-        let target = up ? index - 1 : index + 1
-        guard controlSlots.indices.contains(index), controlSlots.indices.contains(target) else { return }
-        controlSlots.swapAt(index, target)
+        moveSlot(from: index, to: up ? index - 1 : index + 1)
+    }
+
+    /// 任意 source→destination 座次调整（摘要卡/详情卡拖放）：被拖手柄占用目标槽位，
+    /// 其余顺延；destination == 当前数量表示移到末尾（落在第一张空闲卡上）。
+    /// 源越界、落点越界、原地不动，或末位拖到末尾（结果位置不变）一律忽略——
+    /// 不重写座次记忆，离线设备的记忆优先级不受无效果操作影响。
+    func moveSlot(from source: Int, to destination: Int) {
+        guard controlSlots.indices.contains(source), (0...controlSlots.count).contains(destination),
+              source != destination,
+              !(destination == controlSlots.count && source == controlSlots.count - 1) else { return }
+        let slot = controlSlots.remove(at: source)
+        // 移除源后数组少一位：落点 == 原数量（末尾）钳到最后，其余落点就是被拖者的新槽位。
+        controlSlots.insert(slot, at: min(destination, controlSlots.count))
         for i in controlSlots.indices { controlSlots[i].index = i }
         rewriteSeats()
         publishVisibleSlotsNow()
@@ -1444,6 +1526,12 @@ final class DSModel {
         GamepadProfile.effectiveSkin(
             sample: GamepadSample(slot: slot),
             override: gamepadSkinOverride(for: slot))
+    }
+
+    /// 槽位标题型号显示名：跟随当前生效造型/配置（手动选型号 / 自动识别具体型号 / 未知保留真实名）。
+    func gamepadDisplayName(for slot: JoystickSlot) -> String {
+        GamepadProfile.displayName(vendorID: slot.vendorID, productID: slot.productID,
+                                   name: slot.name, override: gamepadSkinOverride(for: slot))
     }
 
     /// 手动覆盖（nil = 回自动识别）。key 含 uniqueID：同款两只手柄可分别指定。
