@@ -83,6 +83,7 @@
   - `build-app.sh` 与 `test-update.sh` 的产物准备均守卫 Info.plist 不得含 `SUEnableDownloaderService`，防止未来改走独立 downloader XPC 后绕过进程内 route、URLProtocol 与凭据清理；真实五腿仍在最终集成后串行执行。
 - 范围外但需同步：`docs/release-kit.md` 的 appcast 模板与发版 checklist 需补「双渠道」规则（beta 条目挂正式 release 的 appcast）；README「应用内更新」条目需补渠道与重试描述；CLAUDE.md「自动更新」段补充渠道。由主代理统一处理。
 - 私有仓库期间：GitHub 可达但 appcast 404 时会按封顶退避持续重试（每 15 分钟一次 HEAD + appcast 请求），不阻塞使用；转 public 或镜像部署后自动恢复。
+- **2026-11-24 更正**：仓库现为 Public，匿名 Latest appcast 返回 200——上一条「私有仓库期间 404」只是 2026-11-23 当时的状态记录，不再是现行限制；可达性判定逻辑不变（任何 HTTP 状态码 = 可达）。GitHub Release 标题只写版本号（= tag）、功能合入 `beta` 且三端全量通过后创建对应 beta Pre-release 等发布规则见 [ADR-0003](0003-three-platform-validation.md) 第 7 节。
 
 ## 相关
 
