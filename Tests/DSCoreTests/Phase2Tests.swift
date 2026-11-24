@@ -511,6 +511,10 @@ func recordReplayScenario() {
     // 下限 8Hz × 3s（CI VM 定时器降频容差，见长跑注）
     check(controlCount >= 24, "录制：控制包 ≥24（" + String(controlCount) + "）")
     check(responseCount >= 24, "录制：应答包 ≥24（" + String(responseCount) + "）")
+    let directlyDecoded = source.records.filter { $0.direction == .responseIn }
+        .filter { NICodec.decodeResponse($0.payload) != nil }.count
+    check(directlyDecoded == responseCount,
+          "录制应答独立解码 100% 成功（" + String(directlyDecoded) + "/" + String(responseCount) + "）")
 
     var batches = 0
     var decoded = 0
