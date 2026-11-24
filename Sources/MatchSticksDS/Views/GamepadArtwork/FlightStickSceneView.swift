@@ -6,20 +6,24 @@ struct FlightStickScene: NSViewRepresentable {
     let spec: GamepadArtworkSpec
     let state: GamepadElementState
     let container: CGSize
+    var help: GamepadArtworkHelp? = nil
+    var layout: GamepadLayout? = nil
 
     func makeNSView(context: Context) -> FlightStickSceneView {
         let view = FlightStickSceneView(frame: CGRect(origin: .zero, size: container))
-        _ = view.update(spec: spec, state: state, container: container)
+        _ = view.update(spec: spec, state: state, container: container, help: help, layout: layout)
         return view
     }
 
     func updateNSView(_ view: FlightStickSceneView, context: Context) {
-        _ = view.update(spec: spec, state: state, container: container)
+        _ = view.update(spec: spec, state: state, container: container, help: help, layout: layout)
     }
 }
 
 final class FlightStickSceneView: SCNView {
     private var configuration = ""
+    private var containerSize = CGSize.zero
+    private(set) var accessibilityControls: [GamepadArtworkRegion: NSView] = [:]
     private(set) var handleDepth: CGFloat = 0
     private(set) var errorDescription: String?
 
@@ -44,11 +48,13 @@ final class FlightStickSceneView: SCNView {
     }
 
     @discardableResult
-    func update(spec: GamepadArtworkSpec, state: GamepadElementState, container: CGSize) -> Bool {
+    func update(spec: GamepadArtworkSpec, state: GamepadElementState, container: CGSize,
+                help: GamepadArtworkHelp? = nil, layout: GamepadLayout? = nil) -> Bool {
         guard container.width > 0, container.height > 0, spec.flightPivot != nil else {
             report("飞行摇杆缺少标定枢轴")
             return false
         }
+        containerSize = container
         let key = "\(spec.imageName):\(container.width)x\(container.height)"
         if configuration != key {
             guard buildScene(spec: spec, container: container) else {
@@ -61,6 +67,7 @@ final class FlightStickSceneView: SCNView {
         node("pivot")?.eulerAngles = SCNVector3(pose.pitch * .pi / 180, pose.roll * .pi / 180, 0)
         node("twist")?.eulerAngles = SCNVector3(0, 0, -pose.twist * .pi / 180)
         updateHighlights(spec: spec, state: state)
+        updateAccessibility(spec: spec, state: state, help: help, layout: layout)
         errorDescription = nil
         setNeedsDisplay(bounds)
         return true
@@ -265,6 +272,83 @@ final class FlightStickSceneView: SCNView {
         }
     }
 
+    private func updateAccessibility(spec: GamepadArtworkSpec, state: GamepadElementState,
+                                    help: GamepadArtworkHelp?, layout: GamepadLayout?) {
+        let regions: [(GamepadArtworkRegion, String)] = [
+            (.faceNorth, "highlight-facenorth"), (.faceEast, "highlight-faceeast"),
+            (.faceSouth, "highlight-facesouth"), (.faceWest, "highlight-facewest"),
+            (.dpad, "highlight-dpadup"), (.triggerL, "highlight-depth-triggerL"),
+            (.triggerR, "highlight-depth-triggerR"), (.shoulderL, "highlight-shoulderL"),
+            (.shoulderR, "highlight-shoulderR"), (.back, "highlight-back"),
+            (.start, "highlight-start"), (.guide, "highlight-guide"),
+            (.share, "highlight-share"), (.backR, "highlight-backR"),
+        ]
+        func helpText(for region: GamepadArtworkRegion) -> String? {
+            guard let help, let layout else { return nil }
+            switch region {
+            case .faceNorth: return help.button(layout.face[.north])
+            case .faceEast: return help.button(layout.face[.east])
+            case .faceSouth: return help.button(layout.face[.south])
+            case .faceWest: return help.button(layout.face[.west])
+            case .dpad: return help.dpad
+            case .triggerL: return help.trigger(layout.triggerUsage.lt, layout.triggerButton.l)
+            case .triggerR: return help.trigger(layout.triggerUsage.rt, layout.triggerButton.r)
+            case .shoulderL: return help.button(layout.shoulder.l)
+            case .shoulderR: return help.button(layout.shoulder.r)
+            case .back: return help.button(layout.back)
+            case .start: return help.button(layout.start)
+            case .guide: return help.button(layout.guide)
+            case .share: return help.button(layout.extras[.share])
+            case .backR: return help.button(layout.extras[.backR])
+            default: return nil
+            }
+        }
+        for (region, name) in regions {
+            guard let node = node(name) else { continue }
+            let size = spec.region(region, in: containerSize)
+            let control: AccessibilityRegionView
+            if let existing = accessibilityControls[region] as? AccessibilityRegionView {
+                control = existing
+            } else {
+                control = AccessibilityRegionView()
+                accessibilityControls[region] = control
+                addSubview(control)
+            }
+            let center: SCNVector3
+            if region == .dpad, let rect = spec.regions[.dpad], let pivot = spec.flightPivot {
+                center = self.node("handle")!.convertPosition(
+                    SCNVector3(rect.midX - pivot.x, pivot.y - rect.midY, 0.5), to: scene!.rootNode)
+            } else {
+                center = node.worldPosition
+            }
+            let projected = projectPoint(center)
+            control.frame = CGRect(x: projected.x - size.width / 2, y: projected.y - size.height / 2,
+                                   width: size.width, height: size.height)
+            control.toolTip = helpText(for: region) ?? region.rawValue
+            control.label = helpText(for: region) ?? region.rawValue
+            if [.faceNorth, .faceEast, .faceSouth, .faceWest].contains(region) {
+                let face: GamepadFace = region == .faceNorth ? .north : region == .faceEast ? .east :
+                    region == .faceSouth ? .south : .west
+                control.value = state.face[face] == true ? tr("已按下") : tr("已松开")
+            } else if region == .dpad {
+                control.value = state.dpad.isEmpty ? tr("已松开") : state.dpad.map(\.rawValue).joined(separator: ",")
+            } else if region == .triggerL {
+                control.value = state.triggerL.depth.map { String(format: "%.2f", $0) } ??
+                    (state.triggerL.pressed ? tr("已按下") : tr("已松开"))
+            } else if region == .triggerR {
+                control.value = state.triggerR.depth.map { String(format: "%.2f", $0) } ??
+                    (state.triggerR.pressed ? tr("已按下") : tr("已松开"))
+            } else {
+                let flags: [GamepadArtworkRegion: Bool] = [
+                    .shoulderL: state.shoulderL, .shoulderR: state.shoulderR,
+                    .back: state.back, .start: state.start, .guide: state.guide,
+                    .share: state.extras[.share] ?? false, .backR: state.extras[.backR] ?? false,
+                ]
+                control.value = flags[region] == true ? tr("已按下") : tr("已松开")
+            }
+        }
+    }
+
     private func updateDepth(node name: String, rect: CGRect, depth: Float,
                              baseY: CGFloat, point: (CGPoint) -> CGPoint) {
         let amount = CGFloat(min(1, max(0, depth.isFinite ? depth : 0)))
@@ -405,4 +489,16 @@ private enum RasterMesh {
         node.addChildNode(SCNNode(geometry: sides))
         return node
     }
+}
+
+
+private final class AccessibilityRegionView: NSView {
+    var label = ""
+    var value = ""
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { label }
+    override func accessibilityValue() -> Any? { value }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

@@ -72,12 +72,21 @@ func flightStickSceneTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
     }
     check(scene.rootNode.childNode(withName: "highlight-shoulderL", recursively: true)?.isHidden == true,
           "Extreme 未按下的肩键不会错误高亮")
+    let movingAccessibilityFrame = view.accessibilityControls[.faceNorth]?.frame
+    let fixedAccessibilityFrame = view.accessibilityControls[.back]?.frame
+    check(view.accessibilityControls[.faceNorth]?.toolTip?.isEmpty == false &&
+          view.accessibilityControls[.back]?.toolTip?.isEmpty == false &&
+          view.accessibilityControls[.faceNorth]?.isAccessibilityElement() == true,
+          "Extreme 三维按钮保留可访问性标签和悬停提示")
     saveFlightReview(view.snapshot(), name: "right")
     state.leftStick = GamepadStickState(x: 0, yUp: 1, pressed: false)
     check(view.update(spec: spec, state: state, container: spec.referenceSize),
           "Extreme 前倾可更新")
     check(abs(pivot.eulerAngles.x - 7 * CGFloat.pi / 180) < 0.0001,
           "Extreme 前倾保持既有输入幅度")
+    check(view.accessibilityControls[.faceNorth]?.frame != movingAccessibilityFrame &&
+          view.accessibilityControls[.back]?.frame == fixedAccessibilityFrame,
+          "Extreme 可访问性区域跟随真实手柄运动而固定底座不移动")
     saveFlightReview(view.snapshot(), name: "forward")
     state.leftStick = .init(x: -1, yUp: 0, pressed: false)
     check(view.update(spec: spec, state: state, container: spec.referenceSize) && pivot.eulerAngles.y < 0,

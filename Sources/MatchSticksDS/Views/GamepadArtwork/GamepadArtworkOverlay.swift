@@ -49,7 +49,7 @@ struct GamepadArtworkOverlay: View {
     }
 
     private func flightAssembly(in container: CGSize) -> some View {
-        FlightStickScene(spec: spec, state: state, container: container)
+        FlightStickScene(spec: spec, state: state, container: container, help: help, layout: layout)
             .help(help.stick(layout.stickUsage.lx, layout.stickUsage.ly, layout.stickPress.l))
             .accessibilityElement()
             .accessibilityLabel(tr("主摇杆与 Z 扭转"))
