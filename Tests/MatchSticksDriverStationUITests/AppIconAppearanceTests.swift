@@ -250,9 +250,24 @@ func appIconAppearanceTests(_ check: @MainActor (@autoclosure () -> Bool, String
     func makeIconSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
     let suite = makeIconSuite(iconSuiteNames[0])
-    let model = DSModel(settingsDefaults: suite, persistenceEnabled: true)
+    func makeDryIconModel(
+        _ defaults: UserDefaults,
+        systemDark: @escaping () -> Bool = { false },
+        applier: @escaping (NSImage) -> Void = { _ in }
+    ) -> DSModel {
+        DSModel(settingsDefaults: defaults, persistenceEnabled: true) { center in
+            center.artworkLoader = { _ in stubArtwork }
+            center.systemDarkProvider = systemDark
+            center.applier = applier
+        }
+    }
+    var freshApplied = 0
+    let model = makeDryIconModel(suite, applier: { _ in freshApplied += 1 })
     check(model.iconStyle == .color && model.iconAppearance == .system,
           "app icon defaults to color artwork following the system")
+    check(model.appIconCenter.pushedFileNames == ["app-icon-day"] &&
+          model.appIconCenter.artwork === stubArtwork && freshApplied == 1,
+          "a fresh install applies the default color artwork exactly once during initialization")
     check(suite.object(forKey: "matchsticks.appIconStyle") == nil &&
           suite.object(forKey: "matchsticks.appIconAppearance") == nil,
           "fresh install needs no explicit app-icon overrides")
@@ -281,38 +296,43 @@ func appIconAppearanceTests(_ check: @MainActor (@autoclosure () -> Bool, String
     check(model.appIconCenter.pushedFileNames.last == "app-icon-day",
           "pinning the icon appearance re-resolves immediately")
 
-    // 重启恢复 + 启动即设置（loadPersistedSettings 即启动恢复路径；干测试不调 start()）
-    let restored = DSModel(settingsDefaults: suite, persistenceEnabled: true)
-    restored.appIconCenter.artworkLoader = { _ in stubArtwork }
-    restored.appIconCenter.systemDarkProvider = { true }
     var restoredApplied = 0
-    restored.appIconCenter.applier = { _ in restoredApplied += 1 }
-    restored.loadPersistedSettings()
+    let restored = makeDryIconModel(
+        suite, systemDark: { true }, applier: { _ in restoredApplied += 1 })
     check(restored.iconStyle == .color && restored.iconAppearance == .light,
-          "icon preferences restore across restart")
-    check(restored.appIconCenter.pushedFileNames == ["app-icon-night", "app-icon-day"],
-          "startup restore applies the resolved artwork")
+          "icon preferences restore across restart during initialization")
+    check(restored.appIconCenter.pushedFileNames == ["app-icon-day"] &&
+          restored.appIconCenter.artwork === stubArtwork && restoredApplied == 1,
+          "initialization applies the restored light artwork exactly once even when the system is dark")
+    restored.loadPersistedSettings()
+    check(restored.appIconCenter.pushedFileNames == ["app-icon-day"] && restoredApplied == 1,
+          "an explicit settings reload does not repeat icon restoration or artwork pushes")
 
-    // 损坏 / 未知值安全回默认
+    // 损坏 / 未知值在真实初始化路径安全回默认
     let corruptSuite = makeIconSuite(iconSuiteNames[1])
     for bad in ["neon", "", "COLOR"] {
         corruptSuite.set(bad, forKey: "matchsticks.appIconStyle")
-        let corruptModel = DSModel(settingsDefaults: corruptSuite, persistenceEnabled: true)
-        corruptModel.loadPersistedSettings()
-        check(corruptModel.iconStyle == .color, "unknown stored icon style \(bad) keeps the default color style")
+        let corruptModel = makeDryIconModel(corruptSuite)
+        check(corruptModel.iconStyle == .color &&
+              corruptModel.appIconCenter.pushedFileNames == ["app-icon-day"] &&
+              corruptModel.appIconCenter.artwork === stubArtwork,
+              "unknown stored icon style \(bad) keeps the default color style during initialization")
     }
     corruptSuite.set(true, forKey: "matchsticks.appIconStyle")
-    let typeCorrupt = DSModel(settingsDefaults: corruptSuite, persistenceEnabled: true)
-    typeCorrupt.loadPersistedSettings()
-    check(typeCorrupt.iconStyle == .color, "non-string stored icon style is ignored")
+    let typeCorrupt = makeDryIconModel(corruptSuite)
+    check(typeCorrupt.iconStyle == .color &&
+          typeCorrupt.appIconCenter.pushedFileNames == ["app-icon-day"],
+          "non-string stored icon style is ignored during initialization")
     corruptSuite.set(7, forKey: "matchsticks.appIconAppearance")
-    let badAppearance = DSModel(settingsDefaults: corruptSuite, persistenceEnabled: true)
-    badAppearance.loadPersistedSettings()
-    check(badAppearance.iconAppearance == .system, "corrupt stored icon appearance falls back to following the system")
+    let badAppearance = makeDryIconModel(corruptSuite)
+    check(badAppearance.iconStyle == .color && badAppearance.iconAppearance == .system &&
+          badAppearance.appIconCenter.pushedFileNames == ["app-icon-day"],
+          "corrupt stored icon preferences fall back to defaults during initialization")
     corruptSuite.set("neon", forKey: "matchsticks.appIconAppearance")
-    let unknownAppearance = DSModel(settingsDefaults: corruptSuite, persistenceEnabled: true)
-    unknownAppearance.loadPersistedSettings()
-    check(unknownAppearance.iconAppearance == .system, "unknown stored icon appearance falls back to following the system")
+    let unknownAppearance = makeDryIconModel(corruptSuite)
+    check(unknownAppearance.iconStyle == .color && unknownAppearance.iconAppearance == .system &&
+          unknownAppearance.appIconCenter.pushedFileNames == ["app-icon-day"],
+          "unknown stored icon appearance falls back to defaults during initialization")
 
     // ===== G. 界面主题与图标偏好互不影响 =====
     let previousAppAppearance = NSApplication.shared.appearance

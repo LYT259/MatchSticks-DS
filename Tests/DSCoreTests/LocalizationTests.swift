@@ -43,7 +43,7 @@ func enTableTests() {
     check(tr("不存在键＿本地化测试") == "不存在键＿本地化测试", "未命中回退中文键")
     check(tr("正在后台下载新版本 %d%%（低优先级，可忽略，不影响使用）", 50).contains("50%"), "%% 字面百分号展开")
     check(tr("控制环吞吐：%.1f Hz（tx=%d rx=%d loss=%.1f%%）", 49.95, 100, 99, 1.0).hasPrefix("Control loop throughput: 50.0 Hz"), "多参数格式键")
-    check(tr("尚未连接机器人") == "Not Connected to Robot", "诊断页未连接空状态使用英文")
+    check(tr("尚未连接机器人") == "Not Connected to Robot", "机器人页未连接空状态使用英文")
     check(tr("机器人输出") == "Robot Output", "动态 tr(rawValue) 来源名称：机器人输出")
     check(tr("错误与警告") == "Errors & Warnings", "动态 tr(rawValue) 来源名称：错误与警告")
     check(tr("应用事件") == "App Events", "动态 tr(rawValue) 来源名称：应用事件")

@@ -183,6 +183,7 @@ snapshot_production_domain() {
     payload="$(defaults export "$PROD_DOMAIN" - 2>/dev/null)" \
         || fail "无法完整导出正式域 ${PROD_DOMAIN}（全量快照不可用）"
     printf '%s' "$payload" | shasum -a 256 | awk '{print "SHA256:"$1}'
+    if [ "$#" -ge 1 ]; then printf '%s' "$payload" > "$1"; fi
 }
 
 echo "▶ 测试密钥（构建前生成，经 SU_PUBLIC_ED_KEY 进 Info.plist——签名后改 plist 会破坏资源密封，Sparkle 拒收）"
@@ -282,7 +283,7 @@ assert_version "$WORK/old.app" 9.9.8
 assert_version "$WORK/new.app" 9.9.9
 
 echo "▶ 记录正式域全量设置快照（${PROD_DOMAIN}，不输出实际值）"
-BEFORE_PRODUCTION="$(snapshot_production_domain)"
+BEFORE_PRODUCTION="$(snapshot_production_domain "$WORK/production-before.plist")"
 [ -z "$(find "$SUPPORT_A" -type f -print -quit 2>/dev/null)" ] \
     || fail "Leg A 支持根启动前已有文件（隔离失效）"
 [ -z "$(find "$SUPPORT_B" -type f -print -quit 2>/dev/null)" ] \
@@ -365,8 +366,8 @@ assert_bundle_id "$WORK/MatchSticksDriverStation-A.app"
 assert_version "$WORK/MatchSticksDriverStation-A.app" 9.9.9
 # Sparkle 用 LaunchServices 重启，shell 环境不会继承；LSEnvironment 是否生效由重启后的
 # 9.9.9 进程仍写同一个隔离日志证明（生产支持目录/设置域不应被触碰）。
-grep -Eq "更新组件就绪（当前版本 9\.9\.9|Updater ready \(version 9\.9\.9" "$WORK/legA.log" \
-    || fail "Leg A：重启后的 9.9.9 进程未继承测试环境（LSEnvironment 未生效？）"
+wait_log "$WORK/legA.log" "更新组件就绪（当前版本 9\.9\.9|Updater ready \(version 9\.9\.9" 30 \
+    || { cat "$WORK/legA.log" 2>/dev/null; fail "Leg A：重启后的 9.9.9 进程未继承测试环境（LSEnvironment 未生效？）"; }
 grep -Eq "发现新版本 9.9.9|New version 9.9.9 found" "$WORK/legA.log" || fail "Leg A：未见「发现新版本」日志"
 grep -Eq "下载就绪|Version 9.9.9 downloaded" "$WORK/legA.log" || fail "Leg A：未见「下载就绪」日志"
 grep -Eq "安全门放行|safety gate open" "$WORK/legA.log" || fail "Leg A：未见「安全门放行」日志"
@@ -422,8 +423,20 @@ echo "  ✓ Leg B：通信活跃阻断点击安装；存活期版本不变；强
 stop_pid "$SIM_PID"
 SIM_PID=""
 stop_work_processes
-AFTER_PRODUCTION="$(snapshot_production_domain)"
+AFTER_PRODUCTION="$(snapshot_production_domain "$WORK/production-after.plist")"
 if [ "$BEFORE_PRODUCTION" != "$AFTER_PRODUCTION" ]; then
+    python3 - "$WORK/production-before.plist" "$WORK/production-after.plist" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    before = plistlib.load(stream)
+with open(sys.argv[2], "rb") as stream:
+    after = plistlib.load(stream)
+for key in sorted(set(before) | set(after)):
+    if before.get(key) != after.get(key):
+        print("  正式域变化键名（不输出值）：", key)
+PY
     fail "正式域 ${PROD_DOMAIN} 的全量 UserDefaults 前后不一致（测试或 Sparkle 写入了真实域？实际值不输出）"
 fi
 

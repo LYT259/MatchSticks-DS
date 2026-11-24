@@ -58,7 +58,7 @@ struct MiniConsoleBar: View {
             footnote
         }
         .padding(16)
-        .frame(minWidth: 560, minHeight: 128, alignment: .leading)
+        .frame(minWidth: 768, minHeight: 128, alignment: .leading)
         .background(DSTheme.canvas)
         .tint(DSTheme.accent)
         .foregroundStyle(DSTheme.textPrimary)
@@ -86,6 +86,8 @@ struct MiniConsoleBar: View {
             HStack(spacing: 6) {
                 Text(model.teamNumber > 0 ? "TEAM \(model.teamNumber)" : "MatchSticks Driver Station")
                     .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                    .frame(maxWidth: 150, alignment: .leading)
                 refreshButton
             }
             Text(model.connectionDetail)
@@ -138,7 +140,7 @@ struct MiniConsoleBar: View {
             .buttonStyle(DSActionStyle(color: DSTheme.success, prominent: true))
             .disabled(!model.canEnable || model.remoteEstopReported)
             .help(model.remoteEstopReported
-                  ? tr("机器人仍报告急停，使能不可用；等待复位生效或到诊断页重启机器人程序。")
+                  ? tr("机器人仍报告急停，使能不可用；等待复位生效或到驾驶页重启机器人程序。")
                   : tr("使能机器人（需已连接且无急停）"))
             Button { model.setEnabled(false) } label: {
                 Label(tr("失能"), systemImage: "stop.fill").frame(minWidth: 64, minHeight: 26)

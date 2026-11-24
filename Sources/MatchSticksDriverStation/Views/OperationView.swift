@@ -3,6 +3,8 @@ import DSCore
 
 struct OperationView: View {
     let model: DSModel
+    @State private var confirmReboot = false
+    @State private var confirmRestart = false
 
     var body: some View {
         ScrollView {
@@ -66,10 +68,21 @@ struct OperationView: View {
                     if model.practiceSeasonYear == 2022 {
                         timeoutPanel
                     }
+                    maintenancePanel
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
+        }
+        .confirmationDialog(tr("确认重启机器人控制器？"), isPresented: $confirmReboot, titleVisibility: .visible) {
+            Button(tr("重启控制器"), role: .destructive) { model.rebootRoboRIO() }
+        } message: {
+            Text(tr("机器人将暂时断开连接。请确认当前已失能。"))
+        }
+        .confirmationDialog(tr("确认重启机器人程序？"), isPresented: $confirmRestart, titleVisibility: .visible) {
+            Button(tr("重启程序"), role: .destructive) { model.restartRobotCode() }
+        } message: {
+            Text(tr("重启会中断当前程序。请先确认机器人已失能。"))
         }
     }
 
@@ -101,6 +114,20 @@ struct OperationView: View {
             } else {
                 Button(tr("开始 Timeout"), systemImage: "pause.circle") { model.startTimeout() }
                     .disabled(model.enabled || model.practiceActive || model.estopEngaged)
+            }
+        }
+    }
+
+    private var maintenancePanel: some View {
+        DSPanel(title: tr("机器人维护"), subtitle: tr("重启会中断控制。请先确认机器人已失能。")) {
+            HStack(spacing: 12) {
+                Button(tr("重启机器人程序"), systemImage: "arrow.clockwise") { confirmRestart = true }
+                    .buttonStyle(DSActionStyle())
+                    .disabled(!model.commConnected)
+                Button(tr("重启控制器"), systemImage: "power") { confirmReboot = true }
+                    .buttonStyle(DSActionStyle())
+                    .disabled(!model.commConnected)
+                Spacer(minLength: 0)
             }
         }
     }

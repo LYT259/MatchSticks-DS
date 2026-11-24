@@ -8,7 +8,8 @@
 #   ④ 模拟 radio:8080 触发应用层「Radio 状态：已响应」事件；
 #   ⑤ 本次新建的 MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 支持目录出现新会话日志
 #      （按本次启动时间校验 mtime，迁移来的旧日志不能冒充通过证据）；
-#   ⑥ 正式域 org.ghfrc.driverstation 全量 UserDefaults 前后一致（不只看 4 个键）。
+#   ⑥ 正式域 org.ghfrc.driverstation 全量 UserDefaults 键级前后一致（不只看 4 个键）：只有 AppKit 为
+#      SwiftUI Window 场景自动持久化的 NSWindow Frame main/mini 允许变化并单独报告，其余任何键变化都失败。
 # 全部产物来自 build-app.sh 打出的 .app（含包内 MatchSticksDriverStationSim）。
 #
 # 隔离与清理：每次运行 mktemp 独立 WORK；前置发现已有的 MatchSticksDriverStation /
@@ -124,15 +125,14 @@ cp -R "dist/MatchSticks Driver Station.app" "$WORK/MatchSticksDriverStation-E2E.
 EXPECTED_PROD_DOMAIN=org.ghfrc.driverstation
 PROD_DOMAIN="$(plutil -extract CFBundleIdentifier raw "$WORK/MatchSticksDriverStation-E2E.app/Contents/Info.plist" 2>/dev/null || true)"
 [ -n "$PROD_DOMAIN" ] || fail "无法从打包 app 读取 CFBundleIdentifier"
-[ "$PROD_DOMAIN" = "$EXPECTED_PROD_DOMAIN" ] || fail "打包 app 的 CFBundleIdentifier=$PROD_DOMAIN，预期 $EXPECTED_PROD_DOMAIN（正式域断言会失真）"
+[ "$PROD_DOMAIN" = "$EXPECTED_PROD_DOMAIN" ] || fail "打包 app 的 CFBundleIdentifier=${PROD_DOMAIN}，预期 ${EXPECTED_PROD_DOMAIN}（正式域断言会失真）"
 
-# 正式域全量快照：直接 export 整个域再哈希，覆盖所有键（含 Sparkle 键与未来新增键），
-# 不输出任何实际值。域不存在时 export 为空 plist，前后同样比较；导出失败则明确失败。
+# 正式域全量快照：export 整个域到 WORK 里的 plist（覆盖所有键，含 Sparkle 键与未来新增键），
+# 结束时交给 scripts/defaults-domain-diff.py 做键级比较；任何实际值都不输出。
+# 域不存在时 export 为空 plist，前后同样比较；导出失败则明确失败。
 snapshot_production_domain() {
-    local payload
-    payload="$(defaults export "$PROD_DOMAIN" - 2>/dev/null)" \
+    defaults export "$PROD_DOMAIN" "$1" 2>/dev/null \
         || fail "无法完整导出正式域 ${PROD_DOMAIN}（全量快照不可用）"
-    printf '%s' "$payload" | shasum -a 256 | awk '{print "SHA256:"$1}'
 }
 
 # 启动前支持根必须为空：之后出现的任何文件都属于本次运行；旧迁移日志若被复制进来，
@@ -141,7 +141,7 @@ snapshot_production_domain() {
     || fail "新支持根 $SUPPORT_ROOT 启动前已有文件（隔离失效）"
 
 echo "▶ 记录正式域全量设置快照（${PROD_DOMAIN}，不输出实际值）"
-BEFORE_PRODUCTION="$(snapshot_production_domain)"
+snapshot_production_domain "$WORK/production-before.plist"
 
 echo "▶ 启动包内 MatchSticksDriverStationSim + 打包版 app（AUTO_SIM 连 127.0.0.1，radio 端口 8080）"
 "$WORK/MatchSticksDriverStation-E2E.app/Contents/MacOS/MatchSticksDriverStationSim" --quiet --radio-port 8080 >/dev/null 2>&1 &
@@ -245,7 +245,7 @@ printf '%s' "$LOGS" | grep -q '"name"' || fail "打包版未产生日志文件�
 SESSION_LOG_DIR="$SUPPORT_ROOT/MatchSticksDriverStation/Logs"
 FIRST_SUPPORT_LOG="$(find "$SESSION_LOG_DIR" -type f \( -name '*.dslog' -o -name '*.wpilog' \) -print -quit 2>/dev/null || true)"
 [ -n "$FIRST_SUPPORT_LOG" ] \
-    || fail "本次新支持目录未产生 .dslog/.wpilog（$SESSION_LOG_DIR；MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 未生效？）"
+    || fail "本次新支持目录未产生 .dslog/.wpilog（${SESSION_LOG_DIR}；MATCHSTICKS_DRIVER_STATION_APPLICATION_SUPPORT 未生效？）"
 HAS_DSLOG=0
 HAS_WPILOG=0
 MATCHED_API_NAME=0
@@ -268,16 +268,27 @@ EOF_LOGS
 echo "  ✓ 本次新支持目录已落盘 .dslog + .wpilog，且 /api/logs 列出同一批文件"
 
 # 先停进程再读正式域：确保 app 的设置写入已结算，不会在比较之后才落盘。
-echo "▶ 停打包版并核对正式域全量设置未被测试改动"
+echo "▶ 停打包版并核对正式域全量设置未被测试改动（键级比较，只输出变化键名）"
 stop_packaged_app
 if kill -0 "$APP_PID" 2>/dev/null; then fail "打包版进程未在停止阶段退出"; fi
 stop_simulator
 stop_work_processes
-AFTER_PRODUCTION="$(snapshot_production_domain)"
-if [ "$BEFORE_PRODUCTION" != "$AFTER_PRODUCTION" ]; then
-    fail "正式域 ${PROD_DOMAIN} 的全量 UserDefaults 前后不一致（测试写入了真实域？实际值不输出）"
-fi
-echo "  ✓ 正式域 ${PROD_DOMAIN} 全量设置前后一致（export 哈希相同，实际值不输出）"
+snapshot_production_domain "$WORK/production-after.plist"
+# 键级比较：打包 app 与正式版同一个 bundle id，SwiftUI Window 场景（main/mini）的窗口框架由 AppKit
+# 写进 UserDefaults.standard 的 NSWindow Frame <场景 id>，测试 suite 隔离覆盖不到这一层——这两个键
+# 允许变化并逐键单独报告（allowed: 行）。其余任何键（matchsticks.*/ghds.*/SU* 及未来新增键）变化、
+# 新增或删除仍然失败，并在上面以 changed: 行列出键名；任何实际值都不输出。
+set +e
+python3 scripts/defaults-domain-diff.py "$WORK/production-before.plist" "$WORK/production-after.plist" \
+    --allow "NSWindow Frame main" --allow "NSWindow Frame mini"
+DOMAIN_DIFF_RC=$?
+set -e
+case "$DOMAIN_DIFF_RC" in
+    0) ;;
+    2) fail "正式域快照无法比较（plist 解析失败，见上）" ;;
+    *) fail "正式域 ${PROD_DOMAIN} 存在 AppKit 窗口框架键之外的变化（测试写入了真实域？变化键名见上，实际值不输出）" ;;
+esac
+echo "  ✓ 正式域 ${PROD_DOMAIN} 除 AppKit 窗口框架键外全部一致（框架键变化已逐键报告，实际值不输出）"
 
 echo ""
-echo "✅ 打包版 E2E 通过：进程存活 + 控制环吞吐 ≥ ${HZ_FLOOR}Hz + connected + radio 已响应 + 本次新支持目录日志 + 正式域全量设置未变"
+echo "✅ 打包版 E2E 通过：进程存活 + 控制环吞吐 ≥ ${HZ_FLOOR}Hz + connected + radio 已响应 + 本次新支持目录日志 + 正式域除 AppKit 窗口框架键外未变"

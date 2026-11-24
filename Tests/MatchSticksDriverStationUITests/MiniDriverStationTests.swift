@@ -38,8 +38,12 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
     if let sizeRange = miniScene.range(of: "defaultSize(width: ") {
         let tail = String(miniScene[sizeRange.upperBound...])
         let width = Int(tail.prefix { $0.isNumber }) ?? 0
-        check(width >= 640,
-              "mini window default width is landscape-wide (≥640, got \(width))")
+        check(width >= 768,
+              "mini window default width fits the full safety strip (≥768, got \(width))")
+        check(miniScene.contains(".frame(minWidth: 768,"),
+              "mini scene minimum width cannot restore to a clipped 560-point window")
+        check(miniSource.contains(".frame(minWidth: 768,"),
+              "mini content minimum width keeps every safety control inside the window")
     } else {
         check(false, "mini window declares a default size")
     }
@@ -77,7 +81,7 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
 // ImageRenderer 整块退化为占位图，见 2026-11-23 排查）。
 @MainActor
 private func miniDriverStationRenderTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
-    let width = 760, height = 220
+    let width = 768, height = 220
     let previousAppearance = NSApplication.shared.appearance
     NSApplication.shared.appearance = NSAppearance(named: .aqua)
     defer { NSApplication.shared.appearance = previousAppearance }
@@ -123,6 +127,8 @@ private func miniDriverStationRenderTests(_ check: @MainActor (@autoclosure () -
     let controlsMaxX = max(greenMaxX, redMaxX)
     check(Double(controlsMaxX) >= Double(width) * 0.8,
           "safety controls reach into the right region of the wide console (maxX=\(controlsMaxX))")
+    check(redMaxX < width - 16,
+          "E-Stop remains fully inside the console instead of clipped at the right edge (maxX=\(redMaxX))")
 }
 
 // MARK: - 窗口切换决策（纯状态）
