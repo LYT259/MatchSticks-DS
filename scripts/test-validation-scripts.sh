@@ -128,6 +128,48 @@ if grep -Fq 'ref: ${{ github.event.pull_request.head.sha || github.sha }}' <<< "
 else
     bad "checkout 缺少精确 ref：github.event.pull_request.head.sha || github.sha"
 fi
+# GitHub 只认固定的步骤级键；把动作输入（如 checkout 的 ref）写在步骤级会让整个 workflow
+# 被判为 workflow file issue：任何事件都不产生 job（PR 也没有 check），Windows 端形同未运行。
+echo "== workflow：步骤级只允许 GitHub Actions 认可的键；动作输入（checkout 的 ref）必须在 with: 之下 =="
+step_key_violations="$(awk '
+    /^[^ \t#]/ { steps_indent = -1 }
+    match($0, /^ *steps:[ \t]*$/) { steps_indent = match($0, /[^ ]/) - 1; step_indent = -1; next }
+    steps_indent < 0 { next }
+    {
+        if (!match($0, /[^ ]/)) next
+        indent = RSTART - 1
+        if (indent <= steps_indent || substr($0, RSTART, 1) == "#") next
+        if (indent == steps_indent + 2 && substr($0, indent + 1, 2) == "- ") {
+            step_indent = indent
+            key = substr($0, indent + 3)
+        } else if (step_indent >= 0 && indent == step_indent + 2) {
+            key = substr($0, RSTART)
+        } else {
+            next
+        }
+        sub(/:.*/, "", key)
+        if (key !~ /^(name|id|if|uses|run|shell|working-directory|env|with|continue-on-error|timeout-minutes)$/) print NR ": " key
+    }' .github/workflows/full-validation.yml)"
+if [ -z "$step_key_violations" ]; then
+    ok "步骤级键均在 GitHub Actions 允许集合内"
+else
+    bad "步骤级出现未知键，GitHub 判 workflow file issue、整个 workflow 不运行：$step_key_violations"
+fi
+if awk '
+    {
+        if (prev_is_with) {
+            match(prev, /^ */); w = RLENGTH
+            match($0, /^ */); n = RLENGTH
+            if (n == w + 2 && $0 ~ /^ *ref: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}[ \t]*$/) ok = 1
+        }
+        prev = $0
+        prev_is_with = (prev ~ /^ *with:[ \t]*$/)
+    }
+    END { exit ok ? 0 : 1 }' <<< "$checkout_block"; then
+    ok "checkout 的 ref 作为 with: 输入传入（紧随 with: 之下）"
+else
+    bad "checkout 的 ref 不是 with: 输入（写在步骤级会被 GitHub 拒绝）"
+fi
 
 echo "== test-core：ss UDP 样例只按 Local Address:Port（第 4 列）过滤 =="
 ss_sample="UNCONN 0      0                                 0.0.0.0:4000 0.0.0.0:1150
