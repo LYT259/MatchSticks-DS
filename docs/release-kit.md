@@ -75,10 +75,10 @@
 
 ## 三、密钥与安全
 
-- Sparkle Ed25519 私钥：`~/.ghds-release-keys/ghds-ed25519`（0600，仓库外；**丢失则换钥需随下个版本发 SUPublicEDKey——老版本只能手动升级**）
+- Sparkle Ed25519 私钥：`~/.ghds-release-keys/ghds-ed25519`（0600，仓库外）。**2026-11-25 已轮换**：旧私钥无法恢复，新构建使用新公钥；旧版本必须手动安装一次新版本，历史 Release 不改写（[ADR-0007](decisions/0007-update-signing-key-rotation.md)）。
 - 公钥已固化 `scripts/build-app.sh` 默认值；**新构建**的 Info.plist 默认使用 SUFeedURL = `https://github.com/LYT259/MatchSticks-DriverStaion/releases/latest/download/appcast.xml`（构建前可用 `SU_FEED_URL` 覆盖，仅测试/镜像场景）。stable 与 beta 通道客户端用的是**同一个** SUFeedURL，渠道只决定 appcast 里哪些条目可见（见「五」）
 - **历史 Release 不改写**（唯一例外：当前 Latest Release 上的 `appcast.xml` 附件是活 feed，发 beta 时按「五、5.1」更新——它是同一次 beta 发布操作的一部分，前置见「六」；更早的 Release 一律不动。已有 Release 的标题、正文与 Pre-release / Latest 标记同样不动，批量改历史须另行点名）：已发布旧版本的 Info.plist 内置其构建时的旧地址（`LYT259/MatchSticks-DS/…`、2026-11-23 中间形态 `LYT259/MatchSticks-Driver-Station/…` 或更早 `LYT259/ghdriverstation/…`），不会因历次改名自动切换；旧 Release 的附件与 appcast 保持原样、不回填也不删除。旧客户端能否继续检查更新取决于 GitHub 仓库改名后的重定向，否则需手动安装一次新构建；新构建发布后才会使用新地址。
-- 更名不影响签名链：应用 bundle ID 保持 `org.ghfrc.driverstation`；Sparkle 私钥路径与 `SUPublicEDKey` 均沿用原值，仅 appcast / 下载地址随仓库改为 `LYT259/MatchSticks-DriverStaion`。
+- 更名不影响应用身份：bundle ID 保持 `org.ghfrc.driverstation`，Sparkle 私钥路径不变；`SUPublicEDKey` 已按 [ADR-0007](decisions/0007-update-signing-key-rotation.md) 轮换，旧版本需手动安装一次新版本。appcast / 下载地址使用 `LYT259/MatchSticks-DriverStaion`。
 - 签名红线：**签名后不得再改 bundle 内任何文件**（改 Info.plist = 破坏资源密封 → Sparkle 拒收 + 用户侧「已损坏」假警告）；测试密钥走构建前注入（SU_PUBLIC_ED_KEY）
 
 ## 四、实测清单（每次发版）

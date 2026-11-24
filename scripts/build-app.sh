@@ -286,7 +286,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>SUFeedURL</key>
     <string>${SU_FEED_URL:-https://github.com/LYT259/MatchSticks-DriverStaion/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
-    <string>${SU_PUBLIC_ED_KEY:-YHHW4wKUsjO8HlZkuZc4vdJWZj4y4ftbiFcEsJkNop4=}</string>
+    <string>${SU_PUBLIC_ED_KEY:-qQwltPD68k5anSzJBvRC+Z0xvUSfEvKbEarPKhFHyfA=}</string>
 </dict>
 </plist>
 PLIST
