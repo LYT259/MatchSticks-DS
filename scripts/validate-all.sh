@@ -2,8 +2,8 @@
 # scripts/validate-all.sh — 三端一键验证：Mac 本机 + 实体 Linux SSH 主机 + GitHub Actions Windows
 #
 # 每次功能合入 beta 后、以及 stable 发布前都必须跑完本脚本且全绿。三端验证的是同一个 commit：
-#   Mac     跑当前 HEAD（预检要求工作树干净，所以磁盘内容 == HEAD）；
-#   Linux   用 git archive HEAD（只含已提交的跟踪文件：不含 .git、未跟踪文件与任何本地秘密）解包到
+#   Mac     跑当前 HEAD（预检要求工作树干净，所以磁盘内容 == HEAD；Mac 开始前固定 SHA 并在结束时复核）；
+#   Linux   用 git archive <固定 SHA>（只含已提交的跟踪文件：不含 .git、未跟踪文件与任何本地秘密）解包到
 #           远端每次 mktemp -d 新建的独立目录，在该目录跑 scripts/test-core.sh；
 #   Windows 消费 GitHub Actions 上 headSha == 同一 SHA 的运行。
 # 任何一端缺失（SSH 主机不可达 / 远端非 Linux 或无 Swift / gh 未登录 / HEAD 未推送 / workflow 不可用）都失败；
@@ -20,7 +20,8 @@
 #         → gh 已登录 → workflow 文件已提交
 #   [1/4] Mac：swift build + Mac 脚本清单（必需基础脚本 + 自动发现的 scripts/test-*.sh，去重后各跑一次）
 #   [2/4] Linux：探测远端（Linux / bash / tar / mktemp / Swift >= 6）→ mktemp -d 独立目录
-#         → git archive HEAD | ssh tar -xf - → bash scripts/test-core.sh → 退出（含失败/Ctrl-C）只删本次目录
+#         → df 预检 /tmp 与根分区 → git archive <固定 SHA> | ssh tar -xf -
+#         → 缓存隔离到本次目录 → bash scripts/test-core.sh → 复核 HEAD → 退出（含失败/Ctrl-C）只删本次目录
 #   [3/4] Windows：读取 headSha == HEAD 的运行；pull_request（目标 beta/stable）、beta/stable push 与此前
 #         workflow_dispatch 的运行一并消费，全部成功才算通过；一条都没有时才 dispatch 一次，且只在
 #         workflow 已进入默认分支（dispatch 可用）时——否则立即失败并说明处置办法，不空等、不重发
@@ -57,6 +58,7 @@
 #   MATCHSTICKS_DS_TEST_PORT_WAIT     透传给 test-core.sh：固定端口被占时最多等待秒数（默认 900）
 #   DEVELOPER_DIR                    macOS 完整 Xcode 路径（未设时默认 /Applications/Xcode.app）
 set -uo pipefail
+export GIT_TERMINAL_PROMPT=0  # 凭据不可用时让 git 立即失败，不在预检或归档阶段挂起
 cd "$(dirname "$0")/.."
 
 HOST="${MATCHSTICKS_DS_LINUX_SSH_HOST:-dkc-home}"
@@ -101,7 +103,7 @@ summary() {
     echo
     echo "== 三端验证汇总 =="
     printf '  %-8s %-8s commit=%s · %s\n' "Mac" "$MAC_STATUS" "${HEAD_SHA:-未确定}" "Mac ${MAC_DETAIL}"
-    printf '  %-8s %-8s commit=%s · %s\n' "Linux" "$LINUX_STATUS" "${HEAD_SHA:-未确定}" "Linux git archive HEAD → 远端独立目录 DSCoreTests ${LINUX_DETAIL}"
+    printf '  %-8s %-8s commit=%s · %s\n' "Linux" "$LINUX_STATUS" "${HEAD_SHA:-未确定}" "Linux git archive ${HEAD_SHA:-未确定} → 远端独立目录 DSCoreTests ${LINUX_DETAIL}"
     printf '  %-8s %-8s commit=%s · %s\n' "Windows" "$WINDOWS_STATUS" "${HEAD_SHA:-未确定}" "Windows GitHub Actions windows-2025 DSCoreTests ${WINDOWS_DETAIL}"
     [ "$MAC_STATUS$LINUX_STATUS$WINDOWS_STATUS" = "通过通过通过" ] && echo "三端 commit 一致：$HEAD_SHA"
     return 0
@@ -110,6 +112,16 @@ fail() {
     echo "validate-all.sh: $*" >&2
     summary
     exit 1
+}
+head_unchanged() {
+    local current
+    if ! current="$(git rev-parse --verify HEAD 2>/dev/null)"; then
+        echo "validate-all.sh: 无法复核 HEAD（固定 SHA=${HEAD_SHA}）" >&2
+        return 1
+    fi
+    [ "$current" = "$HEAD_SHA" ] && return 0
+    echo "validate-all.sh: HEAD 已从固定 SHA=$HEAD_SHA 变为 ${current}；三端结果不再属于同一 commit" >&2
+    return 1
 }
 # 只清理本次 mktemp 创建的远端目录（REMOTE_DIR 为空 = 尚未创建）；失败路径与 Ctrl-C 同样执行
 cleanup() {
@@ -243,6 +255,7 @@ echo "== [1/4] Mac 本机：commit=$HEAD_SHA =="
 MAC_STATUS="运行中"
 MAC_DETAIL="swift build"
 mac_fail() { MAC_STATUS="失败"; MAC_DETAIL="${MAC_DETAIL} ✗"; fail "Mac $*"; }
+head_unchanged || mac_fail "开始前 HEAD 已改变或无法复核"
 swift build || mac_fail "swift build 失败"
 for step in "${MAC_STEPS[@]}"; do
     echo "-- Mac：$step"
@@ -287,14 +300,37 @@ if [ "$(printf '%s\n' "$remote_tmp_raw" | wc -l | tr -d ' ')" != "1" ] \
 fi
 REMOTE_DIR="$remote_tmp_raw"
 echo "远端临时目录：$HOST:${REMOTE_DIR}（仅本次使用，退出时删除）"
-# 只同步已提交的 HEAD：git archive 输出不含 .git、未跟踪文件与被忽略的本地文件；经 stdin 送入远端 tar，无 --delete
-git archive --format=tar HEAD | "${SSH[@]}" "tar -xf - -C '$REMOTE_DIR'"
+# 归档和测试前检查 /tmp 与根分区：缓存虽已隔离到本次目录，可用空间不足仍须明确拒绝，不能等编译写满
+remote_df="$("${SSH[@]}" 'df -Pk /tmp /' 2>&1)"
+[ "$?" = "0" ] || linux_fail "无法读取远端 /tmp 与根分区可用空间（df 失败；未运行 DSCoreTests）：${remote_df}"
+space_status=0
+printf '%s\n' "$remote_df" | awk '
+    NR > 1 {
+        count++
+        if ($4 < 1048576) {
+            printf("可用空间不足：%s 仅 %d KiB（至少需要 1048576 KiB）\n", $6, $4)
+            insufficient=1
+        }
+    }
+    END {
+        if (count != 2) {
+            printf("df 预检需要 /tmp 与 / 两行记录，实际 %d 行\n", count)
+            exit 1
+        }
+        if (insufficient) exit 1
+    }' || space_status=$?
+[ "$space_status" = "0" ] || linux_fail "远端 /tmp 与根分区可用空间预检失败（各需至少 1 GiB；未运行 DSCoreTests）：${remote_df}"
+# 只同步 Mac 开始前固定的 SHA：git archive 输出不含 .git、未跟踪文件与被忽略的本地文件；经 stdin 送入远端 tar，无 --delete
+git archive --format=tar "$HEAD_SHA" | "${SSH[@]}" "tar -xf - -C '$REMOTE_DIR'"
 archive_status=("${PIPESTATUS[@]}")
-[ "${archive_status[0]}" = "0" ] || linux_fail "git archive HEAD 失败（退出码 ${archive_status[0]}；141 = 远端提前关闭了管道，原因见上方 ssh/tar 报错）"
+[ "${archive_status[0]}" = "0" ] || linux_fail "git archive ${HEAD_SHA} 失败（退出码 ${archive_status[0]}；141 = 远端提前关闭了管道，原因见上方 ssh/tar 报错）"
 [ "${archive_status[1]}" = "0" ] || linux_fail "远端解包失败（ssh / tar 退出码 ${archive_status[1]}）"
-if ! "${SSH[@]}" "cd '$REMOTE_DIR' && ${REMOTE_PATH_PREFIX}MATCHSTICKS_DS_TEST_PORT_WAIT=${MATCHSTICKS_DS_TEST_PORT_WAIT} bash scripts/test-core.sh"; then
+# 远端 PATH 沿用上面实际探测成功的 swift；SwiftPM/Clang 缓存全部留在本次目录，不写根分区默认缓存位置
+remote_test_env="${REMOTE_PATH_PREFIX}SWIFTPM_CACHE_PATH='${REMOTE_DIR}/swiftpm-cache' SWIFTPM_MANIFEST_CACHE=local CLANG_MODULE_CACHE_PATH='${REMOTE_DIR}/clang-module-cache' "
+if ! "${SSH[@]}" "cd '$REMOTE_DIR' && ${remote_test_env}MATCHSTICKS_DS_TEST_PORT_WAIT=${MATCHSTICKS_DS_TEST_PORT_WAIT} bash scripts/test-core.sh"; then
     linux_fail "主机 $HOST 上 DSCoreTests 失败"
 fi
+head_unchanged || linux_fail "验证结束时 HEAD 已改变或无法复核"
 LINUX_STATUS="通过"
 LINUX_DETAIL="host=$HOST · ${remote_swift} ✓"
 
@@ -409,6 +445,7 @@ while :; do
     refresh_runs
     WINDOWS_DETAIL="$(describe_runs)"
 done
+head_unchanged || windows_fail "三端验证结束时 HEAD 已改变或无法复核"
 WINDOWS_STATUS="通过"
 
 summary

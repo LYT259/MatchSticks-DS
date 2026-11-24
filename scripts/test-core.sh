@@ -13,6 +13,7 @@
 #
 # 用法：scripts/test-core.sh [--release]
 #       scripts/test-core.sh --filter-netstat < netstat-ano.txt   （测试钩子：对 stdin 应用 Windows 端口过滤）
+#       scripts/test-core.sh --filter-ss < ss-udp.txt              （测试钩子：对 stdin 应用 Linux UDP 端口过滤）
 # 环境：
 #   DEVELOPER_DIR                  macOS 上完整 Xcode 的路径（未设时默认 /Applications/Xcode.app）
 #   MATCHSTICKS_DS_TEST_PORT_WAIT  DSClient 固定绑定 UDP 1150（协议要求），控制口默认 1110、TCP 1740；
@@ -27,11 +28,17 @@ netstat_filter() {
     awk '$1 == "UDP" && $2 ~ /:(1150|1110)$/ { print; next } $1 == "TCP" && $2 ~ /:1740$/ && $4 == "LISTENING" { print }'
 }
 
+# Linux `ss -Hlun`：Local Address:Port 是第 4 列；第 5 列是 Peer Address:Port
+ss_udp_filter() {
+    awk '$4 ~ /:(1150|1110)$/ { print }'
+}
+
 CONFIG=()
 for arg in "$@"; do
     case "$arg" in
         --release) CONFIG+=(--release) ;;
         --filter-netstat) netstat_filter; exit $? ;;
+        --filter-ss) ss_udp_filter; exit $? ;;
         -h|--help) sed -n '2,/^set -euo pipefail/{/^set -euo pipefail/!p;}' "$0"; exit 0 ;;
         *) echo "test-core.sh: 未知参数：${arg}（可用：--release）" >&2; exit 2 ;;
     esac
@@ -61,7 +68,7 @@ ports_busy() {
     if command -v lsof >/dev/null 2>&1; then
         { lsof -nP -iUDP:1150 -iUDP:1110 -iTCP:1740 2>/dev/null || true; } | tail -n +2
     elif command -v ss >/dev/null 2>&1; then
-        { ss -Hlun 2>/dev/null || true; } | awk '$5 ~ /:(1150|1110)$/ {print $0}'
+        { ss -Hlun 2>/dev/null || true; } | ss_udp_filter
         { ss -Hltn 2>/dev/null || true; } | awk '$4 ~ /:1740$/ {print $0}'
     elif [ "$PLATFORM" = "Windows" ] && command -v netstat >/dev/null 2>&1; then
         { netstat -ano 2>/dev/null || true; } | netstat_filter
