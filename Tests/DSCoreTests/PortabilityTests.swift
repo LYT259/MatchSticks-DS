@@ -388,10 +388,10 @@ func windowsConnectRefusedProbeTests() {
               "lastError=\(SocketCompat.lastError) soError=\(String(describing: SocketCompat.getSocketError(fd)))")
         if selected > 0 { break }
     }
-    var pollDescriptor = WSAPOLLFD(fd: raw, events: Int16(POLLOUT), revents: 0)
+    // POLLOUT = POLLWRNORM = 0x0010；revents 位：0x0001 POLLERR、0x0002 POLLHUP、0x0010 POLLOUT（winsock2.h）
+    var pollDescriptor = WSAPOLLFD(fd: raw, events: Int16(0x0010), revents: 0)
     let polled = WSAPoll(&pollDescriptor, 1, 300)
-    print("probe: WSAPoll rc=\(polled) revents=\(pollDescriptor.revents) " +
-          "POLLOUT=\(POLLOUT) POLLERR=\(POLLERR) POLLHUP=\(POLLHUP)")
+    print("probe: WSAPoll rc=\(polled) revents=\(pollDescriptor.revents)")
     let again = SocketCompat.connectSocket(fd, &target)
     print("probe: connect again rc=\(again) lastError=\(SocketCompat.lastError)")
     SocketCompat.closeSocket(fd)

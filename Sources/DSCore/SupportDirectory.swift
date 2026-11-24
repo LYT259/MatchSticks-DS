@@ -257,7 +257,7 @@ public struct AppSupportDirectory {
         var moved = false
         temp.path.withCString(encodedAs: UTF16.self) { source in
             target.path.withCString(encodedAs: UTF16.self) { destination in
-                moved = MoveFileExW(source, destination, MOVEFILE_WRITE_THROUGH)
+                moved = MoveFileExW(source, destination, DWORD(MOVEFILE_WRITE_THROUGH))
             }
         }
         guard moved else {
