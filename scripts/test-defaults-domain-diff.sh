@@ -16,7 +16,7 @@ fail() { echo "✗ $1" >&2; exit 1; }
 [ -f "$DIFF" ] || fail "缺少 ${DIFF}（正式域键级比较 helper 尚未实现）"
 command -v python3 >/dev/null 2>&1 || fail "需要 python3"
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/matchsticks-driver-station-domain-diff-test.XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/matchsticks-driver-staion-domain-diff-test.XXXXXX")"
 trap 'rm -rf -- "$WORK"' EXIT
 
 SECRET="SENTINEL_SECRET_VALUE_7f3a9c"

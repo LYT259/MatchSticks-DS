@@ -114,16 +114,19 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
           "the first brand render pushes monochrome dark artwork exactly once and applies the same NSImage")
 }
 
-private func brandColorBounds(in bitmap: NSBitmapImageRep, red: Bool) -> (top: Int, bottom: Int)? {
+private func brandColorBounds(in bitmap: NSBitmapImageRep, red redChannel: Bool) -> (top: Int, bottom: Int)? {
     var top = Int.max
     var bottom = Int.min
     for y in 0..<bitmap.pixelsHigh {
         for x in 0..<bitmap.pixelsWide {
-            guard let color = bitmap.colorAt(x: x, y: y),
+            // 快照位图为 Generic RGB，且采样值随会话的色彩管理漂移（同一 NSColor.red 曾采得
+            // (1.0, 0.0, 0.11) 与 (0.86, 0.20, 0.14)），固定阈值会假失败；改按 sRGB 主导通道判定。
+            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
                   color.alphaComponent > 0.9 else { continue }
-            let matches = red
-                ? color.redComponent > 0.8 && color.greenComponent < 0.2 && color.blueComponent < 0.2
-                : color.blueComponent > 0.8 && color.redComponent < 0.2 && color.greenComponent < 0.2
+            let red = color.redComponent, green = color.greenComponent, blue = color.blueComponent
+            let matches = redChannel
+                ? red - max(green, blue) > 0.4
+                : blue - max(red, green) > 0.4
             if matches {
                 top = min(top, y)
                 bottom = max(bottom, y)

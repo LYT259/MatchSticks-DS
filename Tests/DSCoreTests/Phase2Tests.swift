@@ -297,7 +297,7 @@ func wpilogTests() {
     check(header2 == [0x01, 0x2C, 0x01, 0x01, 0x01], "多字节 entry 变长（" + header2.map { String(format: "%02X", $0) }.joined() + "）")
 
     // 全文件往返：START/double/boolean/string/FINISH
-    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-driver-station-\(Int.random(in: 0...999_999)).wpilog")
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-driver-staion-\(Int.random(in: 0...999_999)).wpilog")
     var ts = Int64(1_700_000_000_000)
     let writer = try! WPILogWriter(fileURL: url, timestampProvider: { ts })
     let batteryID = writer.startEntry(name: "/DS/Battery", type: "double", metadata: "{\"unit\":\"V\"}")
@@ -341,7 +341,7 @@ func wpilogTests() {
 // MARK: SettingsStore 单测
 
 func settingsStoreTests() {
-    let name = "matchsticks-driver-station-test-" + String(Int.random(in: 0...999_999))
+    let name = "matchsticks-driver-staion-test-" + String(Int.random(in: 0...999_999))
     let defaults = UserDefaults(suiteName: name)!
     defer { defaults.removePersistentDomain(forName: name) }
     let store = SettingsStore(defaults: defaults, prefix: "p1.")
@@ -466,7 +466,7 @@ func dslogTests() {
     }
 
     // 全文件往返
-    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-driver-station-\(Int.random(in: 0...999_999)).dslog")
+    let url = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("matchsticks-driver-staion-\(Int.random(in: 0...999_999)).dslog")
     let writer = try! DSLogWriter(fileURL: url, version: 2, timestamp: date)
     writer.append(e)
     var e2 = DSLogEntry()
@@ -496,7 +496,7 @@ func recordReplayScenario() {
     Thread.sleep(forTimeInterval: 0.05)
 
     let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    let recURL = dir.appendingPathComponent("matchsticks-driver-station-e2e-\(Int.random(in: 0...999_999)).dsrec")
+    let recURL = dir.appendingPathComponent("matchsticks-driver-staion-e2e-\(Int.random(in: 0...999_999)).dsrec")
     let recorder = try! PacketRecorder(fileURL: recURL)
     let boot = Date()
 
@@ -1275,7 +1275,7 @@ func practiceSequencerCatchUpTests() {
 
 func recorderTests() {
     let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    let url = dir.appendingPathComponent("matchsticks-driver-station-test-\(Int.random(in: 0...999_999)).dsrec")
+    let url = dir.appendingPathComponent("matchsticks-driver-staion-test-\(Int.random(in: 0...999_999)).dsrec")
 
     let recorder = try! PacketRecorder(fileURL: url)
     recorder.record(.controlOut, Data([1, 2, 3]))

@@ -60,7 +60,7 @@ import DSCore
 
 func makeWebUITempEnv() -> (WebUIServer.Environment, URL) {
     let dir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("matchsticks-driver-station-webui-test-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("matchsticks-driver-staion-webui-test-\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     var store: [String: String] = ["teamNumber": "2590", "soundsEnabled": "true"]
     let env = WebUIServer.Environment(
