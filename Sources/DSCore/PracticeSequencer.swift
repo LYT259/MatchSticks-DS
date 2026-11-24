@@ -67,6 +67,13 @@ public struct PracticeTimingPreset: Sendable, Equatable {
     }
 }
 
+public enum PracticeCountdownCue: String, Sendable, Equatable, CaseIterable {
+    case three
+    case two
+    case one
+    case go
+}
+
 // MARK: - PracticeSequencer：Practice 时序纯状态机（报告 §2.1 NI DS Practice 语义）
 // 阶段：开始等待 → Auto → 过渡 → Teleop（2026 展开六个子阶段）→ 结束；A-Stop 任意时刻中止。
 
@@ -145,25 +152,49 @@ public struct PracticeSequencer: Sendable, Equatable {
         case finished         // 全程结束
         case aborted          // A-Stop
         case endgameWarning   // 2022–2025 Teleop 内提示，不改变当前阶段
+        case countdown(PracticeCountdownCue)
     }
 
     public private(set) var phase: Phase = .idle
     public private(set) var remaining: TimeInterval = 0
     public private(set) var config: Config
+    private var announcedCountdownCues: Set<PracticeCountdownCue> = []
 
     public init(config: Config = Config()) {
         self.config = config
     }
 
     public mutating func start() -> [Event] {
+        announcedCountdownCues.removeAll()
         if config.startDelay > 0 {
             phase = .delayBeforeAuto
             remaining = config.startDelay
-            return [.entered(.delayBeforeAuto)]
+            return [.entered(.delayBeforeAuto)] + countdownEvents()
         }
+        return enterAutonomous()
+    }
+
+    private mutating func enterAutonomous() -> [Event] {
         phase = .autonomous
         remaining = config.autoTime
-        return [.entered(.autonomous), .enable]
+        announcedCountdownCues.insert(.go)
+        return [.entered(.autonomous), .enable, .countdown(.go)]
+    }
+
+    private mutating func countdownEvents() -> [Event] {
+        let cue: PracticeCountdownCue
+        if remaining <= 1.005 {
+            cue = .one
+        } else if remaining <= 2.005 {
+            cue = .two
+        } else if remaining <= 3.005 {
+            cue = .three
+        } else {
+            return []
+        }
+        guard !announcedCountdownCues.contains(cue) else { return [] }
+        announcedCountdownCues.insert(cue)
+        return [.countdown(cue)]
     }
 
     /// A-Stop：立即失能并结束
@@ -189,23 +220,41 @@ public struct PracticeSequencer: Sendable, Equatable {
         return events
     }
 
-    /// 周期推进（建议 0.1s）；返回本 tick 累积的控制意图。
+    /// 周期推进（建议 0.1s；dt 取真实经过时间）；返回本 tick 累积的控制意图。
     /// 5ms 容差：抵消浮点累加误差与定时器抖动，避免阶段切换晚一拍。
+    /// 大 dt 跨阶段时把超出阶段末尾的余量带入下一阶段继续推进（主 runloop 停顿后一次追上），
+    /// 事件顺序与逐 tick 推进一致：先 entered 再 enable/disable，全程结束才 finished。
     public mutating func tick(_ dt: TimeInterval) -> [Event] {
         guard phase.isActive else { return [] }
-        remaining -= dt
         var events: [Event] = []
-        if phase == .teleoperated, let warning = config.teleopWarningTime,
-           remaining + dt > warning + 0.005, remaining <= warning + 0.005 {
-            events.append(.endgameWarning)
-        }
-        if remaining > 0.005 { return events }
+        var carry = max(0, dt)
+        repeat {
+            remaining -= carry
+            if phase == .teleoperated, let warning = config.teleopWarningTime,
+               remaining + carry > warning + 0.005, remaining <= warning + 0.005 {
+                events.append(.endgameWarning)
+            }
+            guard remaining <= 0.005 else {
+                if phase == .delayBeforeAuto { events += countdownEvents() }
+                break
+            }
+            carry = overshoot
+            events += advance()
+        } while carry > 0 && phase.isActive
+        return events
+    }
 
+    /// 超出当前阶段末尾的时间（负 remaining）；小于 1ns 视为浮点累加噪声，不带入下一阶段
+    private var overshoot: TimeInterval {
+        let over = max(0, -remaining)
+        return over < 1e-9 ? 0 : over
+    }
+
+    /// 当前阶段结束：切到下一阶段并把 remaining 置为下一阶段全长（余量由 tick 扣回）
+    private mutating func advance() -> [Event] {
         switch phase {
         case .delayBeforeAuto:
-            phase = .autonomous
-            remaining = config.autoTime
-            return [.entered(.autonomous), .enable]
+            return enterAutonomous()
         case .autonomous:
             if config.delayTime > 0 {
                 phase = .delayBeforeTeleop
@@ -218,7 +267,7 @@ public struct PracticeSequencer: Sendable, Equatable {
         case .teleoperated:
             phase = .finished
             remaining = 0
-            return events + [.disable, .finished]
+            return [.disable, .finished]
         case .transitionShift:
             phase = .allianceShift1
             remaining = config.teleopBreakdown?.allianceShift ?? 0

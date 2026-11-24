@@ -49,6 +49,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/HIDInputManager.swift \
   Sources/MatchSticksDS/MacStatusMonitor.swift Sources/MatchSticksDS/Views/DSStyle.swift \
   Sources/MatchSticksDS/Views/DSControls.swift Sources/MatchSticksDS/PracticeAudioPlayer.swift \
+  Sources/MatchSticksDS/PracticeCountdownSpeech.swift \
   Sources/MatchSticksDS/UpdateFlow.swift Sources/MatchSticksDS/MainWindowDoubleClick.swift \
   Sources/MatchSticksDS/UpdateChannel.swift Sources/MatchSticksDS/UpdateCheckScheduler.swift \
   Sources/MatchSticksDS/UpdateReachability.swift Sources/MatchSticksDS/UpdateProbeTransport.swift \
@@ -64,6 +65,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtworkOverlay.swift \
   Sources/MatchSticksDS/Views/GamepadSkinView.swift \
+  Sources/MatchSticksDS/Views/USBDevicesView.swift \
   Sources/MatchSticksDS/AppIconAppearance.swift \
   Sources/MatchSticksDS/Views/DriverStationBrand.swift \
   Sources/MatchSticksDS/Views/AppIconAppearanceCards.swift \
@@ -73,6 +75,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
+  Tests/MatchSticksDSUITests/JoystickSlotOrderingTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
   Tests/MatchSticksDSUITests/DriverStationBrandTests.swift \
   Sources/MatchSticksDS/Views/MiniView.swift Sources/MatchSticksDS/MiniDriverStation.swift \
@@ -83,5 +86,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/UpdateReachabilityTests.swift \
   Tests/MatchSticksDSUITests/UpdateRequestRoutingTests.swift \
   Tests/MatchSticksDSUITests/UpdateBadgeBehaviorTests.swift \
+  Tests/MatchSticksDSUITests/PracticeProgressTests.swift \
+  Tests/MatchSticksDSUITests/PracticeCountdownSpeechTests.swift \
   -o .build/MatchSticksDSUIStateTests
 .build/MatchSticksDSUIStateTests "$@"
