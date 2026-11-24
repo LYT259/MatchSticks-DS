@@ -37,12 +37,9 @@
 "界面心跳异常，使能输出已冻结。" = "UI heartbeat abnormal; enable output is frozen.";
 "先在「连接」页配置机器人。" = "Configure the robot on the Connection page first.";
 "运行中。按 Return 失能，按空格急停。" = "Running. Press Return to disable, Space to E-Stop.";
-"使能后机器人可能运动，请先确认周围安全。" = "The robot may move once enabled; confirm the area is clear first.";
 "复位急停" = "Reset E-Stop";
 "请求重启机器人程序以解除急停锁存。快捷键：Esc + I。" = "Requests a robot code restart to clear the E-Stop latch. Shortcut: Esc + I.";
-"快捷键仅在前台、非文本输入时生效" = "Shortcuts apply only in the foreground and outside text input";
 "运行时间" = "Run Time";
-"驾驶控制" = "Drive Controls";
 "机器人仍报告急停，使能不可用；等待复位生效或到驾驶页重启机器人程序。" = "The robot still reports E-Stop; Enable is unavailable. Wait for the reset to take effect or restart robot code from the Drive page.";
 "使能机器人（需已连接且无急停）" = "Enable the robot (requires connection and no E-Stop)";
 "迷你驾驶台" = "Mini Driver Station";
