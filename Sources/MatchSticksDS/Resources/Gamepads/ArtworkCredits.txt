@@ -10,4 +10,5 @@ Direwolf 4 (direwolf4.png)
 Original resource: Flydigi Space Station 4.2.3.1, .vite/build/assets/images/product/Controller/fp4/132/main.png.
 Downloaded from the official software page: https://www.flydigi.com/index/down?nav_id=2
 Installer: https://tencent-android.cdn.flydigi.com/PC/SpaceStation4.0/Flydigi%20Space%20Station_setup_4.2.3.1.exe
-The original front-view transparent PNG is preserved at its native 492x341 pixels; no perspective warping, recoloring, or upscaling is applied. No claim of ownership of the source image or manufacturer's marks is made.
+The original front-view transparent PNG is preserved as direwolf4-reference.png at its native 492x341 pixels. No claim of ownership of the source image or manufacturer's marks is made.
+The high-resolution direwolf4.png, direwolf4-left-stick.png, direwolf4-right-stick.png, direwolf4-well-left.png and direwolf4-well-right.png are reconstructed assets at exactly 4x that reference size (1968x1364), not official photographs. They use the original alpha contours, sampled colors, vector logo and geometric gradients, without raster upscaling or neighboring-pixel patching. The reproducible generator is scripts/render-direwolf4.swift.

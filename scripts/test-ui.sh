@@ -34,12 +34,18 @@ echo "767354f7dead260f2bf5d1b65cac710ceec0c035fff6e5c7dfab86a7e02cc761  Sources/
 
 swift build   # 先确认主工程可构建（常规门禁）
 mkdir -p .build/uitest
-# 手工编译无 SPM 资源代码生成：补一个 Bundle.module 替身（测试走中文路径，
-# 英文查询回退键值即可，不加载 en 表）
+# 手工编译无 SPM 资源代码生成：Bundle.module 指向按 SwiftPM 扁平结构组装的测试资源包。
+# 手柄图片走真实包资源；DSCore 英文表不加载，既有中文测试路径保持不变。
 cat > .build/uitest/BundleModuleShim.swift <<'EOF'
 import Foundation
-extension Bundle { static let module = Bundle.main }
+extension Bundle {
+    static let module = Bundle(path: FileManager.default.currentDirectoryPath + "/.build/uitest/TestResources.bundle")!
+}
 EOF
+rm -rf .build/uitest/TestResources.bundle
+mkdir -p .build/uitest/TestResources.bundle/Contents/Resources
+ditto Sources/MatchSticksDS/Resources/ .build/uitest/TestResources.bundle/Contents/Resources/
+ditto Sources/MatchSticksDS/Resources/Gamepads/ .build/uitest/TestResources.bundle/Contents/Resources/
 swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   -emit-module-path .build/uitest/DSCore.swiftmodule \
   Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
@@ -60,6 +66,10 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDS/XInputUSB/F310XInputLifecycle.swift \
   Sources/MatchSticksDS/XInputUSB/F310XInputManager.swift \
   Sources/MatchSticksDS/GamepadInputManager.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickMotion.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/ThumbstickSceneView.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/ArtworkContour.swift \
+  Sources/MatchSticksDS/Views/GamepadArtwork/FlightStickSceneView.swift \
   Sources/MatchSticksDS/Views/OperationView.swift \
   Sources/MatchSticksDS/Views/PracticeTimingEditor.swift \
   Sources/MatchSticksDS/Views/GamepadArtwork/GamepadArtwork.swift \
@@ -74,6 +84,10 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDSUITests/F310XInputLifecycleTests.swift \
   Tests/MatchSticksDSUITests/GamepadArtworkTests.swift Tests/MatchSticksDSUITests/GamepadSkinPickerTests.swift \
   Tests/MatchSticksDSUITests/GamepadSkinPickerInteractionTests.swift \
+  Tests/MatchSticksDSUITests/ThumbstickMotionTests.swift \
+  Tests/MatchSticksDSUITests/ThumbstickSceneTests.swift \
+  Tests/MatchSticksDSUITests/FlightStickSceneTests.swift \
+  Tests/MatchSticksDSUITests/DirewolfArtworkTests.swift \
   Tests/MatchSticksDSUITests/GamepadRenderingTests.swift Tests/MatchSticksDSUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDSUITests/JoystickSlotOrderingTests.swift \
   Tests/MatchSticksDSUITests/AppIconAppearanceTests.swift \
