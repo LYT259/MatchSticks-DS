@@ -77,13 +77,13 @@ scripts/test-e2e.sh     # 打包版 E2E：进程存活 + 控制环吞吐 ≥40Hz
 安装 / 校验：
 
 ```bash
-# 终端下载（仓库现为 Private：直链 curl 需带 GitHub 凭证，浏览器下载不受影响）
-curl -L -H "Authorization: Bearer <token>" <release-dmg-url> -o MatchSticks-DriverStaion.dmg && hdiutil attach MatchSticks-DriverStaion.dmg
+# 终端下载（仓库现为 Public：直链 curl 无需 GitHub 凭证）
+curl -L <release-dmg-url> -o MatchSticks-DriverStaion.dmg && hdiutil attach MatchSticks-DriverStaion.dmg
 # 校验
 shasum -a 256 -c SHA256SUMS
 ```
 
-> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-DriverStaion/<ref>/scripts/install.sh | bash`（发版后生效；远端仓库改名完成前新 URL 尚不可达，见 ADR-0006 先决条件）。Homebrew tap（`LYT259/homebrew-matchsticks-driver-staion`，cask `matchsticks-driver-staion`）与国内镜像（Cloudflare Pages 项目 `matchsticks-driver-staion-mirror`）：**待建**（物料已备，见 packaging/ 与 mirror/）。
+> 终端一行安装（SHA256 校验后装 /Applications）：`curl -fsSL https://raw.githubusercontent.com/LYT259/MatchSticks-DriverStaion/<ref>/scripts/install.sh | bash`（发版后生效；远端仓库现已命名为 `LYT259/MatchSticks-DriverStaion`，旧名 URL 自动重定向，见 ADR-0006 §6）。Homebrew tap（`LYT259/homebrew-matchsticks-driver-staion`，cask `matchsticks-driver-staion`）与国内镜像（Cloudflare Pages 项目 `matchsticks-driver-staion-mirror`）：**待建立/验证**（发版前需完成的外部资源；物料已备，见 packaging/ 与 mirror/）。
 
 ## 打包发布
 

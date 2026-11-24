@@ -1,9 +1,9 @@
 # ADR-0006：产品二级更名为 MatchSticks Driver Station（无空格拼写修正、二级命名映射与兼容边界）
 
 - 状态：已接受（Accepted）
-- 日期：2026-11-23（二级更名）；2026-11-24 修订（无空格拼写修正）
+- 日期：2026-11-23（二级更名）；2026-11-24 修订（无空格拼写修正；远端仓库状态核对）
 - 决策：产品所有者（LYT259）
-- 编号核查（2026-11-24）：仅执行一次 `git fetch origin beta` 后，检查本地全部 `refs/heads` 与远端全部 `refs/remotes/origin` 的 `docs/decisions/`。本 ADR 初稿误用 `0003`，该编号已由 `docs/three-platform-validation` 的 `0003-three-platform-validation.md` 占用；`0004-update-channels-and-connectivity.md` 与 `0005-portable-dscore-validation.md` 也已在其他本地分支占用。按「全分支最大号 +1」，最终编号取 `0006`。`origin/beta` 当前只有 ADR-0001，并不代表其他分支的编号可用。本文件于 2026-11-24 随无空格名称修正改名为 `0006-matchsticks-driver-staion-rename.md`，编号仍为 `0006`。
+- 编号核查（2026-11-24）：`git fetch origin beta`（远端 `beta` = `b972212`）后，检查本地全部 `refs/heads` 与远端全部 `refs/remotes/origin` 的 `docs/decisions/`。本 ADR 初稿误用 `0003`，该编号已由 `docs/three-platform-validation` 的 `0003-three-platform-validation.md` 占用；`0004-update-channels-and-connectivity.md` 与 `0005-portable-dscore-validation.md` 也已在其他本地分支占用。按「全分支最大号 +1」，最终编号取 `0006`。`origin/beta` 现有 ADR-0001 与 ADR-0002；beta 上尚无的 0003–0005 已在其他分支占用，不代表编号可用。本 ADR 以 `0006` 随本分支提交，合并后 `origin/beta` 的编号集为 0001/0002/0006，`0006` 保留、不重编。本文件于 2026-11-24 随无空格名称修正改名为 `0006-matchsticks-driver-staion-rename.md`，编号仍为 `0006`。
 - 前置决策：[ADR-0001](0001-matchsticks-ds-rename.md)（GH Driver Station → MatchSticks DS，按历史记录保留）
 
 ## 背景
@@ -72,11 +72,11 @@ ADR-0001（2026-11-22）把产品由 **GH Driver Station** 更名为 **MatchStic
 
 ### 6. GitHub URL 先决条件
 
-文档、脚本与发布物料**先行**改用 `LYT259/MatchSticks-DriverStaion`，但远端仓库改名在本分支合并后另行执行，是本次改名的先决条件而非其一部分：
+文档、脚本与发布物料**先行**改用 `LYT259/MatchSticks-DriverStaion`；远端仓库现已命名为 `LYT259/MatchSticks-DriverStaion`（2026-11-24 核对），改名这一先决条件已满足，其余仍是发版前需建立/验证的外部资源：
 
-- 改名完成前，新 URL（含 `raw.githubusercontent.com` 直链与 Releases 附件地址）不可达；改名完成后，GitHub 对旧 URL（`LYT259/MatchSticks-DS`、中间形态 `LYT259/MatchSticks-Driver-Station`（若远端曾按该名改名）及更早地址）自动重定向，旧链接不断链；
-- 已发布旧版本内置的旧 `SUFeedURL`（含中间形态地址）依赖上述重定向才能继续检查更新，否则用户需手动安装一次新构建（与 0001 §3.5 同一结论，重定向层级再多一层）；
-- Homebrew tap `LYT259/homebrew-matchsticks-driver-staion` 与 Cloudflare 镜像项目 `matchsticks-driver-staion-mirror` 同理：本 ADR 只定名，对应仓库/项目实际建立或改名前不可用；若中间形态的 tap / 镜像项目已建立，须同步改名而非并存两套。
+- 远端仓库已命名至 `LYT259/MatchSticks-DriverStaion`：新 URL（含 `raw.githubusercontent.com` 直链与 Releases 附件地址）可达；GitHub 对旧 URL（`LYT259/MatchSticks-DS` 及更早地址）自动重定向，旧链接不断链——2026-11-24 核对：`github.com/LYT259/MatchSticks-DS` 301 至新名，旧名 `releases/latest/download/appcast.xml` 经重定向到达新仓库的 Release，新旧两名的 `raw.githubusercontent.com/…/beta/scripts/install.sh` 均可达；中间形态 `LYT259/MatchSticks-Driver-Station` 无重定向（核对为 404）；
+- 已发布旧版本内置的旧 `SUFeedURL`（`LYT259/MatchSticks-DS/…` 及更早）经上述重定向继续检查更新，无需手动安装一次新构建（与 0001 §3.5 同一结论）；中间形态地址不在重定向链内，若存在内置该地址的构建，仍需手动安装一次新构建；
+- Homebrew tap `LYT259/homebrew-matchsticks-driver-staion` 与 Cloudflare 镜像项目 `matchsticks-driver-staion-mirror` 仍是发版前需建立/验证的外部资源：本 ADR 只定名，对应仓库/项目实际建立并验证前不可用；若中间形态的 tap / 镜像项目已建立，须同步改名而非并存两套。
 
 ## 影响
 
@@ -97,7 +97,7 @@ ADR-0001（2026-11-22）把产品由 **GH Driver Station** 更名为 **MatchStic
 
 - 静态核对：Markdown 相对链接可解析；命令中的 target / executable / DMG / URL / cask / tap 与 `Package.swift`、`scripts/`、`packaging/` 的实际命名一致；旧名残留只允许出现在 §5 白名单（含兼容别名、迁移源、cask `zap` 与进程守卫）及 ADR-0001 的映射/兼容说明、密钥路径、bundle ID、魔数与历史记录中。
 - 迁移测试：在 `Tests/DSCoreTests/MigrationTests.swift` 既有用例上扩展——四级环境变量优先级、`MATCHSTICKS_DRIVER_STAION_APPLICATION_SUPPORT` 只认新前缀、`GHDriverStation → MatchSticksDS → MatchSticksDriverStation → MatchSticksDriverStaion` 三旧目录链式补齐与不覆盖、三级旧目录保留、`GHDSREC1` 旧录制可读（用例归代码侧，本 ADR 只定验收口径）。
-- 远端动作（合并后、用户点名执行）：GitHub 仓库改名至 `LYT259/MatchSticks-DriverStaion`；建立/改名 homebrew tap 与 Cloudflare 镜像项目；核对旧 URL 重定向生效。
+- 远端状态（2026-11-24 核对）：GitHub 仓库已命名为 `LYT259/MatchSticks-DriverStaion`，旧 URL 重定向生效；homebrew tap 与 Cloudflare 镜像项目仍是发版前需建立/验证的外部资源。
 - 若未来决定移除 `MATCHSTICKS_DRIVER_STATION_*` / `MATCHSTICKS_DS_*` / `GHDS_*` 兼容或旧目录迁移，必须新增 ADR 并给出迁移方案。
 
 ## 相关文档
