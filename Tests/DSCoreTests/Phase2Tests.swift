@@ -1166,6 +1166,111 @@ func practiceSequencerTests() {
           "Endgame 结束后失能并完成练习")
 }
 
+// MARK: PracticeSequencer 大 dt 追赶（主 runloop 停顿后按真实 elapsed 推进到正确阶段）
+
+private func practiceControlEvents(_ events: [PracticeSequencer.Event]) -> [PracticeSequencer.Event] {
+    events.filter { event in
+        if case .countdown = event { return false }
+        return true
+    }
+}
+
+private func practiceCountdownCues(_ events: [PracticeSequencer.Event]) -> [PracticeCountdownCue] {
+    events.compactMap { event in
+        guard case .countdown(let cue) = event else { return nil }
+        return cue
+    }
+}
+
+func practiceSequencerCatchUpTests() {
+    // 跨阶段余量：开始等待 2s，一次 2.5s 的 dt 应让 Auto 从 19.5 起算，而不是从满 20 重新开始
+    var carried = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 2))
+    _ = carried.start()
+    let carriedEvents = carried.tick(2.5)
+    check(carried.phase == .autonomous, "大 dt 跨过开始等待后进入 Auto")
+    check(abs(carried.remaining - 19.5) < 1e-9, "跨阶段余量带入 Auto：剩余 19.5，实际 \(carried.remaining)")
+    check(practiceControlEvents(carriedEvents) == [.entered(.autonomous), .enable],
+          "跨阶段只发一次进入与使能")
+    check(practiceCountdownCues(carriedEvents) == [.go], "跨阶段进入 Auto 只发一次 go")
+    check(carriedEvents.filter { $0 == .enable }.count == 1, "跨阶段不重复 Auto 使能")
+
+    // 一次 dt 跨三个阶段：事件序列与逐 0.1s 推进完全一致，最终状态一致
+    var jumped = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 2))
+    _ = jumped.start()
+    let jumpedEvents = jumped.tick(25.5)
+    check(jumped.phase == .teleoperated, "25.5s 后已在 Teleop，实际 \(jumped.phase)")
+    check(abs(jumped.remaining - 139.5) < 1e-9, "余量穿过三个阶段后 Teleop 剩余 139.5，实际 \(jumped.remaining)")
+    var stepped = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 2))
+    _ = stepped.start()
+    var steppedEvents: [PracticeSequencer.Event] = []
+    for _ in 0..<255 { steppedEvents += stepped.tick(0.1) }
+    check(practiceControlEvents(jumpedEvents) == practiceControlEvents(steppedEvents),
+          "一次大 dt 与 255 次小 tick 的控制事件序列相同")
+    check(practiceCountdownCues(jumpedEvents) == [.go], "大 dt 跨过等待只报当前 go，不补数字")
+    check(stepped.phase == .teleoperated && abs(stepped.remaining - jumped.remaining) < 1e-9,
+          "两种推进方式的最终阶段与剩余一致")
+    check(jumpedEvents.filter { $0 == .enable }.count == 2 && jumpedEvents.filter { $0 == .disable }.count == 1,
+          "追赶不重复使能/失能：进入 Auto 与 Teleop 各使能一次、过渡失能一次")
+
+    // 超过全程的 dt：按顺序失能 + 结束，之后空转
+    var overrun = PracticeSequencer(config: .init(autoTime: 15, teleopTime: 135, delayTime: 3, startDelay: 2))
+    _ = overrun.start()
+    let overrunEvents = overrun.tick(1_000)
+    check(overrun.phase == .finished && overrun.remaining == 0, "超长 dt 直接结束且剩余为 0")
+    check(practiceControlEvents(overrunEvents) == [.entered(.autonomous), .enable, .entered(.delayBeforeTeleop), .disable,
+                                                   .entered(.teleoperated), .enable, .disable, .finished],
+          "超长 dt 控制事件顺序：进入 → 使能 → 失能 → 使能 → 失能 → 结束，实际 \(overrunEvents)")
+    check(practiceCountdownCues(overrunEvents) == [.go], "超长 dt 倒数仍只发一次 go")
+    check(overrun.tick(5).isEmpty, "结束后大 dt 空转")
+
+    // Teleop 内提示与结束落在同一 tick：提示先于失能
+    var warned = PracticeSequencer(config: .init(
+        autoTime: 15, teleopTime: 135, delayTime: 0, startDelay: 0, teleopWarningTime: 30
+    ))
+    _ = warned.start()
+    let warnedEvents = warned.tick(151)
+    check(warned.phase == .finished, "提示与结束同 tick 时练习结束")
+    check(warnedEvents == [.entered(.teleoperated), .enable, .endgameWarning, .disable, .finished],
+          "提示 → 失能 → 结束的顺序不变，实际 \(warnedEvents)")
+
+    // 2026 子阶段：余量穿过 Auto → 过渡 → Transition Shift，进入 Shift 1 时已扣 0.5s
+    var rebuilt = PracticeSequencer(config: .init(
+        autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 0,
+        teleopBreakdown: .init(transitionShift: 10, allianceShift: 25, endgame: 30)
+    ))
+    _ = rebuilt.start()
+    let rebuiltEvents = rebuilt.tick(33.5)
+    check(rebuilt.phase == .allianceShift1 && abs(rebuilt.remaining - 24.5) < 1e-9,
+          "余量穿过 Transition Shift 后 Shift 1 剩余 24.5，实际 \(rebuilt.phase) \(rebuilt.remaining)")
+    check(rebuiltEvents == [.entered(.delayBeforeTeleop), .disable, .entered(.transitionShift), .enable,
+                            .entered(.allianceShift1)],
+          "子阶段切换事件顺序不变，实际 \(rebuiltEvents)")
+
+    // 0 时长子阶段不得死循环，余量继续向后传递直到结束
+    var zeroPhases = PracticeSequencer(config: .init(
+        autoTime: 5, teleopTime: 0, delayTime: 0, startDelay: 0,
+        teleopBreakdown: .init(transitionShift: 0, allianceShift: 0, endgame: 0)
+    ))
+    _ = zeroPhases.start()
+    let zeroEvents = zeroPhases.tick(5.5)
+    check(zeroPhases.phase == .finished, "全 0 时长子阶段一次 tick 内走完")
+    check(zeroEvents == [.entered(.transitionShift), .enable, .entered(.allianceShift1), .entered(.allianceShift2),
+                         .entered(.allianceShift3), .entered(.allianceShift4), .entered(.endgame), .disable, .finished],
+          "0 时长子阶段事件顺序保持，实际 \(zeroEvents)")
+
+    // 浮点噪声不是余量：250 次 0.1s 恰好走完 25s 开始等待，下一阶段必须仍是整长
+    var noise = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 25))
+    _ = noise.start()
+    for _ in 0..<250 { _ = noise.tick(0.1) }
+    check(noise.phase == .autonomous && noise.remaining == 20,
+          "累加浮点误差不当作余量带入下一阶段，实际 \(noise.remaining)")
+
+    // A-Stop：追赶后的阶段里仍立即失能并结束
+    let abortEvents = jumped.abort()
+    check(jumped.phase == .finished && abortEvents == [.disable, .aborted, .finished],
+          "A-Stop 在追赶后的阶段仍立即失能结束")
+}
+
 // MARK: PacketRecorder / ReplaySource 单测
 
 func recorderTests() {
@@ -1395,6 +1500,7 @@ func runAllPhase2Tests() {
     runTest("safetyGateTests", safetyGateTests)
     runTest("povHatTests", povHatTests)
     runTest("practiceSequencerTests", practiceSequencerTests)
+    runTest("practiceSequencerCatchUpTests", practiceSequencerCatchUpTests)
     runTest("practiceTimelineTests", practiceTimelineTests)
     runTest("recorderTests", recorderTests)
     runTest("estopLatchScenario", estopLatchScenario)

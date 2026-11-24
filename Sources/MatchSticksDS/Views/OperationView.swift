@@ -26,15 +26,20 @@ struct OperationView: View {
                         VStack(alignment: .leading, spacing: 14) {
                             PracticeDurationCards(model: model)
                             if model.practicePhase != .idle {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack {
-                                        Text(model.practicePhase.displayName)
-                                        Spacer()
-                                        Text(String(format: "%.1f s", max(0, model.practiceRemaining))).monospacedDigit()
-                                    }.font(.callout)
-                                    ProgressView(value: practiceProgress)
-                                        .tint(DSTheme.accent)
-                                        .controlSize(.small)
+                                // 进度条与剩余文本随显示帧连续推进（同一时钟外推，不随 0.1s tick 跳格）；
+                                // 练习结束后暂停时间线，不再逐帧重绘。
+                                TimelineView(.animation(paused: !model.practiceActive)) { _ in
+                                    let display = model.livePracticeDisplay
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack {
+                                            Text(model.practicePhase.displayName)
+                                            Spacer()
+                                            Text(String(format: "%.1f s", display.remaining)).monospacedDigit()
+                                        }.font(.callout)
+                                        ProgressView(value: display.progress)
+                                            .tint(DSTheme.accent)
+                                            .controlSize(.small)
+                                    }
                                 }
                             }
                             if model.practiceActive {
@@ -209,11 +214,6 @@ struct OperationView: View {
             Text(title).font(.caption).foregroundStyle(DSTheme.textSecondary)
             Text(tr("%d 秒", Int(seconds))).font(.system(size: 20, weight: .semibold)).monospacedDigit()
         }
-    }
-
-    private var practiceProgress: Double {
-        let total = model.currentPracticePhaseDuration
-        return total > 0 ? min(1, max(0, 1 - model.practiceRemaining / total)) : 0
     }
 
     private var timeoutProgress: Double {
