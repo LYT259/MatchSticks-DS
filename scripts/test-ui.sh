@@ -91,6 +91,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/DirewolfArtworkTests.swift \
   Tests/MatchSticksDriverStaionUITests/GamepadRenderingTests.swift Tests/MatchSticksDriverStaionUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDriverStaionUITests/JoystickSlotOrderingTests.swift \
+  Tests/MatchSticksDriverStaionUITests/JoystickCardInteractionTests.swift \
   Tests/MatchSticksDriverStaionUITests/AppIconAppearanceTests.swift \
   Tests/MatchSticksDriverStaionUITests/DriverStationBrandTests.swift \
   Sources/MatchSticksDriverStaion/Views/MiniView.swift Sources/MatchSticksDriverStaion/MiniDriverStation.swift \

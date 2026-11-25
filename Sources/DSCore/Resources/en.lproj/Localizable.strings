@@ -215,13 +215,13 @@
 "重新扫描" = "Rescan";
 "重新扫描已连接的手柄。应用在前台且未编辑文本时，也可按 F1。" = "Rescans connected joysticks. With the app in the foreground and not editing text, F1 also works.";
 "槽位 %d，%@" = "Slot %d, %@";
-"点按查看详情；拖动右上角把手调整顺序" = "Click to jump to the detail card; drag the top-right handle to reorder";
-"将手柄拖到此处即移到末尾" = "Drop the joystick here to move it to the end";
+"轻点查看详情；拖动卡面调整顺序" = "Click to jump to details; drag the card to reorder";
+"拖到空闲卡即占据该槽位" = "Drop on an empty card to occupy that slot";
 "拖到其他槽位以调整顺序" = "Drag to another slot to reorder";
 "拖动把手调整座次" = "Drag this handle to reorder slots";
 "上移一个槽位" = "Move up one slot";
 "下移一个槽位" = "Move down one slot";
-"拖动槽位卡右上角的把手可调整座次：拖到占用卡即占该槽位，拖到空闲卡即移到末尾；顺序在重新扫描和插拔后保持不变。" = "Drag the top-right handle of a slot card to reorder: dropping on an occupied card takes that slot, dropping on an empty card moves the joystick to the end. The order survives rescans and replugs.";
+"拖到空闲卡即占据该槽位；拖到占用卡会让其他手柄顺延，顺序在重新扫描和插拔后保持不变。" = "Drop on an empty card to occupy that slot. Dropping on an occupied card shifts the other joysticks; the order survives rescans and replugs.";
 "只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。" = "Only slots 0–5 are sent to the robot. Move the joysticks you'll use into these slots.";
 "槽位 %d" = "Slot %d";
 "空闲" = "Empty";
