@@ -429,6 +429,7 @@ struct UIStateTests {
         thumbstickSceneTests(check)
         flightStickSceneTests(check)
         direwolfArtworkTests(check)
+        artworkIntegrityTests(check)
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         joystickSlotOrderingTests(check)
