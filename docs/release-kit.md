@@ -5,7 +5,7 @@
 
 ## 零、外部先决条件（发布前必须满足）
 
-- **GitHub 仓库**：远端仓库改名至 `LYT259/MatchSticks-DriverStaion` 完成前，本文件中的新 `raw.githubusercontent.com`、Releases 下载与 appcast 地址均不可达；本地构建和测试可先行，但不能据此发布。发版时还须等对应 Release 与附件实际发布并实测可达。
+- **GitHub 仓库**：远端仓库已命名为 `LYT259/MatchSticks-DriverStaion`，旧名 URL 自动重定向；本文件中的 `raw.githubusercontent.com`、Releases 下载与 appcast 地址已可用。发版时仍须等对应 Release 与附件实际发布并实测可达。
 - **Homebrew tap**：`LYT259/homebrew-matchsticks-driver-staion` 实际建立或改名、且 `matchsticks-driver-staion` cask 可用前，下方 `brew install` 命令不可达；不得把物料已备等同于 tap 已可用。
 - **Cloudflare 镜像**：项目 `matchsticks-driver-staion-mirror` 实际建立或改名并部署前，镜像页与镜像下载地址不可达；只有实测可达后才能把镜像链接写入 Release。
 
@@ -61,7 +61,7 @@
 
 - Sparkle Ed25519 私钥：`~/.ghds-release-keys/ghds-ed25519`（0600，仓库外；**丢失则换钥需随下个版本发 SUPublicEDKey——老版本只能手动升级**）
 - 公钥已固化 `scripts/build-app.sh` 默认值；**新构建**的 Info.plist 默认使用 SUFeedURL = `https://github.com/LYT259/MatchSticks-DriverStaion/releases/latest/download/appcast.xml`（构建前可用 `SU_FEED_URL` 覆盖，仅测试/镜像场景）
-- **历史 Release 不改写**：已发布旧版本的 Info.plist 内置其构建时的旧地址（`LYT259/MatchSticks-DS/…`、2026-11-23 中间形态 `LYT259/MatchSticks-Driver-Station/…` 或更早 `LYT259/ghdriverstation/…`），不会因历次改名自动切换；旧 Release 的附件与 appcast 保持原样、不回填也不删除。旧客户端能否继续检查更新取决于 GitHub 仓库改名后的重定向，否则需手动安装一次新构建；新构建发布后才会使用新地址。
+- **历史 Release 不改写**：已发布旧版本的 Info.plist 内置其构建时的旧地址（`LYT259/MatchSticks-DS/…`、2026-11-23 中间形态 `LYT259/MatchSticks-Driver-Station/…` 或更早 `LYT259/ghdriverstation/…`），不会因历次改名自动切换；旧 Release 的附件与 appcast 保持原样、不回填也不删除。旧客户端经 GitHub 仓库改名后的重定向继续检查更新；若重定向失效，需手动安装一次新构建。新构建发布后使用新地址。
 - 更名不影响签名链：应用 bundle ID 保持 `org.ghfrc.driverstation`；Sparkle 私钥路径与 `SUPublicEDKey` 均沿用原值，仅 appcast / 下载地址随仓库改为 `LYT259/MatchSticks-DriverStaion`。
 - 签名红线：**签名后不得再改 bundle 内任何文件**（改 Info.plist = 破坏资源密封 → Sparkle 拒收 + 用户侧「已损坏」假警告）；测试密钥走构建前注入（SU_PUBLIC_ED_KEY）
 
