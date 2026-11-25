@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import DSCore
@@ -12,8 +13,8 @@ enum JoystickSlotDrag {
     static let typeIdentifier = "org.ghfrc.driverstation.joystick-slot"
     static let type = UTType(exportedAs: typeIdentifier)
 
-    static func provider(uniqueID: String) -> NSItemProvider {
-        let provider = NSItemProvider()
+    static func provider(uniqueID: String) -> JoystickSlotDragItemProvider {
+        let provider = JoystickSlotDragItemProvider(uniqueID: uniqueID)
         let payload = Data(uniqueID.utf8)
         provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .all) { completion in
             completion(payload, nil)
@@ -43,10 +44,145 @@ enum JoystickSlotDrag {
     }
 }
 
+final class JoystickSlotDragItemProvider: NSItemProvider, NSPasteboardWriting {
+    private let uniqueID: String
+
+    init(uniqueID: String) {
+        self.uniqueID = uniqueID
+        super.init()
+    }
+
+    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+        [NSPasteboard.PasteboardType(JoystickSlotDrag.typeIdentifier),
+         NSPasteboard.PasteboardType(UTType.data.identifier)]
+    }
+
+    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
+        Data(uniqueID.utf8)
+    }
+}
+
+/// 分离轻点与拖动：只有超过阈值且成功进入拖动会话后才消费随后的 mouseUp。
+/// 新 mouseDown 开启新手势，因此取消或完成拖动后不会遗留点击状态。
+@MainActor
+final class JoystickCardInteractionCoordinator: NSObject, NSDraggingSource {
+    static let dragThreshold: CGFloat = 6
+
+    private var mouseDownLocation: NSPoint?
+    private var hasDragged = false
+    var onClick: () -> Void
+
+    init(onClick: @escaping () -> Void) {
+        self.onClick = onClick
+    }
+
+    func mouseDown(at point: NSPoint) {
+        mouseDownLocation = point
+        hasDragged = false
+    }
+
+    func mouseDragged(at point: NSPoint, startingDrag: () -> Bool) -> Bool {
+        guard let mouseDownLocation, !hasDragged else { return false }
+        let dx = point.x - mouseDownLocation.x
+        let dy = point.y - mouseDownLocation.y
+        guard (dx * dx + dy * dy).squareRoot() >= Self.dragThreshold else { return false }
+        hasDragged = true
+        return startingDrag()
+    }
+
+    func mouseUp(at point: NSPoint) {
+        guard mouseDownLocation != nil else { return }
+        mouseDownLocation = nil
+        guard !hasDragged else { return }
+        onClick()
+    }
+
+    func dragEnded() {
+        mouseDownLocation = nil
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint,
+                         operation: NSDragOperation) {
+        dragEnded()
+    }
+
+    func draggingSession(_ session: NSDraggingSession,
+                         sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .move
+    }
+}
+
 private extension View {
     /// 条件应用修饰符：VoiceOver 自定义操作只在有效时提供（首槽不展示「上移」、末槽不展示「下移」）。
     @ViewBuilder func `when`<Transform: View>(_ condition: Bool, _ transform: (Self) -> Transform) -> some View {
         if condition { transform(self) } else { self }
+    }
+}
+
+/// 全卡透明事件层。原 Button 仍保留键盘/VoiceOver 语义；此层只处理指针轻点与 NSDraggingSession。
+private struct JoystickCardInteraction: NSViewRepresentable {
+    let index: Int
+    let uniqueID: String
+    let onClick: () -> Void
+
+    func makeCoordinator() -> JoystickCardInteractionCoordinator {
+        JoystickCardInteractionCoordinator(onClick: onClick)
+    }
+
+    func makeNSView(context: Context) -> SlotCardEventView {
+        let view = SlotCardEventView()
+        view.identifier = NSUserInterfaceItemIdentifier("joystick-card-interaction-\(index)")
+        view.coordinator = context.coordinator
+        view.uniqueID = uniqueID
+        return view
+    }
+
+    func updateNSView(_ view: SlotCardEventView, context: Context) {
+        view.uniqueID = uniqueID
+        context.coordinator.onClick = onClick
+    }
+}
+
+private final class SlotCardEventView: NSView {
+    var coordinator: JoystickCardInteractionCoordinator?
+    var uniqueID = ""
+
+    override var isOpaque: Bool { false }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        coordinator?.mouseDown(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let coordinator else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        _ = coordinator.mouseDragged(at: point) { [weak self] in
+            guard let self else { return false }
+            let item = NSDraggingItem(pasteboardWriter: JoystickSlotDrag.provider(uniqueID: self.uniqueID))
+            let image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: nil) ?? NSImage()
+            item.setDraggingFrame(NSRect(x: point.x - 12, y: point.y - 12, width: 24, height: 24), contents: image)
+            beginDraggingSession(with: [item], event: event, source: coordinator)
+            return true
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let coordinator else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if bounds.contains(point) {
+            coordinator.mouseUp(at: point)
+        } else {
+            coordinator.dragEnded()
+        }
     }
 }
 
@@ -81,14 +217,14 @@ struct USBDevicesView: View {
 
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
                         ForEach(0..<6, id: \.self) { index in
-                            let slot = model.joystickSlots.indices.contains(index) ? model.joystickSlots[index] : nil
+                            let slot = model.joystickSlots.first { $0.index == index }
                             let title = slot.map { model.gamepadDisplayName(for: $0) } ?? tr("空闲")
-                            let hint = slot == nil ? tr("将手柄拖到此处即移到末尾") : tr("点按查看详情；拖动右上角把手调整顺序")
+                            let hint = slot == nil ? tr("拖到空闲卡即占据该槽位") : tr("轻点查看详情；拖动卡面调整顺序")
                             slotCard(index: index, slot: slot, title: title, hint: hint, reader: reader)
                         }
                     }
-                    if model.joystickSlots.count > 1 {
-                        Label(tr("拖动槽位卡右上角的把手可调整座次：拖到占用卡即占该槽位，拖到空闲卡即移到末尾；顺序在重新扫描和插拔后保持不变。"),
+                    if !model.joystickSlots.isEmpty {
+                        Label(tr("拖到空闲卡即占据该槽位；拖到占用卡会让其他手柄顺延，顺序在重新扫描和插拔后保持不变。"),
                               systemImage: "arrow.left.arrow.right")
                             .font(.caption).foregroundStyle(DSTheme.textSecondary)
                     }
@@ -100,13 +236,13 @@ struct USBDevicesView: View {
                             Label(tr("只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。"), systemImage: "info.circle")
                                 .font(.callout).foregroundStyle(DSTheme.textSecondary)
                         }
-                        ForEach(Array(model.joystickSlots.enumerated()), id: \.element.id) { index, slot in
-                            JoystickCard(model: model, index: index, slot: slot)
-                                .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.detail(index))) { providers in
-                                    drop(providers, at: index)
+                        ForEach(model.joystickSlots, id: \.id) { slot in
+                            JoystickCard(model: model, index: slot.index, slot: slot)
+                                .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.detail(slot.index))) { providers in
+                                    drop(providers, at: slot.index)
                                 }
                                 .overlay {
-                                    if dropTarget == .detail(index) {
+                                    if dropTarget == .detail(slot.index) {
                                         RoundedRectangle(cornerRadius: 10)
                                             .strokeBorder(DSTheme.accent, lineWidth: 2)
                                             .allowsHitTesting(false)
@@ -121,8 +257,8 @@ struct USBDevicesView: View {
         }
     }
 
-    /// 顶部槽位摘要卡：卡面是 Button（点按滚动到详情卡），右上角拖动把手是独立 sibling——
-    /// macOS 上 Button 会吞掉拖拽起手，把手不能是 Button 的子视图；整卡作落点（空闲卡 = 移到末尾）。
+    /// 顶部槽位摘要卡：卡面 Button 保留键盘/VoiceOver 语义，透明 AppKit 层负责指针轻点与整卡拖动。
+    /// 右上角把手只是视觉提示；空闲卡仅作落点。
     private func slotCard(index: Int, slot: JoystickSlot?, title: String, hint: String,
                           reader: ScrollViewProxy) -> some View {
         let targeted = dropTarget == .summary(index)
@@ -139,7 +275,7 @@ struct USBDevicesView: View {
             .when(index > 0) {
                 $0.accessibilityAction(named: tr("上移一个槽位")) { model.moveSlot(index, up: true) }
             }
-            .when(index < model.joystickSlots.count - 1) {
+            .when(model.joystickSlots.contains { $0.index > index }) {
                 $0.accessibilityAction(named: tr("下移一个槽位")) { model.moveSlot(index, up: false) }
             }
             .help(hint)
@@ -147,9 +283,15 @@ struct USBDevicesView: View {
                 SlotDragHandle(slot: slot).padding(4)
             }
         }
+        .overlay {
+            if let slot {
+                JoystickCardInteraction(index: index, uniqueID: slot.uniqueID) {
+                    reader.scrollTo(slot.id, anchor: .top)
+                }
+            }
+        }
         .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.summary(index))) { providers in
-            // 空闲摘要卡 = 移到末尾（落点钳到当前数量）
-            drop(providers, at: min(index, model.joystickSlots.count))
+            drop(providers, at: index)
         }
     }
 
@@ -159,7 +301,8 @@ struct USBDevicesView: View {
         JoystickSlotDrag.uniqueID(from: provider) { uniqueID in
             guard let uniqueID else { return }
             DispatchQueue.main.async {
-                guard let source = model.joystickSlots.firstIndex(where: { $0.uniqueID == uniqueID }) else { return }
+                let source = model.joystickSlots.first { $0.uniqueID == uniqueID }?.index
+                guard let source else { return }
                 model.moveSlot(from: source, to: destination)
             }
         }
@@ -209,21 +352,17 @@ struct USBDevicesView: View {
     }
 }
 
-/// 摘要卡右上角的拖动把手（独立于卡面 Button 的 sibling）：只有占用卡才有，空闲卡不可拖。
+/// 摘要卡右上角的视觉把手：不接收指针，拖动由整张占用卡的透明事件层统一处理。
 private struct SlotDragHandle: View {
     let slot: JoystickSlot
-    @State private var hovering = false
 
     var body: some View {
         Image(systemName: "line.3.horizontal")
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(hovering ? DSTheme.accent : DSTheme.textSecondary)
+            .foregroundStyle(DSTheme.textSecondary)
             .frame(width: 24, height: 24)
-            .background(hovering ? DSTheme.card : .clear, in: RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-            .onDrag { JoystickSlotDrag.provider(uniqueID: slot.uniqueID) }
-            .help(tr("拖动把手调整座次"))
+            .background(.clear, in: RoundedRectangle(cornerRadius: 6))
+            .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
