@@ -274,7 +274,7 @@ extension DSModel {
         if !watchdogHealthy { return tr("界面心跳异常，使能输出已冻结。") }
         if !commConnected { return tr("先在「连接」页配置机器人。") }
         if enabled { return tr("运行中。按 Return 失能，按空格急停。") }
-        return tr("使能后机器人可能运动，请先确认周围安全。")
+        return ""
     }
 
     /// 机器人侧回传的急停（区别于本地锁存 estopEngaged）。

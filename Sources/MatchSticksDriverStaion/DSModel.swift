@@ -1350,6 +1350,7 @@ final class DSModel {
     }
 
     private func playEstopSound() {
+        guard enableDisableSoundsEnabled else { return }
         if let estopSoundPlayer {
             estopSoundPlayer()
             return
