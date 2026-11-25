@@ -27,7 +27,8 @@
 # Info.plist 注入 LSEnvironment（LaunchServices 重启后仍继承测试设置）和 Sparkle 的
 # SUDefaultsDomain（Sparkle 偏好也落测试 suite），随后重新 ad-hoc 签名；beta 渠道 leg 使用
 # 第二个独立 suite（预写 updateChannel=beta）；正式域 org.ghfrc.driverstation 做全量 UserDefaults
-# export 前后比较（不只 4 个键）。构建三个版本（9.9.8 / 9.9.9 / 9.9.10）比旧版多一次 build-app.sh。
+# 键级前后比较（不只 4 个键；仅 AppKit 的 NSWindow Frame main/mini 允许变化并单独报告）。
+# 构建三个版本（9.9.8 / 9.9.9 / 9.9.10）比旧版多一次 build-app.sh。
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # 本机完整 Xcode（CLAUDE.md 工具链钉死；Xcode-beta 已不存在时回退 /Applications/Xcode.app，与 test-ui.sh 一致）
@@ -678,20 +679,19 @@ if grep -Eiq 'matchsticksds_update_request=|matchsticksds-update-request:|author
 fi
 AFTER_PRODUCTION="$(snapshot_production_domain "$WORK/production-after.plist")"
 if [ "$BEFORE_PRODUCTION" != "$AFTER_PRODUCTION" ]; then
-    python3 - "$WORK/production-before.plist" "$WORK/production-after.plist" <<'PY'
-import plistlib
-import sys
-
-with open(sys.argv[1], "rb") as stream:
-    before = plistlib.load(stream)
-with open(sys.argv[2], "rb") as stream:
-    after = plistlib.load(stream)
-for key in sorted(set(before) | set(after)):
-    if before.get(key) != after.get(key):
-        print("  正式域变化键名（不输出值）：", key)
-PY
-    fail "正式域 ${PROD_DOMAIN} 的全量 UserDefaults 前后不一致（测试或 Sparkle 写入了真实域？实际值不输出）"
+    # 与打包 E2E 共用键级判定：SwiftUI Window 场景的 main/mini 框架由 AppKit 写入正式域，
+    # 测试 suite 隔离覆盖不到，允许变化并逐键报告；其余任何新增、删除或值变化仍然失败。
+    set +e
+    python3 scripts/defaults-domain-diff.py "$WORK/production-before.plist" "$WORK/production-after.plist" \
+        --allow "NSWindow Frame main" --allow "NSWindow Frame mini"
+    DOMAIN_DIFF_RC=$?
+    set -e
+    case "$DOMAIN_DIFF_RC" in
+        0) ;;
+        2) fail "正式域快照无法比较（plist 解析失败，见上）" ;;
+        *) fail "正式域 ${PROD_DOMAIN} 存在 AppKit 窗口框架键之外的变化（变化键名见上，实际值不输出）" ;;
+    esac
 fi
 
 echo ""
-echo "✅ Sparkle 升级链路 E2E 通过（Leg A stable→9.9.9 且 beta 条目不可见；Leg D beta→9.9.10；Leg E beta 收 stable；Leg C 离线零检查、上线后自动重试升级；Leg B 通信活跃安全门阻断 + 强退后不自动重启；生产 URLProtocol 实际命中且源站零 token/凭证；正式域全量设置未变）"
+echo "✅ Sparkle 升级链路 E2E 通过（Leg A stable→9.9.9 且 beta 条目不可见；Leg D beta→9.9.10；Leg E beta 收 stable；Leg C 离线零检查、上线后自动重试升级；Leg B 通信活跃安全门阻断 + 强退后不自动重启；生产 URLProtocol 实际命中且源站零 token/凭证；正式域除 AppKit 窗口框架键外未变）"
