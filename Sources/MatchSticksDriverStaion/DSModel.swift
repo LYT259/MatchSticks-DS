@@ -214,6 +214,7 @@ final class DSModel {
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
     var localNetworkSummary = tr("检测中…")
+    let permissionMonitor = PermissionRuntimeMonitor()
     private let networkMonitor = NetworkPathMonitor()
     private let macStatusSampler = MacStatusMonitor.BackgroundSampler()
     private var wpilogWriter: WPILogWriter?
@@ -590,6 +591,7 @@ final class DSModel {
         // 重复执行（多窗口 / 状态恢复再跑一次 .task）会叠加定时器与心跳源
         guard !startInvoked else { return }
         startInvoked = true
+        permissionMonitor.beginNewLaunch(autoSim: Self.isAutoSim)
 
         // 安全链级：控制环 20ms 与 UI 心跳看门狗都是延迟敏感的常驻活动。应用进入
         // 后台/未激活时 macOS 的 App Nap 会把 DispatchSourceTimer 节流，控制包间隔
@@ -687,6 +689,7 @@ final class DSModel {
         }
 
         startLocalNetworkDiscovery()
+        permissionMonitor.startFirewallVerification(autoSim: Self.isAutoSim)
         startWebUI()
         client.start()
         log(tr("MatchSticks Driver Station 控制环已启动（20ms）"))
@@ -749,6 +752,16 @@ final class DSModel {
         return true
     }
 
+    /// 手动重新检查权限证据：只重置验证流程，不刷新或中断机器人控制链路。
+    func restartPermissionVerification() {
+        permissionMonitor.beginNewLaunch(autoSim: Self.isAutoSim)
+        permissionMonitor.record(commState: commState)
+        localNetworkDiscovery?.cancel()
+        localNetworkDiscovery = nil
+        startLocalNetworkDiscovery()
+        permissionMonitor.startFirewallVerification(autoSim: Self.isAutoSim)
+    }
+
     /// 启动一次 NI 服务发现（幂等；仅 AUTO_SIM 跳过——E2E 不浏览网络上无关的机器人；
     /// autoSim 缺省跟随会话 AUTO_SIM 标志，测试显式传入）。
     /// 不看 teamNumber / manualIP：默认队号 0、空手动地址同样启动，首次 start() 即触发系统本地网络
@@ -764,9 +777,12 @@ final class DSModel {
     }
 
     private func handleLocalNetworkDiscovery(_ event: LocalNetworkDiscoveryEvent) {
+        permissionMonitor.applyDiscovery(event)
         switch event {
         case .policyDenied:
             log(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks Driver Station，然后重新打开应用。"))
+        case .nonLoopbackService(let name):
+            log(tr("NI 非回环接口服务发现：%@", name))
         case .failed(let reason):
             log(tr("NI 服务发现失败：%@", reason))
         case .services(let names):
@@ -1378,6 +1394,7 @@ final class DSModel {
         switch event {
         case .commState(let s):
             commState = s
+            permissionMonitor.record(commState: s)
         case .response(let p):
             // 逐应答执行（不随显示节流）：喂狗核算 + 电池历史采样（5Hz 内部节流）
             if p.watchdogFed {
