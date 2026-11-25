@@ -128,17 +128,19 @@ final class PermissionRuntimeMonitor {
     private(set) var firewallEvidence: FirewallEvidence = .notStarted
     private(set) var firewallURL: URL?
 
-    /// 本机全部 IPv4 接口地址：连接到本机局域网地址的模拟器与回环一样，不能证明权限。
-    @ObservationIgnored private var localIPv4Addresses: Set<String>
+    /// 本机全部 IPv4 接口地址的现查：连接到本机任一地址的模拟器与回环一样，不能证明权限。
+    /// 地址可能在会话中变化（接入机器人网络、DHCP 续租），所以每次通信状态变化时重新取值；测试注入固定或可变答案。
+    @ObservationIgnored private let localIPv4Addresses: () -> Set<String>
     /// 探针工厂：生产为真实 BSD 临时监听，测试注入假实现。
     @ObservationIgnored private var makeFirewallProbe: @MainActor () -> FirewallProbeControlling
     /// 本次启动的防火墙探针；停止后置空，旧探针迟到的回调按身份丢弃。
     @ObservationIgnored private var firewallProbe: FirewallProbeControlling?
 
-    init(localIPv4Addresses: Set<String>? = nil,
+    init(localIPv4Addresses: @escaping () -> Set<String> = {
+             Set(FirewallVerificationProbe.enumerateInterfaces().map(\.address))
+         },
          makeFirewallProbe: @escaping @MainActor () -> FirewallProbeControlling = { FirewallVerificationProbe() }) {
         self.localIPv4Addresses = localIPv4Addresses
-            ?? Set(FirewallVerificationProbe.enumerateInterfaces().map(\.address))
         self.makeFirewallProbe = makeFirewallProbe
     }
 
@@ -187,9 +189,10 @@ final class PermissionRuntimeMonitor {
     }
 
     func record(commState: DSClient.CommState) {
+        let localAddresses = localIPv4Addresses()
         switch commState {
         case .connected(let host):
-            if isLoopbackHost(host) {
+            if isLocalHost(host, localAddresses: localAddresses) {
                 if !networkEvidence.hasSuccess && networkEvidence != .denied {
                     networkEvidence = .loopbackSimulator
                 }
@@ -228,8 +231,8 @@ final class PermissionRuntimeMonitor {
         }
     }
 
-    /// 回环主机，或本机任一接口的地址（本机连接自己的局域网地址同样是模拟器）。
-    private func isLoopbackHost(_ host: String) -> Bool {
-        localIPv4Addresses.contains(host) || LocalNetworkEvidence.isLoopbackHost(host)
+    /// 回环主机，或本机任一接口的当前地址（本机连接自己的局域网地址同样是模拟器）。
+    private func isLocalHost(_ host: String, localAddresses: Set<String>) -> Bool {
+        localAddresses.contains(host) || LocalNetworkEvidence.isLoopbackHost(host)
     }
 }

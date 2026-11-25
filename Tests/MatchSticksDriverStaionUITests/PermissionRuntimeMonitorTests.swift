@@ -54,10 +54,21 @@ func permissionRuntimeMonitorTests(_ check: @MainActor (@autoclosure () -> Bool,
     check(monitor.networkEvidence == .unverified && monitor.networkEvidence.tone == .warning,
           "searching without other evidence returns to unverified")
 
-    let localSimulator = PermissionRuntimeMonitor(localIPv4Addresses: ["192.168.3.37"])
+    let localSimulator = PermissionRuntimeMonitor(localIPv4Addresses: { ["192.168.3.37"] })
     localSimulator.record(commState: .connected(host: "192.168.3.37"))
     check(localSimulator.networkEvidence == .loopbackSimulator && localSimulator.networkEvidence.tone == .warning,
           "a simulator using this Mac's LAN address is not real robot evidence")
+
+    var currentInterfaces: Set<String> = ["192.168.3.37"]
+    let movingSimulator = PermissionRuntimeMonitor(localIPv4Addresses: { currentInterfaces })
+    movingSimulator.record(commState: .connected(host: "10.25.90.5"))
+    check(movingSimulator.networkEvidence == .verifiedRobot,
+          "an address this Mac does not own is still a real robot")
+    currentInterfaces.insert("10.25.90.5")
+    movingSimulator.beginNewLaunch()
+    movingSimulator.record(commState: .connected(host: "10.25.90.5"))
+    check(movingSimulator.networkEvidence == .loopbackSimulator && movingSimulator.networkEvidence.tone == .warning,
+          "an address this Mac acquires after launch is still this Mac, not a robot")
 
     monitor.beginNewLaunch()
     monitor.record(commState: .connected(host: "localhost"))

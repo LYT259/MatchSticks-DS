@@ -11,6 +11,28 @@ private final class FakeFirewallProbe: FirewallProbeControlling {
     func stop() { stopCount += 1 }
 }
 
+/// 只连接、不发送的 TCP 连接：在监听端占住一个空闲名额（回环来源在收到数据或超时前保持打开）。
+private func idleConnection(to url: URL) -> Int32? {
+    guard let host = url.host, let port = url.port else { return nil }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = UInt16(port).bigEndian
+    guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else { return nil }
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    let result = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard result == 0 else {
+        Darwin.close(fd)
+        return nil
+    }
+    return fd
+}
+
 @MainActor
 func firewallVerificationProbeTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
     let loopback = FirewallInterface(name: "lo0", address: "127.0.0.1", prefixLength: 8,
@@ -36,6 +58,11 @@ func firewallVerificationProbeTests(_ check: @MainActor (@autoclosure () -> Bool
     check(FirewallVerificationProbe.selectListenAddress([wifi, ethernet]) == "192.0.2.10" &&
           FirewallVerificationProbe.selectListenAddress([ethernet, wifi]) == "192.0.2.10",
           "interface order does not make listener selection nondeterministic")
+    let virtualBridge = FirewallInterface(name: "bridge100", address: "192.168.64.2", prefixLength: 24,
+                                          isUp: true, isLoopback: false)
+    check(FirewallVerificationProbe.selectListenAddress([virtualBridge, wifi]) == "192.0.2.20" &&
+              FirewallVerificationProbe.selectListenAddress([virtualBridge]) == "192.168.64.2",
+          "a virtual-machine or bridge adapter never outranks a Wi-Fi or Ethernet address, and is still usable alone")
 
     let localAddresses: Set<String> = ["192.0.2.10", "192.0.2.20", "127.0.0.1"]
     check(FirewallVerificationProbe.isLocalPeer("127.0.0.1", localAddresses: localAddresses) &&
@@ -151,6 +178,26 @@ func firewallVerificationProbeTests(_ check: @MainActor (@autoclosure () -> Bool
     let body = String(data: responseBodyData ?? Data(), encoding: .utf8) ?? ""
     check(body.contains("Local interface rejected") && !body.contains("firewall allowed"),
           "the negative response is static and does not claim firewall success")
+
+    var held: [Int32] = []
+    defer { held.forEach { Darwin.close($0) } }
+    for _ in 0..<FirewallVerificationProbe.maximumConcurrentConnections {
+        if let fd = idleConnection(to: verificationURL) { held.append(fd) }
+    }
+    let overflow = idleConnection(to: verificationURL)
+    check(held.count == FirewallVerificationProbe.maximumConcurrentConnections && overflow != nil,
+          "idle local connections can fill the listener's connection slots")
+    if let first = held.first, let overflow {
+        var byte: UInt8 = 0
+        var timeout = timeval(tv_sec: 1, tv_usec: 0)
+        _ = setsockopt(first, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        _ = setsockopt(overflow, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        check(recv(overflow, &byte, 1, 0) == 0,
+              "a connection beyond the cap is closed at once instead of being held")
+        Darwin.close(overflow)
+        check(recv(first, &byte, 1, 0) < 0,
+              "connections within the cap are still held instead of being refused")
+    }
     probe.stop()
     check(states.allSatisfy { state in
         if case .verified = state { return false }

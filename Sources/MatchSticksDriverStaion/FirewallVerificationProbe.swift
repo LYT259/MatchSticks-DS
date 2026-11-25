@@ -135,6 +135,9 @@ private enum FirewallProbeEvent {
 /// 不依赖 NWListener、DSClient、WebUI 或 NT4；不记录对端地址、请求头或请求内容。
 @MainActor
 final class FirewallVerificationProbe: FirewallProbeControlling {
+    /// 同时保持的入站连接上限：超出者立即关闭，避免局域网设备耗尽本进程的文件描述符（与机器人控制链路共用）
+    nonisolated static let maximumConcurrentConnections = 8
+
     var onState: (@MainActor (FirewallProbeState) -> Void)?
 
     /// 监听器内所有描述符操作只在这条串行队列上执行；主线程只持有监听器句柄和代际号。
@@ -174,16 +177,24 @@ final class FirewallVerificationProbe: FirewallProbeControlling {
     // MARK: 地址选择与对端校验（纯函数，无套接字）
 
     /// 确定性地选择一个监听地址：只取已启用、非回环、有有效掩码的 IPv4 单播地址，
-    /// 排除 0.0.0.0 / 零掩码、回环、组播（首字节 ≥ 224）、广播；按接口名再按数值地址排序。
-    /// 没有合格地址时返回 nil——绝不回退到 0.0.0.0 或 127.0.0.1。
+    /// 排除 0.0.0.0 / 零掩码、回环、组播（首字节 ≥ 224）、广播。
+    /// Wi‑Fi / 以太网（en0、en7…）优先于虚拟机网桥、隧道等其他接口——后者往往只有本机能到达；
+    /// 同一优先级内按接口名再按数值地址排序。没有合格地址时返回 nil，绝不回退到 0.0.0.0 或 127.0.0.1。
     nonisolated static func selectListenAddress(_ interfaces: [FirewallInterface]) -> String? {
-        let candidates: [(name: String, number: UInt32, address: String)] = interfaces.compactMap { item in
+        let candidates: [(name: String, rank: Int, number: UInt32, address: String)] = interfaces.compactMap { item in
             guard let number = ipv4Number(item.address), isEligibleListenAddress(item, number: number) else { return nil }
-            return (item.name, number, item.address)
+            return (item.name, isLANInterfaceName(item.name) ? 0 : 1, number, item.address)
         }
         return candidates.min { lhs, rhs in
-            lhs.name != rhs.name ? lhs.name < rhs.name : lhs.number < rhs.number
+            if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
+            return lhs.name != rhs.name ? lhs.name < rhs.name : lhs.number < rhs.number
         }?.address
+    }
+
+    /// Wi‑Fi / 以太网及其适配器的接口名（`en` + 数字）。
+    private nonisolated static func isLANInterfaceName(_ name: String) -> Bool {
+        let suffix = name.dropFirst(2)
+        return name.hasPrefix("en") && !suffix.isEmpty && suffix.allSatisfy { (0x30...0x39).contains($0.asciiValue ?? 0) }
     }
 
     /// 来源属于本机：回环、未指定、localhost，或本机任一接口的地址（含本机连接自己的局域网地址）。
@@ -299,8 +310,8 @@ private enum FirewallResponse {
     }
 }
 
-/// 单个已接受的连接；只在监听队列上访问。
-private final class FirewallConnection {
+/// 单个已接受的连接；只在监听队列上访问（与 FirewallListener 相同的队列独占约定，故按队列独占标记 Sendable）。
+private final class FirewallConnection: @unchecked Sendable {
     enum Phase { case readingRequest, writingResponse, draining }
 
     let fd: Int32
@@ -315,13 +326,12 @@ private final class FirewallConnection {
     var response: Data?
     var responseOffset = 0
     var readSource: DispatchSourceRead?
-    var writeSource: DispatchSourceWrite?
     var deadline: DispatchWorkItem?
     var isClosing = false
 
-    init(fd: Int32, peer: String, isLocalPeer: Bool) {
+    init(fd: Int32, peer: String, isLocalPeer: Bool, closer: DescriptorCloser) {
         self.fd = fd
-        self.closer = DescriptorCloser(fd: fd)
+        self.closer = closer
         self.peer = peer
         self.isLocalPeer = isLocalPeer
     }
@@ -404,7 +414,7 @@ private final class FirewallListener: @unchecked Sendable {
         }
     }
 
-    /// 幂等：取消监听读源与每个连接的读 / 写源，由各自的取消处理器关闭描述符。
+    /// 幂等：取消监听读源与每个连接的读源，由各自的取消处理器关闭描述符。
     func stop() {
         guard !isStopped else { return }
         isStopped = true
@@ -440,6 +450,7 @@ private final class FirewallListener: @unchecked Sendable {
         let closer = DescriptorCloser(fd: fd)
         var one: Int32 = 1
         guard !isStopped,
+              connections.count < FirewallVerificationProbe.maximumConcurrentConnections,
               setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size)) == 0,
               Self.setNonBlocking(fd),
               // 目的地址必须等于对外公布的地址；来源必须是 AF_INET 非回环、非未指定且不属于本机任一接口地址
@@ -452,7 +463,7 @@ private final class FirewallListener: @unchecked Sendable {
             FirewallProbePeer(source: source, destination: destination),
             advertisedAddress: advertisedAddress,
             localAddresses: Set(FirewallVerificationProbe.enumerateInterfaces().map(\.address)))
-        let connection = FirewallConnection(fd: fd, peer: source, isLocalPeer: !isValidPeer)
+        let connection = FirewallConnection(fd: fd, peer: source, isLocalPeer: !isValidPeer, closer: closer)
         let readSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         readSource.setEventHandler { [weak self, weak connection] in
             guard let self, let connection else { return }
@@ -564,16 +575,9 @@ private final class FirewallListener: @unchecked Sendable {
             let error = errno
             if error == EINTR { continue }
             if error == EAGAIN {
-                if connection.writeSource == nil {
-                    let source = DispatchSource.makeWriteSource(fileDescriptor: connection.fd, queue: queue)
-                    source.setEventHandler { [weak self, weak connection] in
-                        guard let self, let connection else { return }
-                        self.sendPending(connection)
-                    }
-                    // 写源不拥有描述符：读源的取消处理器统一关闭
-                    source.resume()
-                    connection.writeSource = source
-                }
+                // 响应只有一两百字节，内核总会立即接收；真写不进去就当对端不可用，不产生证据，
+                // 也不为同一个描述符再挂一个写源（两个源各自取消时序不保证，描述符会被提前关闭）。
+                close(connection)
                 return
             }
             // EPIPE / ECONNRESET：对端已消失，部分发送绝不成为证据
@@ -584,8 +588,6 @@ private final class FirewallListener: @unchecked Sendable {
     }
 
     private func responseSent(_ connection: FirewallConnection) {
-        connection.writeSource?.cancel()
-        connection.writeSource = nil
         let kind = connection.responseKind
         connection.response = nil
         // 已完整发送：先发 FIN，再读完对端后续数据直到 EOF（仍受 5 秒上限约束），
@@ -606,14 +608,12 @@ private final class FirewallListener: @unchecked Sendable {
         connections.filter { $0 !== verified }.forEach { close($0) }
     }
 
-    /// 关闭连接：取消读 / 写源与超时，描述符由读源的取消处理器关闭（幂等）。
+    /// 关闭连接：取消读源与超时，描述符由读源的取消处理器关闭（幂等）。
     private func close(_ connection: FirewallConnection) {
         guard !connection.isClosing else { return }
         connection.isClosing = true
         connection.deadline?.cancel()
         connections.removeAll { $0 === connection }
-        connection.writeSource?.cancel()
-        connection.writeSource = nil
         guard let readSource = connection.readSource else {
             connection.closer.closeDescriptor()
             return
