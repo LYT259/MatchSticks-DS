@@ -1048,6 +1048,23 @@ struct UIStateTests {
         cueModel.estopSoundPlayer = { estopPlayed = true }
         cueModel.triggerEstop()
         check(estopPlayed && cues == cuesBeforeEstop, "E-Stop keeps its own sound without an extra match-end cue")
+        cueModel.resetEstop()
+        cueModel.enableDisableSoundsEnabled = false
+        estopPlayed = false
+        cueModel.triggerEstop()
+        check(cueModel.estopEngaged && !estopPlayed && cues == cuesBeforeEstop,
+              "turning off Enable/Disable sounds also silences the E-Stop horn")
+        cueModel.resetEstop()
+        cueModel.enableDisableSoundsEnabled = true
+        cueModel.triggerEstop()
+        check(cueModel.estopEngaged && estopPlayed && cues == cuesBeforeEstop,
+              "turning Enable/Disable sounds back on restores the E-Stop horn")
+
+        let readyModel = DSModel(settingsDefaults: makeSuite(suiteNames[13]), persistenceEnabled: false)
+        readyModel.commState = .connected(host: "127.0.0.1")
+        check(readyModel.enableExplanation.isEmpty, "the ready state no longer shows the area-clear reminder")
+        readyModel.commState = .searching
+        check(!readyModel.enableExplanation.isEmpty, "the missing-connection explanation remains")
 
         let deniedModel = DSModel(settingsDefaults: makeSuite(suiteNames[14]), persistenceEnabled: false)
         var deniedCues: [String] = []
@@ -1431,6 +1448,17 @@ struct UIStateTests {
               "the official timing preset moves with the duration editor, exactly once")
         check(!operationSource.contains("openSettings") && !appSource.contains("OperationView(model: model, openSettings:"),
               "the obsolete Adjust Practice Durations navigation is removed")
+        check(!appSource.contains("tr(\"驾驶控制\")") && !appSource.contains(": model.uiStatus)"),
+              "the Drive Controls status block is removed from the safety bar")
+        check(!appSource.contains("tr(\"快捷键仅在前台、非文本输入时生效\")"),
+              "the shortcuts footnote is removed from the safety bar")
+        check(appSource.contains("if !model.enableExplanation.isEmpty || model.estopEngaged {") &&
+              appSource.contains("model.resetEstop()"),
+              "the safety bar keeps the conditional explanations and the mouse reset for a latched E-Stop")
+        check(!englishTable.contains("\"驾驶控制\" = \"Drive Controls\";") &&
+              !englishTable.contains("confirm the area is clear") &&
+              !englishTable.contains("Shortcuts apply only in the foreground"),
+              "translations for the removed safety-bar texts are deleted")
 
         // Task 1 放置守卫：右侧栏承载时序面板、Practice Match 命名、全宽内容与紧凑滑杆。
         check(!setupSource.contains("1040") && !settingsSource.contains("1040"),
