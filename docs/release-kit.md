@@ -98,7 +98,7 @@
 
 ## 五、双渠道 appcast 发布规则（stable / beta 同一个 feed）
 
-> 本节是规则 + 操作单。**2026-11-23 的文档修订未执行任何一步**（没有发过 beta Release、没有改过任何 Release 的附件；2026-11-24 按「六」更新 beta 的时机与授权，同样未执行）；实际执行记录以工程日志为准。决策见 [ADR-0004](decisions/0004-update-channels-and-connectivity.md)，实现见 `Sources/MatchSticksDS/UpdateChannel.swift`（`allowedChannels`：stable = 空集、beta = `{"beta"}`，默认渠道永远包含）。
+> 本节是规则 + 操作单。**2026-11-23 的文档修订未执行任何一步**（没有发过 beta Release、没有改过任何 Release 的附件；2026-11-24 按「六」更新 beta 的时机与授权，同样未执行）；实际执行记录以工程日志为准。决策见 [ADR-0004](decisions/0004-update-channels-and-connectivity.md)，实现见 `Sources/MatchSticksDriverStaion/UpdateChannel.swift`（`allowedChannels`：stable = 空集、beta = `{"beta"}`，默认渠道永远包含）。
 
 ### 机制（为什么必须这样发）
 
