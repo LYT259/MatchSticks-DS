@@ -219,13 +219,15 @@ struct SafetyControlBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.enabled ? tr("运行时间") : tr("驾驶控制")).font(.caption).foregroundStyle(DSTheme.textSecondary)
-                    Text(model.enabled ? String(format: "%02d:%04.1f", Int(model.enabledElapsed) / 60, model.enabledElapsed.truncatingRemainder(dividingBy: 60)) : model.uiStatus)
-                        .font(.system(size: 15, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(model.uiStatusColor)
+                if model.enabled {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(tr("运行时间")).font(.caption).foregroundStyle(DSTheme.textSecondary)
+                        Text(String(format: "%02d:%04.1f", Int(model.enabledElapsed) / 60, model.enabledElapsed.truncatingRemainder(dividingBy: 60)))
+                            .font(.system(size: 15, weight: .semibold)).monospacedDigit()
+                            .foregroundStyle(model.uiStatusColor)
+                    }
+                    .frame(minWidth: 110, alignment: .leading)
                 }
-                .frame(minWidth: 110, alignment: .leading)
                 Spacer(minLength: 8)
                 Button { model.setEnabled(true) } label: {
                     controlLabel(tr("使能"), hint: "[ + ] + \\", symbol: "play.fill")
@@ -245,16 +247,14 @@ struct SafetyControlBar: View {
                 .buttonStyle(DSActionStyle(color: DSTheme.danger, prominent: true))
                 .disabled(model.estopEngaged)
             }
-            HStack(alignment: .center, spacing: 10) {
-                Text(model.enableExplanation).font(.system(size: 12)).foregroundStyle(DSTheme.textSecondary)
-                if model.estopEngaged {
-                    Button(tr("复位急停")) { model.resetEstop() }
-                        .help(tr("请求重启机器人程序以解除急停锁存。快捷键：Esc + I。"))
-                }
-                Spacer(minLength: 0)
-                if !model.estopEngaged {
-                    Text(tr("快捷键仅在前台、非文本输入时生效"))
-                        .font(.system(size: 10)).foregroundStyle(DSTheme.textSecondary)
+            if !model.enableExplanation.isEmpty || model.estopEngaged {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(model.enableExplanation).font(.system(size: 12)).foregroundStyle(DSTheme.textSecondary)
+                    if model.estopEngaged {
+                        Button(tr("复位急停")) { model.resetEstop() }
+                            .help(tr("请求重启机器人程序以解除急停锁存。快捷键：Esc + I。"))
+                    }
+                    Spacer(minLength: 0)
                 }
             }
         }

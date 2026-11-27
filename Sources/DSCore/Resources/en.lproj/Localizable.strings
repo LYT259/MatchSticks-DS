@@ -37,12 +37,9 @@
 "界面心跳异常，使能输出已冻结。" = "UI heartbeat abnormal; enable output is frozen.";
 "先在「连接」页配置机器人。" = "Configure the robot on the Connection page first.";
 "运行中。按 Return 失能，按空格急停。" = "Running. Press Return to disable, Space to E-Stop.";
-"使能后机器人可能运动，请先确认周围安全。" = "The robot may move once enabled; confirm the area is clear first.";
 "复位急停" = "Reset E-Stop";
 "请求重启机器人程序以解除急停锁存。快捷键：Esc + I。" = "Requests a robot code restart to clear the E-Stop latch. Shortcut: Esc + I.";
-"快捷键仅在前台、非文本输入时生效" = "Shortcuts apply only in the foreground and outside text input";
 "运行时间" = "Run Time";
-"驾驶控制" = "Drive Controls";
 "机器人仍报告急停，使能不可用；等待复位生效或到驾驶页重启机器人程序。" = "The robot still reports E-Stop; Enable is unavailable. Wait for the reset to take effect or restart robot code from the Drive page.";
 "使能机器人（需已连接且无急停）" = "Enable the robot (requires connection and no E-Stop)";
 "迷你驾驶台" = "Mini Driver Station";
@@ -222,13 +219,13 @@
 "重新扫描" = "Rescan";
 "重新扫描已连接的手柄。应用在前台且未编辑文本时，也可按 F1。" = "Rescans connected joysticks. With the app in the foreground and not editing text, F1 also works.";
 "槽位 %d，%@" = "Slot %d, %@";
-"点按查看详情；拖动右上角把手调整顺序" = "Click to jump to the detail card; drag the top-right handle to reorder";
-"将手柄拖到此处即移到末尾" = "Drop the joystick here to move it to the end";
+"轻点查看详情；拖动卡面调整顺序" = "Click to jump to details; drag the card to reorder";
+"拖到空闲卡即占据该槽位" = "Drop on an empty card to occupy that slot";
 "拖到其他槽位以调整顺序" = "Drag to another slot to reorder";
 "拖动把手调整座次" = "Drag this handle to reorder slots";
 "上移一个槽位" = "Move up one slot";
 "下移一个槽位" = "Move down one slot";
-"拖动槽位卡右上角的把手可调整座次：拖到占用卡即占该槽位，拖到空闲卡即移到末尾；顺序在重新扫描和插拔后保持不变。" = "Drag the top-right handle of a slot card to reorder: dropping on an occupied card takes that slot, dropping on an empty card moves the joystick to the end. The order survives rescans and replugs.";
+"拖到空闲卡即占据该槽位；拖到占用卡会让其他手柄顺延，顺序在重新扫描和插拔后保持不变。" = "Drop on an empty card to occupy that slot. Dropping on an occupied card shifts the other joysticks; the order survives rescans and replugs.";
 "只有槽位 0–5 会发送到机器人。将要使用的手柄移到这些槽位。" = "Only slots 0–5 are sent to the robot. Move the joysticks you'll use into these slots.";
 "槽位 %d" = "Slot %d";
 "空闲" = "Empty";
@@ -344,6 +341,39 @@
 "NI 服务发现失败：%@" = "NI service discovery failed: %@";
 "NI 服务发现等待：%@" = "NI service discovery waiting: %@";
 "NI 服务发现已就绪" = "NI service discovery ready";
+
+"NI 非回环接口服务发现：%@" = "NI service discovered on a non-loopback interface: %@";
+
+/* ===== 每次启动权限验证 ===== */
+"正在检测本地网络" = "Checking Local Network";
+"本地网络检测已跳过" = "Local Network Check Skipped";
+"非回环 NI 服务发现已验证" = "Non-loopback NI Discovery Observed";
+"本地网络访问被拒绝" = "Local Network Access Denied";
+"正在等待真实非回环机器人连接或本地服务发现证据。" = "Waiting for real non-loopback robot-connection or local-service-discovery evidence.";
+"AUTO_SIM 已跳过本地网络发现；本会话没有可验证的真实网络证据。" = "AUTO_SIM skipped local network discovery; this session has no real network evidence to verify.";
+"已观察到非回环接口上的 NI 服务发现；这只证明当前发现路径可用，不代表机器人已可达。" = "Non-loopback NI discovery was observed on a network interface; this only confirms the current discovery path, not robot reachability.";
+"系统明确拒绝了本地网络访问。请在「隐私与安全性 → 本地网络」允许后重新检测。" = "macOS explicitly denied local network access. Allow it under Privacy & Security → Local Network, then check again.";
+"尚未启动入站验证" = "Incoming Check Not Started";
+"入站验证已跳过" = "Incoming Check Skipped";
+"正在启动入站验证" = "Starting Incoming Check";
+"正在等待入站验证" = "Waiting for Incoming Check";
+"入站 TCP 验证通过" = "Incoming TCP Check Succeeded";
+"未获得可用局域网地址" = "No Usable LAN Address";
+"入站验证未完成" = "Incoming Check Incomplete";
+"尚未验证入站连接" = "Incoming Connection Not Yet Verified";
+"应用启动后会自动检查入站连接。" = "The app checks incoming connections automatically on startup.";
+"AUTO_SIM 已跳过局域网入站验证；本会话不监听临时验证端口。" = "AUTO_SIM skipped the LAN incoming check; this session opens no temporary verification listener.";
+"正在准备临时入站验证端口。" = "Preparing a temporary incoming-check port.";
+"让同一网络的另一台设备访问验证地址；收到有效非回环请求后才算成功。" = "Open the verification URL from another device on the same network; success requires a valid non-loopback request.";
+"本次启动已收到有效非回环入站请求；这不等于读取了防火墙规则，也不代表所有端口或协议都可用。" = "A valid non-loopback incoming request was received this launch; this does not read firewall rules or prove that every port and protocol works.";
+"请连接 Wi-Fi 或有线网络后重新检测；这不表示防火墙拒绝。" = "Connect to Wi-Fi or Ethernet and check again; this does not mean the firewall denied access.";
+"验证服务未能完成，请重新检测；这不表示防火墙拒绝。" = "The verification service could not complete; check again. This does not mean the firewall denied access.";
+"超时前没有收到有效非回环请求；这不表示防火墙拒绝。" = "No valid non-loopback request arrived before timeout; this does not mean the firewall denied access.";
+
+"在同一网络的另一台设备打开：" = "Open this URL from another device on the same network:";
+"验证成功后监听会自动关闭；重新启动应用会重新检测。" = "The listener closes after success; relaunch the app to check again.";
+"只验证当前地址和端口的 TCP 入站路径。" = "Only the TCP incoming path on this address and port is checked.";
+"可点击重新检测再试。" = "You can check again.";
 
 /* ===== RobotHistoryView（机器人页历史曲线，合并原图表页）===== */
 "丢包率" = "Packet Loss";

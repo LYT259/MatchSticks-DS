@@ -214,6 +214,7 @@ final class DSModel {
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
     var localNetworkSummary = tr("检测中…")
+    let permissionMonitor = PermissionRuntimeMonitor()
     private let networkMonitor = NetworkPathMonitor()
     private let macStatusSampler = MacStatusMonitor.BackgroundSampler()
     private var wpilogWriter: WPILogWriter?
@@ -272,7 +273,8 @@ final class DSModel {
     var joystickSlots: [JoystickSlot] = []
     var lastHIDScanAt: Date?
     /// 控制槽位（非 UI 发布）：50Hz 每 tick 刷新最新手柄值并进控制快照。结构真值在此，
-    /// rebuildSlots/moveSlot 先改它，再按需发布到 joystickSlots。
+    /// rebuildSlots/moveSlot 先改它，再按需发布到 joystickSlots。紧凑数组按 slot.index 升序，
+    /// 空洞不在其中，只在 wireJoysticks 输出时占位。
     private var controlSlots: [JoystickSlot] = []
     private var lastSlotsPublishAt: TimeInterval = 0
     /// HID 轮询源（默认真实 IOKit 主线程轮询；测试注入假设备流）。
@@ -607,6 +609,7 @@ final class DSModel {
         // 重复执行（多窗口 / 状态恢复再跑一次 .task）会叠加定时器与心跳源
         guard !startInvoked else { return }
         startInvoked = true
+        permissionMonitor.beginNewLaunch(autoSim: Self.isAutoSim)
 
         // 安全链级：控制环 20ms 与 UI 心跳看门狗都是延迟敏感的常驻活动。应用进入
         // 后台/未激活时 macOS 的 App Nap 会把 DispatchSourceTimer 节流，控制包间隔
@@ -704,6 +707,7 @@ final class DSModel {
         }
 
         startLocalNetworkDiscovery()
+        permissionMonitor.startFirewallVerification(autoSim: Self.isAutoSim)
         startWebUI()
         client.start()
         log(tr("MatchSticks Driver Station 控制环已启动（20ms）"))
@@ -766,6 +770,16 @@ final class DSModel {
         return true
     }
 
+    /// 手动重新检查权限证据：只重置验证流程，不刷新或中断机器人控制链路。
+    func restartPermissionVerification() {
+        permissionMonitor.beginNewLaunch(autoSim: Self.isAutoSim)
+        permissionMonitor.record(commState: commState)
+        localNetworkDiscovery?.cancel()
+        localNetworkDiscovery = nil
+        startLocalNetworkDiscovery()
+        permissionMonitor.startFirewallVerification(autoSim: Self.isAutoSim)
+    }
+
     /// 启动一次 NI 服务发现（幂等；仅 AUTO_SIM 跳过——E2E 不浏览网络上无关的机器人；
     /// autoSim 缺省跟随会话 AUTO_SIM 标志，测试显式传入）。
     /// 不看 teamNumber / manualIP：默认队号 0、空手动地址同样启动，首次 start() 即触发系统本地网络
@@ -781,9 +795,12 @@ final class DSModel {
     }
 
     private func handleLocalNetworkDiscovery(_ event: LocalNetworkDiscoveryEvent) {
+        permissionMonitor.applyDiscovery(event)
         switch event {
         case .policyDenied:
             log(tr("本地网络授权被拒绝：请在「系统设置 → 隐私与安全性 → 本地网络」中允许 MatchSticks Driver Station，然后重新打开应用。"))
+        case .nonLoopbackService(let name):
+            log(tr("NI 非回环接口服务发现：%@", name))
         case .failed(let reason):
             log(tr("NI 服务发现失败：%@", reason))
         case .services(let names):
@@ -846,8 +863,9 @@ final class DSModel {
         snap.control.enabled = enabled && watchdogHealthy && commConnected
         snap.control.estop = estopEngaged
         snap.alliance = alliance
-        snap.joysticks = controlSlots.prefix(6).map(\.data)
-        snap.joystickDescriptors = controlSlots.prefix(6).map(\.descriptor)
+        let wire = wireJoysticks
+        snap.joysticks = wire.data
+        snap.joystickDescriptors = wire.descriptors
         snap.matchTime = practiceTimeTag
         if !gameData.isEmpty { snap.gameData = gameData }
         if !competition.isEmpty || matchType != 0 {
@@ -856,6 +874,27 @@ final class DSModel {
         snapshotBox.set(snap)
         // UI 路径：可见手柄值 ~10Hz 节流发布（控制快照在上面已每 tick 发布）
         publishVisibleSlotsIfDue()
+    }
+
+    /// 线上手柄数组：0…min(5, 最大槽号) 逐槽填充，空洞用中性 JoystickData / 空描述符占位。
+    /// NI 0x0C、MRC 手柄 tag 与描述符 tag 都按数组顺序对号入座（WPILib JoystickDataCache/TcpCache
+    /// 同样按 count 顺序存数组），不占位会把空洞后面的手柄错位到前面的槽号。
+    private var wireJoysticks: (data: [JoystickData], descriptors: [NICodec.JoystickDescriptor]) {
+        var data: [JoystickData] = []
+        var descriptors: [NICodec.JoystickDescriptor] = []
+        // controlSlots 恒按 slot.index 升序，末位即最大槽号
+        if let last = controlSlots.last?.index {
+            for seat in 0...min(5, last) {
+                if let slot = controlSlots.first(where: { $0.index == seat }) {
+                    data.append(slot.data)
+                    descriptors.append(slot.descriptor)
+                } else {
+                    data.append(JoystickData())
+                    descriptors.append(JoystickSlot.emptyDescriptor(index: seat))
+                }
+            }
+        }
+        return (data, descriptors)
     }
 
     /// 可见手柄值节流发布（≥100ms 一次；结构变化走 publishVisibleSlotsNow 立即发布）
@@ -1041,6 +1080,9 @@ final class DSModel {
 
     /// 最近一次发布到控制环快照的手柄数据（控制路径行为回归用）
     var latestPublishedJoysticks: [JoystickData] { snapshotBox.get().joysticks }
+
+    /// 最近一次发布到控制环快照的手柄描述符（与数据同序、同占位；回归用）
+    var latestPublishedJoystickDescriptors: [NICodec.JoystickDescriptor] { snapshotBox.get().joystickDescriptors }
 
     /// 最近一次发布到控制环快照的 matchTime（Practice 剩余秒，与界面显示同一时间源）
     var latestPublishedMatchTime: Float? { snapshotBox.get().matchTime }
@@ -1341,6 +1383,7 @@ final class DSModel {
     }
 
     private func playEstopSound() {
+        guard enableDisableSoundsEnabled else { return }
         if let estopSoundPlayer {
             estopSoundPlayer()
             return
@@ -1394,6 +1437,7 @@ final class DSModel {
         switch event {
         case .commState(let s):
             commState = s
+            permissionMonitor.record(commState: s)
         case .response(let p):
             // 逐应答执行（不随显示节流）：喂狗核算 + 电池历史采样（5Hz 内部节流）
             if p.watchdogFed {
@@ -1494,44 +1538,89 @@ final class DSModel {
         }
     }
 
-    // MARK: 手柄槽位（手动座次权威：重扫/插拔不重排，新手柄追加到末尾）
+    // MARK: 手柄槽位（手动座次权威：按绝对槽号记忆，重扫/插拔回原槽，新手柄追加到末尾）
 
-    /// 座次记忆：全部见过的设备按座次记录。离线设备保留原座次（重连回原位），
-    /// 全新手柄追加到最后。封顶防频繁插拔无限增长。
+    /// 座次记忆：全部见过的设备按座次记录（在场在前、离线在后）。封顶防频繁插拔无限增长。
     private var seatMemory: [String] = []
+    /// 绝对槽号记忆：uniqueID → slot.index。槽号是座次唯一真值——重扫/插拔按它回座，拖放留下的
+    /// 空洞不被压缩；离线设备保留槽号（重连回原位），槽号被在场设备占用时让到首个空位。
+    private var seatPositions: [String: Int] = [:]
 
     func rescanJoysticks() {
         rebuildSlots(from: hidPoller())
     }
 
     private func rebuildSlots(from snapshots: [HIDDeviceSnapshot]) {
+        let seats = resolvedSeatPositions(for: snapshots)
+        seatPositions = seats
+        // 紧凑数组按物理槽号排序；空洞不在数组里，只在输出层占位
         controlSlots = snapshots
-            .sorted { seatRank($0.uniqueID) < seatRank($1.uniqueID) }
-            .enumerated()
-            .map { JoystickSlot(index: $0.offset, device: $0.element) }
+            .map { JoystickSlot(index: seats[$0.uniqueID] ?? 0, device: $0) }
+            .sorted { $0.index < $1.index }
         rememberNewcomers(snapshots)
         lastHIDScanAt = Date()
         // 结构变化不等节流窗口：立即发布到可见槽位
         publishVisibleSlotsNow()
     }
 
-    /// 相邻步进（旧入口，等价于拖到前一/后一槽位）。拖放排序请用 moveSlot(from:to:)。
+    /// 重扫落座：已记忆的设备回原槽；新面孔追加到所有已记忆槽位（含离线设备预留的）之后，
+    /// 不填拖放留下的空洞；记忆撞号时后来者让到下一个空位。新面孔彼此按 uniqueID 定先后
+    /// （快照序不稳定）。同批新面孔的先后只在首扫时决定一次，之后由槽号记忆保持。
+    private func resolvedSeatPositions(for snapshots: [HIDDeviceSnapshot]) -> [String: Int] {
+        var positions = seatPositions
+        var next = (positions.values.max() ?? -1) + 1
+        var taken = Set<Int>()
+        let ordered = snapshots.sorted { lhs, rhs in
+            let l = positions[lhs.uniqueID] ?? Int.max
+            let r = positions[rhs.uniqueID] ?? Int.max
+            return l != r ? l < r : lhs.uniqueID < rhs.uniqueID
+        }
+        for device in ordered {
+            if let seat = positions[device.uniqueID], !taken.contains(seat) {
+                taken.insert(seat)
+                continue
+            }
+            positions[device.uniqueID] = next
+            taken.insert(next)
+            next += 1
+        }
+        return positions
+    }
+
+    /// 相邻步进（旧入口，等价于拖到前一个/后一个槽号）。拖放排序请用 moveSlot(from:to:)。
     func moveSlot(_ index: Int, up: Bool) {
         moveSlot(from: index, to: up ? index - 1 : index + 1)
     }
 
-    /// 任意 source→destination 座次调整（摘要卡/详情卡拖放）：被拖手柄占用目标槽位，
-    /// 其余顺延；destination == 当前数量表示移到末尾（落在第一张空闲卡上）。
-    /// 源越界、落点越界、原地不动，或末位拖到末尾（结果位置不变）一律忽略——
-    /// 不重写座次记忆，离线设备的记忆优先级不受无效果操作影响。
+    /// 任意 source→destination 座次调整（摘要卡/详情卡拖放）；source 与 destination 都是物理槽号
+    /// （slot.index），落点 0–5 是摘要卡，>6 时另允许已有槽号与「落点 == 数量」的末位。
+    /// 目标被占用：被拖手柄占用目标槽位，其余顺延（结果与旧版一致）；目标为空：被拖手柄落座该槽，
+    /// 原槽位真正留洞，其余卡片不动。源槽位为空洞、落点越界、原地不动，或末位拖到末尾（结果位置
+    /// 不变）一律忽略——不重写座次记忆，离线设备记住的槽位不受无效果操作影响。
     func moveSlot(from source: Int, to destination: Int) {
-        guard controlSlots.indices.contains(source), (0...controlSlots.count).contains(destination),
-              source != destination,
-              !(destination == controlSlots.count && source == controlSlots.count - 1) else { return }
-        let slot = controlSlots.remove(at: source)
-        // 移除源后数组少一位：落点 == 原数量（末尾）钳到最后，其余落点就是被拖者的新槽位。
-        controlSlots.insert(slot, at: min(destination, controlSlots.count))
-        for i in controlSlots.indices { controlSlots[i].index = i }
+        guard let offset = controlSlots.firstIndex(where: { $0.index == source }) else { return }
+        let count = controlSlots.count
+        let lastIndex = controlSlots[count - 1].index
+        guard destination >= 0, destination <= max(5, count, lastIndex) else { return }
+        // 落点 == 数量且不是任何已有槽号/摘要卡：表示移到末位
+        let toEnd = destination == count && destination > 5 && destination > lastIndex
+        guard !toEnd || source != lastIndex else { return }
+        let target = toEnd ? lastIndex : destination
+        guard source != target else { return }
+
+        var dragged = controlSlots.remove(at: offset)
+        if controlSlots.contains(where: { $0.index == target }) {
+            // 目标被占用：先合上源槽（上方整体下移一位），再在目标槽撑开一位
+            for i in controlSlots.indices where controlSlots[i].index > source {
+                controlSlots[i].index -= 1
+            }
+            for i in controlSlots.indices where controlSlots[i].index >= target {
+                controlSlots[i].index += 1
+            }
+        }
+        dragged.index = target
+        controlSlots.append(dragged)
+        controlSlots.sort { $0.index < $1.index }
         rewriteSeats()
         publishVisibleSlotsNow()
     }
@@ -1560,26 +1649,44 @@ final class DSModel {
         settings.set("gamepadSkin." + slot.uniqueID, skin?.rawValue)
     }
 
-    /// 座次键：记忆中的名次；没见过的设备排最后，彼此按 uniqueID（即快照序）定先后
-    private func seatRank(_ id: String) -> (Int, String) {
-        (seatMemory.firstIndex(of: id) ?? Int.max, id)
-    }
-
-    /// 结构变化只追加新面孔；离线设备留在原座次上（重连回原位），不打乱他人
+    /// 结构变化只追加新面孔；离线设备留在原槽（重连回原位），不打乱他人。
+    /// 记忆封顶后裁掉最旧的离线设备，连同其槽号预留。
     private func rememberNewcomers(_ snapshots: [HIDDeviceSnapshot]) {
         for d in snapshots where !seatMemory.contains(d.uniqueID) {
             seatMemory.append(d.uniqueID)
         }
         if seatMemory.count > 16 { seatMemory.removeFirst(seatMemory.count - 16) }
+        pruneSeatPositions(present: Set(snapshots.map(\.uniqueID)))
     }
 
-    /// 手动调整座次：在场设备按新座次记录，离线设备退到末尾（彼此保留相对先后）
+    /// 手动调整座次：在场设备记录当前绝对槽号；离线设备无冲突时保留原槽，槽号被在场设备
+    /// 占用时让到首个空位。记忆仍按在场座次在前、离线在后的顺序记录。
     private func rewriteSeats() {
         let present = controlSlots.map(\.uniqueID)
         let presentSet = Set(present)
-        var memory = present
-        memory.append(contentsOf: seatMemory.filter { !presentSet.contains($0) })
-        seatMemory = Array(memory.prefix(16))
+        var used = Set<Int>()
+        for slot in controlSlots {
+            seatPositions[slot.uniqueID] = slot.index
+            used.insert(slot.index)
+        }
+        let offline = seatMemory.filter { !presentSet.contains($0) }
+        for id in offline {
+            if let seat = seatPositions[id], !used.contains(seat) {
+                used.insert(seat)
+                continue
+            }
+            var free = 0
+            while used.contains(free) { free += 1 }
+            seatPositions[id] = free
+            used.insert(free)
+        }
+        seatMemory = Array((present + offline).prefix(16))
+        pruneSeatPositions(present: presentSet)
+    }
+
+    /// 只保留仍在记忆中或当前在场的设备的槽号，避免频繁插拔时字典无限增长
+    private func pruneSeatPositions(present: Set<String>) {
+        seatPositions = seatPositions.filter { present.contains($0.key) || seatMemory.contains($0.key) }
     }
 
     // MARK: .dslog 采样（1Hz）
@@ -1698,6 +1805,7 @@ final class DSModel {
 
 struct JoystickSlot: Identifiable {
     var id: String { uniqueID }
+    /// 物理槽号——座次唯一真值。紧凑数组按它排序，但编号可不连续（拖放留下的空洞不在数组里）。
     var index: Int
     var uniqueID: String
     var name: String
@@ -1717,6 +1825,14 @@ struct JoystickSlot: Identifiable {
 
     var data: JoystickData {
         JoystickData(axes: axes, buttonCount: buttonCount, buttons: buttons, povs: povs)
+    }
+
+    /// 空槽的线上描述符占位：槽号真实、type = -1（无设备），其余字段为空。
+    static func emptyDescriptor(index: Int) -> NICodec.JoystickDescriptor {
+        var d = NICodec.JoystickDescriptor()
+        d.index = index
+        d.type = -1
+        return d
     }
 
     var descriptor: NICodec.JoystickDescriptor {

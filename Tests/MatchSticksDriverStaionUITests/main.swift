@@ -34,6 +34,14 @@ struct UIStateTests {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--permission-only") {
+            permissionRuntimeMonitorTests(check)
+            firewallVerificationProbeTests(check)
+            print("MatchSticks Driver Station permission state: \(checks) checks, \(failures.count) failures")
+            for failure in failures { print("FAIL: \(failure)") }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
@@ -433,8 +441,11 @@ struct UIStateTests {
         gamepadTriggerRangeTests(check)
         joystickSlotOrderingTests(check)
         joystickSlotDragBoundaryTests(check)
+        joystickCardInteractionTests(check)
         appIconAppearanceTests(check)
         driverStationBrandTests(check)
+        permissionRuntimeMonitorTests(check)
+        firewallVerificationProbeTests(check)
         miniDriverStationTests(check)
         localNetworkDiscoveryTests(check)
         updateChannelTests(check)
@@ -1052,6 +1063,23 @@ struct UIStateTests {
         cueModel.estopSoundPlayer = { estopPlayed = true }
         cueModel.triggerEstop()
         check(estopPlayed && cues == cuesBeforeEstop, "E-Stop keeps its own sound without an extra match-end cue")
+        cueModel.resetEstop()
+        cueModel.enableDisableSoundsEnabled = false
+        estopPlayed = false
+        cueModel.triggerEstop()
+        check(cueModel.estopEngaged && !estopPlayed && cues == cuesBeforeEstop,
+              "turning off Enable/Disable sounds also silences the E-Stop horn")
+        cueModel.resetEstop()
+        cueModel.enableDisableSoundsEnabled = true
+        cueModel.triggerEstop()
+        check(cueModel.estopEngaged && estopPlayed && cues == cuesBeforeEstop,
+              "turning Enable/Disable sounds back on restores the E-Stop horn")
+
+        let readyModel = DSModel(settingsDefaults: makeSuite(suiteNames[13]), persistenceEnabled: false)
+        readyModel.commState = .connected(host: "127.0.0.1")
+        check(readyModel.enableExplanation.isEmpty, "the ready state no longer shows the area-clear reminder")
+        readyModel.commState = .searching
+        check(!readyModel.enableExplanation.isEmpty, "the missing-connection explanation remains")
 
         let deniedModel = DSModel(settingsDefaults: makeSuite(suiteNames[14]), persistenceEnabled: false)
         var deniedCues: [String] = []
@@ -1435,6 +1463,17 @@ struct UIStateTests {
               "the official timing preset moves with the duration editor, exactly once")
         check(!operationSource.contains("openSettings") && !appSource.contains("OperationView(model: model, openSettings:"),
               "the obsolete Adjust Practice Durations navigation is removed")
+        check(!appSource.contains("tr(\"驾驶控制\")") && !appSource.contains(": model.uiStatus)"),
+              "the Drive Controls status block is removed from the safety bar")
+        check(!appSource.contains("tr(\"快捷键仅在前台、非文本输入时生效\")"),
+              "the shortcuts footnote is removed from the safety bar")
+        check(appSource.contains("if !model.enableExplanation.isEmpty || model.estopEngaged {") &&
+              appSource.contains("model.resetEstop()"),
+              "the safety bar keeps the conditional explanations and the mouse reset for a latched E-Stop")
+        check(!englishTable.contains("\"驾驶控制\" = \"Drive Controls\";") &&
+              !englishTable.contains("confirm the area is clear") &&
+              !englishTable.contains("Shortcuts apply only in the foreground"),
+              "translations for the removed safety-bar texts are deleted")
 
         // Task 1 放置守卫：右侧栏承载时序面板、Practice Match 命名、全宽内容与紧凑滑杆。
         check(!setupSource.contains("1040") && !settingsSource.contains("1040"),
@@ -1831,10 +1870,21 @@ struct UIStateTests {
               !shortcutsSource.contains("CGEvent.tapCreate"),
               "keyboard shortcuts stay foreground-only local monitors that need no Input Monitoring")
 
-        // 防火墙：未检测配置 → 中性灰，不得暗示已授权或被拒绝
-        check(permissionsSource.contains(
-                  "DSBadge(text: tr(\"未检测系统防火墙配置\"), color: PermissionTone.neutral.color"),
-              "firewall badge stays explicitly neutral")
+        // 防火墙与本地网络：徽章读取启动级真实证据，不再把未检测写成永久状态
+        check(permissionsSource.contains("DSBadge(text: firewallEvidence.badge") &&
+                  permissionsSource.contains("color: firewallEvidence.tone.color") &&
+                  !permissionsSource.contains("未检测系统防火墙配置"),
+              "firewall badge is driven by verification evidence")
+        check(permissionsSource.contains("private var networkEvidence: LocalNetworkEvidence { model.permissionMonitor.networkEvidence }") &&
+                  !permissionsSource.contains("LocalNetworkEvidence(commState: model.commState)"),
+              "local network badge uses launch-scoped evidence instead of recomputing from the current connection")
+        check(permissionsSource.contains("if case .waiting(let url) = firewallEvidence") &&
+                  permissionsSource.contains("model.restartPermissionVerification()") &&
+                  permissionsSource.contains("在同一网络的另一台设备打开："),
+              "permissions view exposes the ephemeral verification URL and a recheck action")
+        check(englishTable.contains("\"在同一网络的另一台设备打开：\" = \"Open this URL from another device on the same network:\";") &&
+                  englishTable.contains("\"验证成功后监听会自动关闭；重新启动应用会重新检测。\" = \"The listener closes after success; relaunch the app to check again.\";"),
+              "firewall verification instructions have English translations")
 
         // Local Network 按钮：只请求打开「隐私与安全性」，不得暗示已直达本地网络子页面；
         // 旧系统的 x-apple.systempreferences 深链保留，成功提示也只说“已请求”而非“已打开”
