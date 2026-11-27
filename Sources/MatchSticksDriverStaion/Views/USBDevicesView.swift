@@ -143,7 +143,7 @@ private struct JoystickCardInteraction: NSViewRepresentable {
     }
 }
 
-private final class SlotCardEventView: NSView {
+final class SlotCardEventView: NSView {
     var coordinator: JoystickCardInteractionCoordinator?
     var uniqueID = ""
 
@@ -158,6 +158,18 @@ private final class SlotCardEventView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func makeDraggingItem(at point: NSPoint) -> NSDraggingItem {
+        let item = NSDraggingItem(pasteboardWriter: JoystickSlotDrag.provider(uniqueID: uniqueID))
+        let target = superview ?? self
+        let frame = target.bounds
+        let image = NSImage(size: frame.size)
+        if let representation = target.bitmapImageRepForCachingDisplay(in: frame) {
+            image.addRepresentation(representation)
+        }
+        item.setDraggingFrame(frame, contents: image)
+        return item
+    }
+
     override func mouseDown(with event: NSEvent) {
         coordinator?.mouseDown(at: convert(event.locationInWindow, from: nil))
     }
@@ -167,9 +179,7 @@ private final class SlotCardEventView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         _ = coordinator.mouseDragged(at: point) { [weak self] in
             guard let self else { return false }
-            let item = NSDraggingItem(pasteboardWriter: JoystickSlotDrag.provider(uniqueID: self.uniqueID))
-            let image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: nil) ?? NSImage()
-            item.setDraggingFrame(NSRect(x: point.x - 12, y: point.y - 12, width: 24, height: 24), contents: image)
+            let item = makeDraggingItem(at: point)
             beginDraggingSession(with: [item], event: event, source: coordinator)
             return true
         }
@@ -183,6 +193,23 @@ private final class SlotCardEventView: NSView {
         } else {
             coordinator.dragEnded()
         }
+    }
+}
+
+struct JoystickSlotDropDelegate: DropDelegate {
+    let operation: DropOperation = .move
+    let onTargeted: (Bool) -> Void
+    let dropHandler: ([NSItemProvider]) -> Bool
+
+    func dropEntered(info: DropInfo) -> DropOperation {
+        onTargeted(true)
+        return operation
+    }
+    func dropExited(info: DropInfo) { onTargeted(false) }
+    func performDrop(info: DropInfo) -> Bool {
+        onTargeted(false)
+        let providers = info.itemProviders(for: [JoystickSlotDrag.type])
+        return dropHandler(providers)
     }
 }
 
@@ -223,12 +250,6 @@ struct USBDevicesView: View {
                             slotCard(index: index, slot: slot, title: title, hint: hint, reader: reader)
                         }
                     }
-                    if !model.joystickSlots.isEmpty {
-                        Label(tr("拖到空闲卡即占据该槽位；拖到占用卡会让其他手柄顺延，顺序在重新扫描和插拔后保持不变。"),
-                              systemImage: "arrow.left.arrow.right")
-                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
-                    }
-
                     if model.joystickSlots.isEmpty {
                         emptyState
                     } else {
@@ -238,9 +259,10 @@ struct USBDevicesView: View {
                         }
                         ForEach(model.joystickSlots, id: \.id) { slot in
                             JoystickCard(model: model, index: slot.index, slot: slot)
-                                .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.detail(slot.index))) { providers in
-                                    drop(providers, at: slot.index)
-                                }
+                                .onDrop(of: [JoystickSlotDrag.type], delegate: JoystickSlotDropDelegate(
+                                    onTargeted: { dropTargeted(.detail(slot.index)).wrappedValue = $0 },
+                                    dropHandler: { providers in drop(providers, at: slot.index) }
+                                ))
                                 .overlay {
                                     if dropTarget == .detail(slot.index) {
                                         RoundedRectangle(cornerRadius: 10)
@@ -290,9 +312,10 @@ struct USBDevicesView: View {
                 }
             }
         }
-        .onDrop(of: [JoystickSlotDrag.type], isTargeted: dropTargeted(.summary(index))) { providers in
-            drop(providers, at: index)
-        }
+        .onDrop(of: [JoystickSlotDrag.type], delegate: JoystickSlotDropDelegate(
+            onTargeted: { dropTargeted(.summary(index)).wrappedValue = $0 },
+            dropHandler: { providers in drop(providers, at: index) }
+        ))
     }
 
     /// 落点：载荷只可能是私有 UTI（onDrop(of:) 已过滤外部文本），解码 uniqueID 找源槽位交给模型排序。
@@ -471,8 +494,8 @@ struct JoystickCard: View {
             get: { model.gamepadSkinOverride(for: slot) },
             set: { model.setGamepadSkinOverride($0, for: slot) }
         ), options: [DSSelectOption(value: Optional<GamepadSkin>.none,
-                                    label: tr("自动识别（当前：%@）", GamepadProfile.detect(
-                                        vendorID: slot.vendorID, productID: slot.productID, name: slot.name).displayName))]
+                                    label: tr("自动识别"),
+                                    triggerLabel: model.gamepadDisplayName(for: slot))]
             + GamepadSkin.selectableSkins.map { DSSelectOption(value: Optional($0), label: $0.displayName) },
             searchText: { $0?.searchableText ?? tr("自动识别 自动检测 自动 Auto Detect") })
             .frame(width: 240)

@@ -38,10 +38,23 @@ func joystickCardInteractionTests(_ check: (@autoclosure () -> Bool, String) -> 
           !source.contains("min(index, model.joystickSlots.count)"),
           "drop passes the original card index to the sparse-slot model")
 
-    check(source.contains("拖到空闲卡即占据该槽位"),
-          "empty-card copy says a drop occupies that slot")
-    check(source.contains("if !model.joystickSlots.isEmpty {"),
-          "slot-drag guidance is also visible with one controller")
+    check(!source.contains("Label(tr(\"拖到空闲卡即占据该槽位；"),
+          "the standalone drop guidance row is removed")
+
+    let autoOption = DSSelectOption(value: Optional<GamepadSkin>.none,
+                                    label: tr("自动识别"),
+                                    triggerLabel: GamepadSkin.dualsense.displayName)
+    check(autoOption.label == tr("自动识别"),
+          "the open menu's automatic option only says Auto Detect")
+    check(autoOption.triggerLabel == GamepadSkin.dualsense.displayName,
+          "the closed picker shows the concrete detected model")
+
+    let previewView = SlotCardEventView(frame: NSRect(x: 0, y: 0, width: 220, height: 70))
+    let previewItem = previewView.makeDraggingItem(at: .zero)
+    check(previewItem.draggingFrame.size == previewView.bounds.size,
+          "the drag preview is the entire card, not a 24-point icon")
+    let delegate = JoystickSlotDropDelegate(onTargeted: { _ in }, dropHandler: { _ in false })
+    check(delegate.operation == .move, "the drop operation is move rather than copy")
 
     let handleStart = source.range(of: "private struct SlotDragHandle")
     let handleTail = handleStart.map { String(source[$0.lowerBound...]) } ?? ""
