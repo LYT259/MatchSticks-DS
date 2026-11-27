@@ -104,6 +104,7 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
 
     // ===== ⑥ 真实 NSWindow 应用层：隐藏/恢复/关闭事件（永不无窗）=====
     miniDriverStationPresenterTests(check)
+    miniFloatingWindowTests(check)
 
     // ===== ⑦ 刷新反馈与模型动作 =====
     miniDriverStationRefreshTests(check)
@@ -205,6 +206,37 @@ private func miniReferenceStyleRenderTests(_ check: @MainActor (@autoclosure () 
         check(redMaxX < width - 16,
               "\(style.rawValue) keeps E-Stop inside the 200pt bottom-window content (redMaxX=\(redMaxX), width=\(width))")
     }
+}
+
+@MainActor
+private func miniFloatingWindowTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        check(false, "floating-window tests have a real screen")
+        return
+    }
+    let visible = screen.visibleFrame
+    let expected = MiniFloatingWindow.bottomFrame(for: screen)
+    check(expected.height == 200, "Mini uses the official FIRST-inspired 200pt height")
+    check(expected.width == min(1280, visible.width - 32),
+          "Mini width fits the visible screen and never exceeds 1280pt")
+    check(expected.midX == visible.midX && expected.minY == visible.minY,
+          "Mini is centered at the bottom of the visible screen")
+
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                          styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    MiniFloatingWindow.configure(window, on: screen)
+    check(window.level == .floating && !window.hidesOnDeactivate,
+          "Mini remains above other apps and does not hide on deactivation")
+    check(window.collectionBehavior.contains(.canJoinAllSpaces) &&
+          window.collectionBehavior.contains(.fullScreenAuxiliary) &&
+          !window.collectionBehavior.contains(.moveToActiveSpace),
+          "Mini joins every Space and can stay beside fullscreen apps without moving between Spaces")
+    check(!window.isMovable && window.standardWindowButton(.zoomButton)?.isEnabled == false &&
+          !window.styleMask.contains(.resizable),
+          "Mini has a fixed bottom frame and no zoom-to-large-window action")
+    check(window.frame == expected,
+          "restored Mini window state is replaced by the fixed bottom frame")
+    window.close()
 }
 
 // MARK: - 窗口切换决策（纯状态）

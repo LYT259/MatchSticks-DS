@@ -98,6 +98,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDriverStaion/Views/MiniNIClassicView.swift \
   Sources/MatchSticksDriverStaion/Views/MiniFIRSTModernView.swift \
   Sources/MatchSticksDriverStaion/Views/MiniView.swift Sources/MatchSticksDriverStaion/MiniDriverStation.swift \
+  Sources/MatchSticksDriverStaion/MiniFloatingWindow.swift \
   Tests/MatchSticksDriverStaionUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDriverStaionUITests/LocalNetworkDiscoveryTests.swift \
   Tests/MatchSticksDriverStaionUITests/PermissionRuntimeMonitorTests.swift \
