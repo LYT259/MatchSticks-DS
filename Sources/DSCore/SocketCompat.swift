@@ -683,7 +683,7 @@ public enum SocketCompat {
     #endif
 
     #if os(Linux)
-    private static let sendFlags: Int32 = MSG_NOSIGNAL
+    private static let sendFlags = Int32(MSG_NOSIGNAL)
     /// Linux UAPI `SO_BINDTOIFINDEX` 的固定值（asm-generic/socket.h，内核 ≥ 5.12）；
     /// 不经头文件常量，避免不同 libc 版本的宏缺失。
     private static let linuxSO_BINDTOIFINDEX: Int32 = 62
