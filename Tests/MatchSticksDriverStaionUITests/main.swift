@@ -453,6 +453,7 @@ struct UIStateTests {
         updateReachabilityTests(check)
         updateRequestRoutingTests(check)
         updateBadgeBehaviorTests(check)
+        appLifecycleTests(check)
         practiceProgressTests(check)
         practiceCountdownSpeechTests(check)
 

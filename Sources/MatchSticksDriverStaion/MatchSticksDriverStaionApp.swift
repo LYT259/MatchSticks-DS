@@ -7,8 +7,10 @@ struct MatchSticksDriverStaionApp: App {
     @State private var shortcuts = ShortcutManager()
     @State private var updates = UpdateCenter()
     @State private var windowFlow = DriverStationWindowFlow()
+    private let appDelegate = AppLifecycleDelegate()
 
     init() {
+        NSApplication.shared.delegate = appDelegate
         if !Bundle.main.bundlePath.hasSuffix(".app") {
             NSApplication.shared.setActivationPolicy(.regular)
         }

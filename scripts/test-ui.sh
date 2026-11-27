@@ -61,6 +61,7 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDriverStaion/MacStatusMonitor.swift Sources/MatchSticksDriverStaion/Views/DSStyle.swift \
   Sources/MatchSticksDriverStaion/Views/DSControls.swift Sources/MatchSticksDriverStaion/PracticeAudioPlayer.swift \
   Sources/MatchSticksDriverStaion/PracticeCountdownSpeech.swift \
+  Sources/MatchSticksDriverStaion/AppLifecycle.swift \
   Sources/MatchSticksDriverStaion/UpdateFlow.swift Sources/MatchSticksDriverStaion/UpdateChannel.swift \
   Sources/MatchSticksDriverStaion/UpdateCheckScheduler.swift Sources/MatchSticksDriverStaion/UpdateReachability.swift \
   Sources/MatchSticksDriverStaion/UpdateProbeTransport.swift Sources/MatchSticksDriverStaion/UpdateRequestRouting.swift \
@@ -91,6 +92,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/UpdateReachabilityTests.swift \
   Tests/MatchSticksDriverStaionUITests/UpdateRequestRoutingTests.swift \
   Tests/MatchSticksDriverStaionUITests/UpdateBadgeBehaviorTests.swift \
+  Tests/MatchSticksDriverStaionUITests/AppLifecycleTests.swift \
   Tests/MatchSticksDriverStaionUITests/F310XInputLifecycleTests.swift \
   Tests/MatchSticksDriverStaionUITests/GamepadArtworkTests.swift Tests/MatchSticksDriverStaionUITests/GamepadSkinPickerTests.swift \
   Tests/MatchSticksDriverStaionUITests/GamepadSkinPickerInteractionTests.swift \
