@@ -157,6 +157,23 @@ add_mac_step() {
     return 0
 }
 
+# 本机已有 Sparkle 检出/artifact 时，将它们复制到本次远端临时目录，避免实体主机必须访问 GitHub。
+# 没有完整缓存时保留正常 SwiftPM 依赖获取路径，不伪造依赖或跳过解析。
+copy_sparkle_cache_if_available() {
+    [ -d .build/checkouts/Sparkle ] && [ -d .build/artifacts/sparkle ] && [ -f .build/workspace-state.json ] || return 0
+    command -v scp >/dev/null 2>&1 || linux_fail "本机存在 Sparkle 缓存但缺少 scp，无法把它送入远端临时目录"
+    "${SSH[@]}" "mkdir -p '$REMOTE_DIR/.build/checkouts' '$REMOTE_DIR/.build/artifacts'" \
+        || linux_fail "远端缓存目录创建失败"
+    scp -q -o BatchMode=yes -o ConnectTimeout=15 -r .build/checkouts/Sparkle "$HOST:$REMOTE_DIR/.build/checkouts/" \
+        || linux_fail "Sparkle 检出复制失败"
+    scp -q -o BatchMode=yes -o ConnectTimeout=15 -r .build/artifacts/sparkle "$HOST:$REMOTE_DIR/.build/artifacts/" \
+        || linux_fail "Sparkle artifact 复制失败"
+    scp -q -o BatchMode=yes -o ConnectTimeout=15 .build/workspace-state.json "$HOST:$REMOTE_DIR/.build/workspace-state.json" \
+        || linux_fail "Sparkle workspace 状态复制失败"
+    "${SSH[@]}" "python3 -c \"import json; p='$REMOTE_DIR/.build/workspace-state.json'; d=json.load(open(p)); [a.update(path='$REMOTE_DIR/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework') for a in d['object']['artifacts']]; json.dump(d,open(p,'w'))\"" \
+        || linux_fail "Sparkle workspace 状态的远端 artifact 路径更新失败"
+}
+
 # ---- [0/4] 预检：以下任何一项不过，都不得运行测试、SSH 或 Actions ----
 preflight() {
     local value missing tool step path discovered discovered_count=0 dirty_sample
@@ -357,6 +374,7 @@ git archive --format=tar "$HEAD_SHA" | "${SSH[@]}" "tar -xf - -C '$REMOTE_DIR'"
 archive_status=("${PIPESTATUS[@]}")
 [ "${archive_status[0]}" = "0" ] || linux_fail "git archive ${HEAD_SHA} 失败（退出码 ${archive_status[0]}；141 = 远端提前关闭了管道，原因见上方 ssh/tar 报错）"
 [ "${archive_status[1]}" = "0" ] || linux_fail "远端解包失败（ssh / tar 退出码 ${archive_status[1]}）"
+copy_sparkle_cache_if_available
 # 远端 PATH 沿用上面实际探测成功的 swift；SwiftPM/Clang 缓存全部留在本次目录，不写根分区默认缓存位置
 remote_test_env="${REMOTE_PATH_PREFIX}SWIFTPM_CACHE_PATH='${REMOTE_DIR}/swiftpm-cache' SWIFTPM_MANIFEST_CACHE=local CLANG_MODULE_CACHE_PATH='${REMOTE_DIR}/clang-module-cache' "
 if ! "${SSH[@]}" "cd '$REMOTE_DIR' && ${remote_test_env}MATCHSTICKS_DS_TEST_PORT_WAIT=${MATCHSTICKS_DS_TEST_PORT_WAIT} bash scripts/test-core.sh"; then
