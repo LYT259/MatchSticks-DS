@@ -131,4 +131,14 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     badStart.practiceTick()
     check(abs(badStart.practiceRemaining - 14.5) < 1e-9, "基点建立后正常推进")
     badStart.aStop()
+
+    // ===== D. 视图刷新：进度计算必须直接使用当前帧时间戳，而不是丢弃 TimelineView 的 date =====
+    let operationSource = (try? String(contentsOf: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("Sources/MatchSticksDriverStaion/Views/OperationView.swift"), encoding: .utf8)) ?? ""
+    check(operationSource.contains("TimelineView(.animation") &&
+          operationSource.contains("timeline.date.timeIntervalSinceReferenceDate") &&
+          !operationSource.contains("let display = model.livePracticeDisplay"),
+          "Practice progress uses the current TimelineView frame date instead of the previous model snapshot")
+
 }

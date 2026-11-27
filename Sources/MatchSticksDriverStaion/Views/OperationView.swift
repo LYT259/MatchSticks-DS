@@ -28,8 +28,8 @@ struct OperationView: View {
                             if model.practicePhase != .idle {
                                 // 进度条与剩余文本随显示帧连续推进（同一时钟外推，不随 0.1s tick 跳格）；
                                 // 练习结束后暂停时间线，不再逐帧重绘。
-                                TimelineView(.animation(paused: !model.practiceActive)) { _ in
-                                    let display = model.livePracticeDisplay
+                                TimelineView(.animation(paused: !model.practiceActive)) { timeline in
+                                    let display = model.practiceDisplay(at: timeline.date.timeIntervalSinceReferenceDate)
                                     VStack(alignment: .leading, spacing: 8) {
                                         HStack {
                                             Text(model.practicePhase.displayName)
@@ -37,6 +37,7 @@ struct OperationView: View {
                                             Text(String(format: "%.1f s", display.remaining)).monospacedDigit()
                                         }.font(.callout)
                                         ProgressView(value: display.progress)
+                                            .accessibilityValue(String(format: "%.0f%%", display.progress * 100))
                                             .tint(DSTheme.accent)
                                             .controlSize(.small)
                                     }
