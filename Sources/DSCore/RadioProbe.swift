@@ -153,17 +153,36 @@ public final class RadioProbe {
 
     /// 自动模式 radio 探测目标（纯函数，可测）：
     /// - AUTO_SIM：本机模拟器 host + 非特权端口（默认 127.0.0.1:8080），与队号无关；
-    /// - 普通自动：队号派生 10.T.E.1:80（radio 网关）。manualIP 是 roboRIO 地址，
-    ///   不参与 radio 选址（2026-10-31：填手动 roboRIO IP 曾让 radio 灯误亮）；
-    /// - 队号未设置：nil（本轮不探测）。
+    /// - 普通自动：队号派生 10.T.E.1:80（radio 网关）。roboRIO 的手动地址不参与
+    ///   radio 选址（2026-10-31：填手动 roboRIO IP 曾让 radio 灯误亮）；
+    /// - manualIP：第三方 radio 的独立 IPv4 地址，优先于队号派生地址；空白等于未设置，
+    ///   非法值返回 nil，避免回退到另一个地址造成假在线；
+    /// - 队号与 manualIP 均未设置：nil（本轮不探测）。
     public static func autoTarget(autoSim: Bool,
                                   teamNumber: Int,
+                                  manualIP: String? = nil,
                                   teamPort: UInt16 = 80,
                                   simHost: String = "127.0.0.1",
                                   simPort: UInt16 = 8080) -> (host: String, port: UInt16)? {
         if autoSim { return (simHost, simPort) }
+        if let manualIP {
+            let host = manualIP.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !host.isEmpty {
+                guard isValidIPv4(host) else { return nil }
+                return (host, teamPort)
+            }
+        }
         guard teamNumber > 0 else { return nil }
         return (String(format: "10.%d.%d.1", teamNumber / 100, teamNumber % 100), teamPort)
+    }
+
+    private static func isValidIPv4(_ host: String) -> Bool {
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        return parts.count == 4 && parts.allSatisfy { part in
+            !part.isEmpty && part.count <= 3 &&
+                part.allSatisfy { $0 >= "0" && $0 <= "9" } &&
+                UInt8(part) != nil
+        }
     }
 
     /// 返回 nil = 本轮不探测（队伍号未设置等）

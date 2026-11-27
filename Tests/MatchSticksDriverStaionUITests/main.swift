@@ -477,7 +477,7 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<16).map { _ in "org.ghfrc.driverstation.test.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<19).map { _ in "org.ghfrc.driverstation.test.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
         // ⑤ MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE 解析：非空有效 → 独立 suite；
@@ -646,6 +646,69 @@ struct UIStateTests {
         invalidDraft.load(from: targetModel)
         check(invalidDraft.targetText == "0" && !invalidDraft.userEdited,
               "reload restores the applied target and clears the edit flag")
+
+        // 第三方 Radio（Cudy TR1200）：独立地址持久化、恢复、草稿校验与机器人目标解耦
+        let cudySuite = makeSuite(suiteNames[16])
+        let cudyModel = DSModel(settingsDefaults: cudySuite, persistenceEnabled: true)
+        cudyModel.manualRadioIP = "192.168.10.1"
+        check(cudyModel.manualRadioIP == "192.168.10.1", "Cudy Radio address updates in memory")
+        check(cudySuite.string(forKey: "matchsticks.manualRadioIP") == "192.168.10.1",
+              "Cudy Radio address persists independently of the robot manualIP")
+        check(cudyModel.currentRadioTarget?.host == "192.168.10.1" && cudyModel.currentRadioTarget?.port == 80,
+              "the model exposes the actual third-party Radio probe target")
+        cudyModel.manualRadioIP = ""
+        check(cudySuite.object(forKey: "matchsticks.manualRadioIP") == nil,
+              "clearing the manual Radio address removes the persisted value")
+
+        let restoredRadioSuite = makeSuite(suiteNames[17])
+        restoredRadioSuite.set(2590, forKey: "matchsticks.teamNumber")
+        restoredRadioSuite.set("192.168.10.1", forKey: "matchsticks.manualRadioIP")
+        let restoredRadioModel = DSModel(settingsDefaults: restoredRadioSuite, persistenceEnabled: true)
+        restoredRadioModel.loadPersistedSettings()
+        check(restoredRadioModel.manualRadioIP == "192.168.10.1" && restoredRadioModel.currentRadioTarget?.host == "192.168.10.1",
+              "a saved Cudy Radio address is restored before probing starts")
+
+        let frozenRadioSuite = makeSuite(suiteNames[18])
+        frozenRadioSuite.set("192.168.10.9", forKey: "matchsticks.manualRadioIP")
+        let frozenRadioModel = DSModel(settingsDefaults: frozenRadioSuite, persistenceEnabled: false)
+        frozenRadioModel.manualRadioIP = "192.168.10.1"
+        check(frozenRadioModel.currentRadioTarget?.host == "192.168.10.1" &&
+              frozenRadioSuite.string(forKey: "matchsticks.manualRadioIP") == "192.168.10.9",
+              "disabled persistence still updates the live Radio target without rewriting settings")
+
+        let cudyDraftModel = DSModel(settingsDefaults: makeSuite(suiteNames[16]), persistenceEnabled: true)
+        cudyDraftModel.teamNumber = 2590
+        cudyDraftModel.manualRadioIP = "192.168.10.1"
+        let cudyDraft = ConnectionDraft()
+        cudyDraft.load(from: cudyDraftModel)
+        check(cudyDraft.radioIPText == "192.168.10.1" && !cudyDraft.hasChanges(comparedTo: cudyDraftModel),
+              "the connection draft loads the applied Cudy Radio address")
+        cudyDraft.radioIPText = "192.168.10"
+        check(cudyDraft.parsedRadioTarget == nil && cudyDraft.hasChanges(comparedTo: cudyDraftModel),
+              "an invalid Radio address keeps the draft dirty")
+        check(!cudyDraft.apply(to: cudyDraftModel) && cudyDraftModel.manualRadioIP == "192.168.10.1" &&
+              cudyDraftModel.manualIP.isEmpty,
+              "an invalid Radio address rejects the whole apply without partial robot changes")
+        cudyDraft.radioIPText = " 192.168.10.1\n"
+        check(cudyDraft.parsedRadioTarget == .manualIP("192.168.10.1") &&
+              !cudyDraft.hasChanges(comparedTo: cudyDraftModel),
+              "Radio address validation trims harmless surrounding whitespace")
+        cudyDraft.targetText = "192.168.10.2"
+        check(cudyDraft.apply(to: cudyDraftModel), "robot and Cudy addresses apply together")
+        check(cudyDraftModel.manualIP == "192.168.10.2" && cudyDraftModel.manualRadioIP == "192.168.10.1" &&
+              cudyDraftModel.teamNumber == 2590,
+              "robot and Radio addresses stay independent in the Cudy subnet")
+        cudyDraft.radioIPText = ""
+        check(cudyDraft.parsedRadioTarget == .automatic && cudyDraft.apply(to: cudyDraftModel),
+              "blank Radio input selects automatic team-derived probing")
+        check(cudyDraftModel.manualRadioIP.isEmpty && cudyDraftModel.manualIP == "192.168.10.2" &&
+              cudyDraftModel.currentRadioTarget?.host == "10.25.90.1",
+              "returning to automatic Radio probing does not clear the robot address")
+        cudyDraftModel.manualRadioIP = "192.168.10.1"
+        cudyDraft.load(from: cudyDraftModel)
+        cudyDraft.targetText = "0"
+        check(cudyDraft.apply(to: cudyDraftModel) && cudyDraftModel.manualRadioIP == "192.168.10.1",
+              "changing the robot target never silently clears the independent Radio address")
 
         // ⑧ Radio 状态日志：仅真实翻转回调记录，重复不刷
         let radioModel = DSModel(settingsDefaults: makeSuite(suiteNames[4]), persistenceEnabled: true)
@@ -1449,6 +1512,9 @@ struct UIStateTests {
         check(!settingsSource.isEmpty && !operationSource.isEmpty && !appSource.isEmpty &&
               !setupSource.isEmpty && !timingSource.isEmpty && !englishTable.isEmpty,
               "UI placement test loads its source fixtures")
+        check(setupSource.contains("$draft.radioIPText") && setupSource.contains("Cudy TR1200") &&
+              setupSource.contains("model.manualRadioIP"),
+              "Connection exposes and synchronizes the independent Cudy TR1200 Radio address field")
         check(!settingsSource.contains("PracticeTimingEditor(model: model)"),
               "Settings no longer contains the practice duration editor")
         check(operationSource.components(separatedBy: "PracticeTimingEditor(model: model)").count - 1 == 1,
