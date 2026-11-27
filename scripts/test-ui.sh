@@ -95,6 +95,8 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/JoystickCardInteractionTests.swift \
   Tests/MatchSticksDriverStaionUITests/AppIconAppearanceTests.swift \
   Tests/MatchSticksDriverStaionUITests/DriverStationBrandTests.swift \
+  Sources/MatchSticksDriverStaion/Views/MiniNIClassicView.swift \
+  Sources/MatchSticksDriverStaion/Views/MiniFIRSTModernView.swift \
   Sources/MatchSticksDriverStaion/Views/MiniView.swift Sources/MatchSticksDriverStaion/MiniDriverStation.swift \
   Tests/MatchSticksDriverStaionUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDriverStaionUITests/LocalNetworkDiscoveryTests.swift \

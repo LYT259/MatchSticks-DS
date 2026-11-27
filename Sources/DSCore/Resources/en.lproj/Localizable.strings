@@ -51,6 +51,11 @@
 "已请求重新搜索机器人" = "Robot re-search requested";
 "已连接机器人，无需刷新；刷新仅在未连接时重新搜索。" = "The robot is already connected; refresh only re-searches while disconnected.";
 "失能机器人" = "Disable the robot";
+"已使能时间" = "Enabled Time";
+"PC 电池" = "PC Battery";
+"正常" = "OK";
+"未就绪" = "Not Ready";
+"机器人电压历史" = "Robot Battery History";
 
 /* ===== 侧栏与页面导航（MatchSticksDriverStaionApp：操作 / 监测两组，监测含 Mac · 机器人 · 摄像头 · 控制台）===== */
 "驾驶" = "Drive";

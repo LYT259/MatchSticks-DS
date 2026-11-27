@@ -47,6 +47,16 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
           settingsSource.contains("NI Classic") && settingsSource.contains("FIRST Modern"),
           "Settings exposes both Mini UI references")
 
+    let niSource = source("Sources/MatchSticksDriverStaion/Views/MiniNIClassicView.swift")
+    let firstSource = source("Sources/MatchSticksDriverStaion/Views/MiniFIRSTModernView.swift")
+    let niImplementation = niSource + miniSource
+    let firstImplementation = firstSource + miniSource
+    check(["macStatus.batteryPercent", "macStatus.systemCPUPercent", "enabledElapsed",
+           "robotStatus", "joystickSlots", "alliance"].allSatisfy(niImplementation.contains),
+          "NI Classic exposes real Team/status lights/enabled time/PC metrics and Alliance")
+    check(["batteryHistory", "Canvas", "model.mode", "model.alliance", "model.connectionDetail"].allSatisfy(firstImplementation.contains),
+          "FIRST Modern exposes real mode, Alliance, Team/IP and live battery history")
+
     // ===== ① 窗口声明：标准标题栏（原生 standardWindowButton 位置与行为，无自绘背景）=====
     let miniScene = String(appSource.slice(from: "Window(\"Mini Driver Station\"", to: "struct RootView"))
     check(!miniScene.isEmpty, "mini window scene declaration can be located")
@@ -87,6 +97,7 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
 
     // ===== ④ 真实渲染几何：宽横向布局 =====
     miniDriverStationRenderTests(check)
+    miniReferenceStyleRenderTests(check)
 
     // ===== ⑤ 窗口切换决策（纯状态，可注入）=====
     miniDriverStationWindowFlowTests(check)
@@ -152,6 +163,48 @@ private func miniDriverStationRenderTests(_ check: @MainActor (@autoclosure () -
           "safety controls reach into the right region of the wide console (maxX=\(controlsMaxX))")
     check(redMaxX < width - 16,
           "E-Stop remains fully inside the console instead of clipped at the right edge (maxX=\(redMaxX))")
+}
+
+@MainActor
+private func miniReferenceStyleRenderTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    let width = 1100, height = 200
+    let previousAppearance = NSApplication.shared.appearance
+    NSApplication.shared.appearance = NSAppearance(named: .aqua)
+    defer { NSApplication.shared.appearance = previousAppearance }
+
+    for style in MiniReferenceStyle.allCases {
+        let model = DSModel(settingsDefaults: UserDefaults(suiteName: "org.ghfrc.driverstation.test.uitests.mini-style-render.\(UUID().uuidString)"),
+                            persistenceEnabled: false)
+        model.miniReferenceStyle = style
+        model.teamNumber = 8810
+        model.commState = .connected(host: "10.88.10.2")
+        model.batteryVolts = 12.25
+        model.batteryHistory = [11.8, 12.1, 12.25]
+        let renderer = ImageRenderer(content: MiniConsoleBar(model: model, flow: DriverStationWindowFlow(), refresh: RobotRefreshFlow())
+            .frame(width: CGFloat(width), height: CGFloat(height)))
+        renderer.scale = 1
+        guard let image = renderer.nsImage,
+              let bitmap = image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else {
+            check(false, "\(style.rawValue) renders into a 1100×200 bitmap")
+            continue
+        }
+        var sawGreen = false, sawRed = false
+        var redMaxX = 0
+        for x in stride(from: 0, to: width, by: 2) {
+            for y in stride(from: 0, to: height, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+                if g > 0.55 && g > r + 0.12 && g > b + 0.12 { sawGreen = true }
+                if r > 0.8 && r > g + 0.15 && r > b + 0.15 {
+                    sawRed = true
+                    redMaxX = max(redMaxX, x)
+                }
+            }
+        }
+        check(sawGreen && sawRed, "\(style.rawValue) renders the real Enable and E-Stop safety controls")
+        check(redMaxX < width - 16,
+              "\(style.rawValue) keeps E-Stop inside the 200pt bottom-window content (redMaxX=\(redMaxX), width=\(width))")
+    }
 }
 
 // MARK: - 窗口切换决策（纯状态）
