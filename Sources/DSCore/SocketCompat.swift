@@ -120,7 +120,7 @@ public enum SocketCompat {
 
     public static func udpSocket() -> Int32 {
         #if os(Windows)
-        let fd = makeSocket(type: SOCK_DGRAM)
+        let fd = makeSocket(type: datagramSocketType)
         guard fd >= 0 else { return fd }
         // 关闭 Winsock 默认行为「对端端口不可达（ICMP port unreachable）→ 下一次 recvfrom 报 WSAECONNRESET」，
         // 使 UDP 接收失败分类与 POSIX 一致（暂无数据/超时），DS 控制环与测试桩不会把它当成硬错误。
@@ -130,10 +130,10 @@ public enum SocketCompat {
                      UInt32(MemoryLayout<Int32>.size), nil, 0, &returned, nil, nil)
         return fd
         #else
-        return makeSocket(type: SOCK_DGRAM)
+        return makeSocket(type: datagramSocketType)
         #endif
     }
-    public static func tcpSocket() -> Int32 { makeSocket(type: SOCK_STREAM) }
+    public static func tcpSocket() -> Int32 { makeSocket(type: streamSocketType) }
 
     /// Winsock 初始化（Windows：WSAStartup 2.2，进程内幂等、线程安全；其余平台空操作）。
     /// 任何不经本层创建套接字而直接调用 Winsock API（如 getaddrinfo）的代码，必须先调用本方法——
@@ -161,6 +161,9 @@ public enum SocketCompat {
     private static let windowsSIO_UDP_CONNRESET: UInt32 = 0x9800_000C
     #endif
 
+    private static let datagramSocketType = Int32(SOCK_DGRAM)
+    private static let streamSocketType = Int32(SOCK_STREAM)
+
     private static func makeSocket(type: Int32) -> Int32 {
         #if os(Windows)
         ensureInitialized()
@@ -185,7 +188,7 @@ public enum SocketCompat {
         #if os(Windows)
         _ = shutdown(socketHandle(fd), windowsSD_BOTH)
         #else
-        _ = shutdown(fd, SHUT_RDWR)
+        _ = shutdown(fd, Int32(SHUT_RDWR))
         #endif
     }
 
@@ -232,7 +235,7 @@ public enum SocketCompat {
         var kind: Int32 = 0
         var length = socklen_t(MemoryLayout<Int32>.size)
         guard getsockopt(fd, SOL_SOCKET, SO_TYPE, &kind, &length) == 0 else { return false }
-        return kind == SOCK_DGRAM
+        return kind == datagramSocketType
     }
     #endif
 
@@ -355,7 +358,7 @@ public enum SocketCompat {
         #else
         var hints = addrinfo()
         hints.ai_family = .init(AF_INET)
-        hints.ai_socktype = .init(SOCK_DGRAM)
+        hints.ai_socktype = datagramSocketType
         var result: UnsafeMutablePointer<addrinfo>?
         guard getaddrinfo(name, nil, &hints, &result) == 0, let first = result else { return [] }
         defer { freeaddrinfo(first) }
