@@ -44,7 +44,12 @@ final class LoopbackBlackhole {
     private(set) var port: UInt16 = 0
 
     func start() -> Bool {
+        #if os(Linux)
+        // Linux 的 backlog=1 仍可让第二条回环连接完成；backlog=0 才能在首条滞留连接后丢弃后续 SYN。
+        let (lfd, p) = loopbackListen(backlog: 0)
+        #else
         let (lfd, p) = loopbackListen(backlog: 1)
+        #endif
         listener = lfd
         port = p
         // 首条连接立即完成并滞留在 accept 队列（回环实测：填满后后续 connect 全部悬挂）

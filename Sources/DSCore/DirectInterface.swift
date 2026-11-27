@@ -174,8 +174,9 @@ public enum DirectInterface {
             return .bound(name: chosen.name, index: chosen.index)
         }
         #if os(Linux)
-        // 内核不认识 SO_BINDTOIFINDEX（< 5.12）：按系统路由发送，不算失败
-        if code == SocketCompat.enoprotoopt || code == SocketCompat.einval { return .noMatch }
+        // 内核不认识 SO_BINDTOIFINDEX（< 5.12），或当前用户无权钉绑（EPERM）：
+        // 按系统路由发送，不算失败；不能把可用连接误判为接口错误。
+        if code == SocketCompat.enoprotoopt || code == SocketCompat.einval || code == 1 { return .noMatch }
         #endif
         return .failed(errno: code)
     }
