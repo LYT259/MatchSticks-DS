@@ -42,6 +42,14 @@ struct SettingsView: View {
                 .frame(width: 360)
             }
             settingsSeparator
+            settingsRow(tr("Mini UI 参考")) {
+                DSSelectControl(title: tr("Mini UI 参考"), selection: $model.miniReferenceStyle, options: [
+                    DSSelectOption(value: .niClassic, label: "NI Classic"),
+                    DSSelectOption(value: .firstModern, label: "FIRST Modern"),
+                ])
+                    .frame(width: 200)
+            }
+            settingsSeparator
             settingsRow(tr("比赛年份")) {
                 DSSelectControl(title: tr("比赛年份"), selection: $model.practiceSeasonYear,
                                 options: model.practiceSeasonYearChoices.map { DSSelectOption(value: $0, label: String($0)) })

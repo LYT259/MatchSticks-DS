@@ -54,7 +54,8 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
-  Sources/MatchSticksDriverStaion/DSModel.swift Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift \
+  Sources/MatchSticksDriverStaion/DSModel.swift Sources/MatchSticksDriverStaion/MiniReferenceStyle.swift \
+  Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift \
   Sources/MatchSticksDriverStaion/PermissionRuntimeMonitor.swift \
   Sources/MatchSticksDriverStaion/FirewallVerificationProbe.swift \
   Sources/MatchSticksDriverStaion/HIDInputManager.swift \

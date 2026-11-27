@@ -420,6 +420,10 @@ final class DSModel {
         }
     }
 
+    var miniReferenceStyle = MiniReferenceStyle.niClassic {
+        didSet { settings.set("miniReferenceStyle", miniReferenceStyle.rawValue) }
+    }
+
     // MARK: 应用图标（运行中 Dock 图标；独立两维偏好：样式 × 外观，与界面主题互不影响）
 
     var iconStyle = IconStyle.color {
@@ -535,6 +539,9 @@ final class DSModel {
         }
         if let raw = settings.string("appearance"), let mode = AppearanceMode(rawValue: raw) {
             appearanceMode = mode
+        }
+        if let raw = settings.string("miniReferenceStyle"), let style = MiniReferenceStyle(rawValue: raw) {
+            miniReferenceStyle = style
         }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }

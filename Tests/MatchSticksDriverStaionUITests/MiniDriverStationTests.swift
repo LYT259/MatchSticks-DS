@@ -21,8 +21,31 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
     }
     let appSource = source("Sources/MatchSticksDriverStaion/MatchSticksDriverStaionApp.swift")
     let miniSource = source("Sources/MatchSticksDriverStaion/Views/MiniView.swift")
+    let settingsSource = source("Sources/MatchSticksDriverStaion/Views/SettingsView.swift")
     check(!appSource.isEmpty && !miniSource.isEmpty,
           "mini driver station tests load their source fixtures")
+
+    let styleSuiteName = "org.ghfrc.driverstation.test.uitests.mini-style.\(UUID().uuidString)"
+    let styleDefaults = UserDefaults(suiteName: styleSuiteName)!
+    let styleModel = DSModel(settingsDefaults: styleDefaults, persistenceEnabled: true)
+    check(styleModel.miniReferenceStyle == .niClassic,
+          "Mini reference defaults to NI Classic")
+    styleModel.miniReferenceStyle = .firstModern
+    check(styleDefaults.string(forKey: "matchsticks.miniReferenceStyle") == "firstModern",
+          "selecting FIRST Modern persists immediately")
+    let restoredStyleModel = DSModel(settingsDefaults: styleDefaults, persistenceEnabled: true)
+    restoredStyleModel.loadPersistedSettings()
+    check(restoredStyleModel.miniReferenceStyle == .firstModern,
+          "FIRST Modern survives a settings restore")
+    styleDefaults.set("not-a-real-style", forKey: "matchsticks.miniReferenceStyle")
+    let invalidStyleModel = DSModel(settingsDefaults: styleDefaults, persistenceEnabled: true)
+    invalidStyleModel.loadPersistedSettings()
+    check(invalidStyleModel.miniReferenceStyle == .niClassic,
+          "invalid persisted style falls back to NI Classic")
+    styleDefaults.removePersistentDomain(forName: styleSuiteName)
+    check(settingsSource.contains("$model.miniReferenceStyle") &&
+          settingsSource.contains("NI Classic") && settingsSource.contains("FIRST Modern"),
+          "Settings exposes both Mini UI references")
 
     // ===== ① 窗口声明：标准标题栏（原生 standardWindowButton 位置与行为，无自绘背景）=====
     let miniScene = String(appSource.slice(from: "Window(\"Mini Driver Station\"", to: "struct RootView"))

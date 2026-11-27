@@ -1698,16 +1698,16 @@ struct UIStateTests {
         if let generalStart = settingsSource.range(of: "private var generalPanel")?.lowerBound,
            let generalEnd = settingsSource.range(of: "private var dashboardPanel")?.lowerBound {
             let general = String(settingsSource[generalStart..<generalEnd])
-            check(general.components(separatedBy: "settingsRow(").count - 1 == 3,
-                  "General keeps exactly Language, Appearance and Season as settingsRow rows")
+            check(general.components(separatedBy: "settingsRow(").count - 1 == 4,
+                  "General keeps Language, Appearance, Mini UI Reference and Season as settingsRow rows")
             check(general.contains("settingsSubgroup(tr(\"图标样式\")) {") &&
                   general.contains("settingsSubgroup(tr(\"图标外观\")) {"),
                   "app-icon settings render as full-width subgroups with titles above the cards")
             check(!general.contains("settingsRow(tr(\"图标样式\"))") &&
                   !general.contains("settingsRow(tr(\"图标外观\"))"),
                   "icon subgroups are not squeezed into right-aligned rows")
-            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.practiceSeasonYear",
-                               "$model.iconStyle", "$model.iconAppearance"], in: general),
+            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.miniReferenceStyle",
+                               "$model.practiceSeasonYear", "$model.iconStyle", "$model.iconAppearance"], in: general),
                   "the app-icon subgroups sit after Season inside General")
             check(general.contains("AppIconStyleCardPicker(title: tr(\"图标样式\"), selection: $model.iconStyle)") &&
                   general.contains("AppIconAppearanceCardPicker(title: tr(\"图标外观\"), style: model.iconStyle, selection: $model.iconAppearance)"),
