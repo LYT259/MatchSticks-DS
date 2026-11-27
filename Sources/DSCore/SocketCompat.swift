@@ -161,8 +161,13 @@ public enum SocketCompat {
     private static let windowsSIO_UDP_CONNRESET: UInt32 = 0x9800_000C
     #endif
 
-    private static let datagramSocketType = Int32(SOCK_DGRAM)
-    private static let streamSocketType = Int32(SOCK_STREAM)
+    #if os(Linux)
+    private static let datagramSocketType = Int32(SOCK_DGRAM.rawValue)
+    private static let streamSocketType = Int32(SOCK_STREAM.rawValue)
+    #else
+    private static let datagramSocketType = SOCK_DGRAM
+    private static let streamSocketType = SOCK_STREAM
+    #endif
 
     private static func makeSocket(type: Int32) -> Int32 {
         #if os(Windows)
