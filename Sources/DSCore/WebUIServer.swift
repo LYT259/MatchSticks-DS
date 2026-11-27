@@ -1,10 +1,9 @@
 import Foundation
-import Darwin
 
 // MARK: - 内置 WebUI（localhost:6768，报告 §6 架构图 / §7 功能矩阵）
 //
 // 纯本地 HTTP/1.1 服务：日志文件列表与下载、设置查看/覆盖、状态页（P5 打包 E2E 用）。
-// 手写 BSD socket（与 NT4Server 同一路线——NWListener 在 macOS 27 beta EINVAL，见 CLAUDE.md）。
+// 手写 BSD 套接字（经 SocketCompat 薄层，与 NT4Server 同一路线——NWListener 在 macOS 27 beta EINVAL，见 CLAUDE.md）。
 // 安全边界：仅绑定 127.0.0.1（不暴露局域网）；一连接一请求（Connection: close）；
 // 外部输入不可信（通用 §7）：请求行/头部容错、超长拒绝、文件名白名单 + 目录逃逸双查。
 
@@ -84,39 +83,27 @@ public final class WebUIServer {
         runningFlag = false
         let sock = listenSock
         lock.unlock()
-        if sock >= 0 { close(sock) }
+        if sock >= 0 { SocketCompat.closeSocket(sock) }
     }
 
     // MARK: 监听（仅回环）
 
     private func listenLoop() {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = SocketCompat.tcpSocket()
         guard fd >= 0 else { onLog?(tr("WebUI socket 创建失败")); return }
-        var yes: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        _ = SocketCompat.setReuseAddress(fd)
 
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        // 仅 127.0.0.1，绝不暴露局域网。注意字节序陷阱：INADDR_LOOPBACK 常量按大端
-        // 语义定义，直接赋 s_addr 在小端机上会变成 1.0.0.127（bind 报 EADDRNOTAVAIL，
-        // 2026-10-01 实测 errno 49）——用 inet_addr 生成天然网络序地址。
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let bound = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        guard bound == 0, listen(fd, 8) == 0 else {
-            onLog?(tr("WebUI 监听失败 :%d（errno %d）", port, errno))
-            close(fd)
+        // 仅 127.0.0.1，绝不暴露局域网（网络序地址由 SocketCompat 构造，见其注释里的字节序陷阱）
+        var addr = SocketCompat.loopbackAddress(port: port)
+        let bound = SocketCompat.bindSocket(fd, &addr)
+        guard bound == 0, SocketCompat.listenSocket(fd, backlog: 8) == 0 else {
+            onLog?(tr("WebUI 监听失败 :%d（errno %d）", port, Int(SocketCompat.lastError)))
+            SocketCompat.closeSocket(fd)
             lock.lock(); runningFlag = false; lock.unlock()
             return
         }
-        var gotAddr = sockaddr_in(); var len = socklen_t(MemoryLayout<sockaddr_in>.size)
         var realPort: UInt16 = port
-        let gsResult = withUnsafeMutablePointer(to: &gotAddr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) }
-        }
-        if gsResult == 0 { realPort = UInt16(bigEndian: gotAddr.sin_port) }
+        if let local = SocketCompat.localAddress(fd) { realPort = SocketCompat.port(of: local) }
         lock.lock()
         listenSock = fd
         boundPortValue = realPort
@@ -127,25 +114,20 @@ public final class WebUIServer {
             lock.lock()
             let active = runningFlag
             lock.unlock()
-            if !active { close(fd); return }
-            var clientAddr = sockaddr_in()
-            var alen = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let client = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { accept(fd, $0, &alen) }
-            }
+            if !active { SocketCompat.closeSocket(fd); return }
+            let client = SocketCompat.acceptSocket(fd)
             guard client >= 0 else { break }
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 self?.handle(client)
             }
         }
-        close(fd)
+        SocketCompat.closeSocket(fd)
     }
 
     private func handle(_ fd: Int32) {
-        defer { close(fd) }
+        defer { SocketCompat.closeSocket(fd) }
         // 每连接 5 秒读超时：半开连接不悬挂线程
-        var tv = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        _ = SocketCompat.setReceiveTimeout(fd, seconds: 5)
 
         guard let (method, target, body) = Self.readRequest(fd) else {
             let _ = Self.send(fd, Self.http(Response(status: 400, reason: "Bad Request",
@@ -166,7 +148,7 @@ public final class WebUIServer {
         var leftover = Data() // 头终结符之后同包到达的 body 字节（POST 常见，不得丢弃）
         var scratch = [UInt8](repeating: 0, count: 8192)
         headerLoop: while buf.count < maxHeaderBytes {
-            let n = recv(fd, &scratch, scratch.count, 0)
+            let n = SocketCompat.receive(fd, &scratch, scratch.count)
             guard n > 0 else { return nil }
             buf.append(contentsOf: scratch[0..<n])
             // 找 \r\n\r\n
@@ -196,23 +178,16 @@ public final class WebUIServer {
         guard contentLength >= 0, contentLength <= maxBodyBytes else { return nil }
         var body = leftover
         while body.count < contentLength {
-            let n = recv(fd, &scratch, min(scratch.count, contentLength - body.count), 0)
+            let n = SocketCompat.receive(fd, &scratch, min(scratch.count, contentLength - body.count))
             guard n > 0 else { return nil }
             body.append(contentsOf: scratch[0..<n])
         }
         return (method, String(parts[1]), body)
     }
 
+    /// 全部发完才返回 true（半包续写；失败即 false）
     public static func send(_ fd: Int32, _ data: Data) -> Bool {
-        data.withUnsafeBytes { raw in
-            var sent = 0
-            while sent < data.count {
-                let n = Darwin.send(fd, raw.baseAddress!.advanced(by: sent), data.count - sent, 0)
-                guard n > 0 else { return false }
-                sent += n
-            }
-            return true
-        }
+        SocketCompat.sendAll(fd, data)
     }
 
     static func http(_ r: Response) -> Data {

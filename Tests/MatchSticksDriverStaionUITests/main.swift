@@ -448,6 +448,12 @@ struct UIStateTests {
         firewallVerificationProbeTests(check)
         miniDriverStationTests(check)
         localNetworkDiscoveryTests(check)
+        updateChannelTests(check)
+        updateSchedulerTests(check)
+        updateReachabilityTests(check)
+        updateRequestRoutingTests(check)
+        updateBadgeBehaviorTests(check)
+        appLifecycleTests(check)
         practiceProgressTests(check)
         practiceCountdownSpeechTests(check)
 

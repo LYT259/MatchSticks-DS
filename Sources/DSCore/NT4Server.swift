@@ -1,10 +1,8 @@
 import Foundation
-import Darwin
-import CryptoKit
 
 // MARK: - NT4 Server（DS 侧，端口 6767；MrcComm/SystemCore 以 WebSocket 客户端反连）
 //
-// 传输：BSD 套接字 + 手写 WebSocket（HTTP Upgrade 握手 + RFC6455 帧编解码）。
+// 传输：BSD 套接字（经 SocketCompat 薄层，macOS/Linux/Windows 同源）+ 手写 WebSocket（HTTP Upgrade 握手 + RFC6455 帧编解码）。
 // 不用 NWListener——macOS 27.0 beta 上 NWListener（含纯 TCP/UDP）start 即 EINVAL
 //（系统 beta 缺陷，2026-09-16 独立探针复现）；BSD 路径已被本项目 UDP/TCP 测试充分验证。
 //
@@ -67,28 +65,22 @@ public final class NT4Server: @unchecked Sendable {
         let clientSocks = clients.map(\.sock)
         clients.removeAll()
         lock.unlock()
-        if sock >= 0 { close(sock) }
-        for s in clientSocks { shutdown(s, SHUT_RDWR); close(s) }
+        if sock >= 0 { SocketCompat.closeSocket(sock) }
+        for s in clientSocks { SocketCompat.shutdownReadWrite(s); SocketCompat.closeSocket(s) }
     }
 
     // MARK: 监听与握手
 
     private func listenLoop() {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = SocketCompat.tcpSocket()
         guard fd >= 0 else { onLog?(tr("NT4 socket 创建失败")); return }
-        var yes: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        SocketCompat.setReuseAddress(fd)
 
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        addr.sin_addr = in_addr(s_addr: INADDR_ANY)
-        let bound = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        guard bound == 0, listen(fd, 8) == 0 else {
-            onLog?(tr("NT4 监听失败 :%d（errno %d）", port, errno))
-            close(fd)
+        var addr = SocketCompat.anyAddress(port: port)
+        let bound = SocketCompat.bindSocket(fd, &addr)
+        guard bound == 0, SocketCompat.listenSocket(fd, backlog: 8) == 0 else {
+            onLog?(tr("NT4 监听失败 :%d（errno %d）", port, Int(SocketCompat.lastError)))
+            SocketCompat.closeSocket(fd)
             return
         }
         lock.lock()
@@ -100,18 +92,14 @@ public final class NT4Server: @unchecked Sendable {
             lock.lock()
             let active = runningFlag
             lock.unlock()
-            if !active { close(fd); return }
-            var clientAddr = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let client = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { accept(fd, $0, &len) }
-            }
+            if !active { SocketCompat.closeSocket(fd); return }
+            let client = SocketCompat.acceptSocket(fd)
             guard client >= 0 else { break }
             DispatchQueue.global(qos: .utility).async { [weak self] in
                 self?.handleConnection(client)
             }
         }
-        close(fd)
+        SocketCompat.closeSocket(fd)
     }
 
     private func handleConnection(_ fd: Int32) {
@@ -120,23 +108,23 @@ public final class NT4Server: @unchecked Sendable {
             break
         case .failed(let code):
             onLog?(tr("NT4 机器人网卡绑定失败（errno %d），已关闭该连接", Int(code)))
-            close(fd)
+            SocketCompat.closeSocket(fd)
             return
         }
         guard let request = Self.readHTTPHeader(fd),
               let key = Self.headerValue(request, "Sec-WebSocket-Key"),
               request.lowercased().contains("upgrade: websocket") else {
-            close(fd)
+            SocketCompat.closeSocket(fd)
             return
         }
-        let accept = Self.wsAccept(key: key)
+        let accept = Self.websocketAcceptKey(for: key)
         let response = "HTTP/1.1 101 Switching Protocols\r\n"
             + "Upgrade: websocket\r\nConnection: Upgrade\r\n"
             + "Sec-WebSocket-Accept: \(accept)\r\n"
             + "Sec-WebSocket-Protocol: \(Self.defaultSubprotocol)\r\n\r\n"
         let responseData = Data(response.utf8)
-        guard responseData.withUnsafeBytes({ raw in send(fd, raw.baseAddress, raw.count, 0) }) == responseData.count else {
-            close(fd)
+        guard SocketCompat.sendData(fd, responseData) == responseData.count else {
+            SocketCompat.closeSocket(fd)
             return
         }
         onLog?(tr("NT4 客户端已连接"))
@@ -175,7 +163,7 @@ public final class NT4Server: @unchecked Sendable {
         lock.lock()
         clients.removeAll { $0.sock == fd }
         lock.unlock()
-        close(fd)
+        SocketCompat.closeSocket(fd)
     }
 
     // MARK: 文本（publish / subscribe）
@@ -250,9 +238,7 @@ public final class NT4Server: @unchecked Sendable {
         }
         lock.unlock()
         for sock in targets {
-            frame.withUnsafeBytes { raw in
-                _ = send(sock, raw.baseAddress, raw.count, 0)
-            }
+            _ = SocketCompat.sendData(sock, frame)
         }
     }
 
@@ -292,9 +278,7 @@ public final class NT4Server: @unchecked Sendable {
         guard let data = try? JSONSerialization.data(withJSONObject: msg) else { return }
         let frame = Self.encodeFrame(opcode: 0x1, payload: data)
         for sock in targets {
-            frame.withUnsafeBytes { raw in
-                _ = send(sock, raw.baseAddress, raw.count, 0)
-            }
+            _ = SocketCompat.sendData(sock, frame)
         }
     }
 
@@ -307,9 +291,7 @@ public final class NT4Server: @unchecked Sendable {
         guard !targets.isEmpty else { return }
         let frame = Self.encodeFrame(opcode: 0x2, payload: MsgPack.pack([Int(topicID), Int(ts), value] as [Any]))
         for sock in targets {
-            frame.withUnsafeBytes { raw in
-                _ = send(sock, raw.baseAddress, raw.count, 0)
-            }
+            _ = SocketCompat.sendData(sock, frame)
         }
     }
 
@@ -325,16 +307,17 @@ public final class NT4Server: @unchecked Sendable {
         return nil
     }
 
-    static func wsAccept(key: String) -> String {
-        let digest = Insecure.SHA1.hash(data: Data((key + Self.wsGUID).utf8))
-        return Data(digest).base64EncodedString()
+    /// Sec-WebSocket-Accept = base64(SHA-1(key + GUID))（RFC 6455 §1.3）。公开供行为测试；
+    /// 摘要走纯 Swift SHA-1，三平台结果一致。
+    public static func websocketAcceptKey(for key: String) -> String {
+        SHA1.digest(Data((key + Self.wsGUID).utf8)).base64EncodedString()
     }
 
     static func readHTTPHeader(_ fd: Int32) -> String? {
         var data = Data()
         var byte: UInt8 = 0
         while data.count < 16384 {
-            let n = recv(fd, &byte, 1, 0)
+            let n = SocketCompat.receive(fd, &byte, 1)
             guard n == 1 else { return nil }
             data.append(byte)
             if data.count >= 4, [UInt8](data.suffix(4)) == [0x0D, 0x0A, 0x0D, 0x0A] {
@@ -346,10 +329,7 @@ public final class NT4Server: @unchecked Sendable {
 
     static func writeFrame(_ fd: Int32, opcode: UInt8, payload: Data) -> Bool {
         let frame = encodeFrame(opcode: opcode, payload: payload)
-        return frame.withUnsafeBytes({ raw -> Bool in
-            guard let base = raw.baseAddress else { return false }
-            return send(fd, base, raw.count, 0) == raw.count
-        })
+        return SocketCompat.sendData(fd, frame) == frame.count
     }
 
     /// 读一帧（客户端帧带掩码；服务器→客户端帧不掩码）
@@ -358,7 +338,7 @@ public final class NT4Server: @unchecked Sendable {
             var out: [UInt8] = []
             while out.count < n {
                 var chunk = [UInt8](repeating: 0, count: n - out.count)
-                let got = recv(fd, &chunk, chunk.count, 0)
+                let got = SocketCompat.receive(fd, &chunk, chunk.count)
                 guard got > 0 else { return nil }
                 out.append(contentsOf: chunk[0..<got])
             }
@@ -434,7 +414,7 @@ public final class NT4Server: @unchecked Sendable {
             var out: [UInt8] = []
             while out.count < n {
                 var chunk = [UInt8](repeating: 0, count: n - out.count)
-                let got = recv(fd, &chunk, chunk.count, 0)
+                let got = SocketCompat.receive(fd, &chunk, chunk.count)
                 guard got > 0 else { return nil }
                 out.append(contentsOf: chunk[0..<got])
             }
