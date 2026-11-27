@@ -342,8 +342,17 @@ final class DSModel {
     var practiceDelayTime: TimeInterval = 2 {
         didSet { settings.set("practiceDelayTime", practiceDelayTime) }
     }
-    var practiceStartDelay: TimeInterval = 2 {
-        didSet { settings.set("practiceStartDelay", practiceStartDelay) }
+    var practiceStartDelay: TimeInterval = PracticeCountdownPlan.minimumStartDelay {
+        didSet {
+            if practiceStartDelay > 0 && practiceStartDelay < PracticeCountdownPlan.minimumStartDelay {
+                practiceStartDelay = PracticeCountdownPlan.minimumStartDelay
+            } else {
+                settings.set("practiceStartDelay", practiceStartDelay)
+            }
+        }
+    }
+    var practicePreparationIsValid: Bool {
+        practiceStartDelay == 0 || practiceStartDelay >= PracticeCountdownPlan.minimumStartDelay
     }
     var practiceSeasonYear = 2026 {
         didSet {
@@ -549,7 +558,10 @@ final class DSModel {
         if let v = settings.double("practiceAutoTime"), v >= 1 { practiceAutoTime = v }
         if let v = settings.double("practiceTeleopTime"), v >= 15 { practiceTeleopTime = v }
         if let v = settings.double("practiceDelayTime"), v >= 0 { practiceDelayTime = v }
-        if let v = settings.double("practiceStartDelay"), v >= 0 { practiceStartDelay = v }
+        if let v = settings.double("practiceStartDelay"), v >= 0 {
+            practiceStartDelay = v > 0 && v < PracticeCountdownPlan.minimumStartDelay
+                ? PracticeCountdownPlan.minimumStartDelay : v
+        }
         if let year = settings.integer("practiceSeasonYear"), PracticeTimingPreset.forYear(year) != nil {
             practiceSeasonYear = year
         }
@@ -1196,6 +1208,10 @@ final class DSModel {
 
     func startPractice() {
         guard !sequencer.phase.isActive, !timeoutActive else { return }
+        guard practicePreparationIsValid else {
+            log(tr("准备时间须为 0 秒或至少 %d 秒，才能完整播报", Int(PracticeCountdownPlan.minimumStartDelay)))
+            return
+        }
         practiceAudio.stop()
         practiceCountdownSpeech.stop()
         let breakdown: PracticeSequencer.TeleopBreakdown? = practiceSeasonYear >= 2026

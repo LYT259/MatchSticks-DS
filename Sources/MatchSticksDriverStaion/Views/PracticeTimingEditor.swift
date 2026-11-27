@@ -17,7 +17,7 @@ struct PracticeTimingEditor: View {
     private var legacyControls: some View {
         VStack(spacing: 14) {
             VStack(spacing: 18) {
-                compactSlider(tr("开始前等待"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
+                compactSlider(tr("准备时间"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
                 compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
                 compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
                 compactSlider(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600, color: .matchBlue)
@@ -29,7 +29,7 @@ struct PracticeTimingEditor: View {
     private var rebuiltControls: some View {
         VStack(spacing: 14) {
             VStack(spacing: 18) {
-                compactSlider(tr("开始前等待"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
+                compactSlider(tr("准备时间"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
                 compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
                 compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
                 compactSlider(tr("Transition Shift"), $model.practiceTransitionShiftTime, range: 0...60, color: .matchYellow)

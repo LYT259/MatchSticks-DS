@@ -68,6 +68,14 @@ public struct PracticeTimingPreset: Sendable, Equatable {
 }
 
 public enum PracticeCountdownCue: String, Sendable, Equatable, CaseIterable {
+    case driversBehindLine = "Drivers behind the line, in"
+    case ten
+    case nine
+    case eight
+    case seven
+    case six
+    case five
+    case four
     case three
     case two
     case one
@@ -182,19 +190,15 @@ public struct PracticeSequencer: Sendable, Equatable {
     }
 
     private mutating func countdownEvents() -> [Event] {
-        let cue: PracticeCountdownCue
-        if remaining <= 1.005 {
-            cue = .one
-        } else if remaining <= 2.005 {
-            cue = .two
-        } else if remaining <= 3.005 {
-            cue = .three
-        } else {
-            return []
+        var events: [Event] = []
+        for cue in PracticeCountdownPlan.cues(for: config.startDelay) {
+            guard cue != .go, !announcedCountdownCues.contains(cue) else { continue }
+            let fireAt = cue == .driversBehindLine ? config.startDelay : TimeInterval(cue.number ?? 0) - 0.1
+            guard remaining <= fireAt + 0.005 else { continue }
+            announcedCountdownCues.insert(cue)
+            events.append(.countdown(cue))
         }
-        guard !announcedCountdownCues.contains(cue) else { return [] }
-        announcedCountdownCues.insert(cue)
-        return [.countdown(cue)]
+        return events
     }
 
     /// A-Stop：立即失能并结束

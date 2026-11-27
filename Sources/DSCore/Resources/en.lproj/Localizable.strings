@@ -136,6 +136,10 @@
 "阶段间等待" = "Delay Between Phases";
 "Auto → Teleop 过渡" = "Auto → Teleop Transition";
 "开始前等待" = "Start Delay";
+"准备时间" = "Preparation Time";
+"关闭" = "Off";
+"0 秒关闭；开启至少 5 秒，保证完整播报" = "0s disables preparation; enabling requires at least 5s for the full announcement";
+"准备时间须为 0 秒或至少 %d 秒，才能完整播报" = "Preparation time must be 0s or at least %ds for the full announcement";
 "播放阶段提示音" = "Play Phase Sounds";
 "播放使能/失能音效" = "Play Enable/Disable Sounds";
 "声音" = "Sound";
