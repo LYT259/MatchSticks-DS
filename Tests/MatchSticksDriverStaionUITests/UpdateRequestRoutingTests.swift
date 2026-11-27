@@ -120,14 +120,14 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
         check(sanitized == nil,
               "URL-embedded credentials cannot produce a forwardable sanitized request")
 
-        var nonHTTP = URLRequest(url: URL(string: "ftp://user:secret@example.com/appcast.xml?matchsticksds_update_request=\(token)")!)
+        var nonHTTP = URLRequest(url: URL(string: "ftp://user:secret@example.com/appcast.xml?matchsticksdriverstaion_update_request=\(token)")!)
         nonHTTP.setValue(token, forHTTPHeaderField: UpdateRequestRouting.downloadHeader)
         check(routing.shouldIntercept(nonHTTP), "marked non-HTTP requests are contained instead of escaping to another protocol")
         let invalidSchemeResult = perform(nonHTTP, session: session)
         check(invalidSchemeResult.error.value != nil && SentinelURLProtocol.count.value == sentinelBeforeInvalid,
               "non-HTTP update requests fail closed without reaching a fallback protocol or the origin")
 
-        let escaped = URL(string: "https://example.com/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=&matchsticksds_update_request=\(token)")!
+        let escaped = URL(string: "https://example.com/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=&matchsticksdriverstaion_update_request=\(token)")!
         let escapedResult = routing.sanitizedRequest(URLRequest(url: escaped))
         let escapedComponents = escapedResult?.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
         check(escapedComponents?.percentEncodedPath == "/escaped/a%2Fb" &&
@@ -144,7 +144,7 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
               UpdateRequestRouting.redirectTarget(URL(string: "https://user:secret@example.com/appcast.xml")!, from: secureOrigin) == nil,
               "redirect policy rejects HTTPS downgrade, non-HTTP schemes and URL credentials")
         let redirectURL = UpdateRequestRouting.redirectTarget(
-            URL(string: "https://example.com/appcast.xml?keep=%2F&matchsticksds_update_request=secret")!, from: secureOrigin)
+            URL(string: "https://example.com/appcast.xml?keep=%2F&matchsticksdriverstaion_update_request=secret")!, from: secureOrigin)
         check(redirectURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.percentEncodedQuery == "keep=%2F",
               "redirect sanitization removes private markers without decoding the remaining query")
         var urlLess = URLRequest(url: secureOrigin)
@@ -273,7 +273,7 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
             LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "ftp://\(request.headers["host"] ?? "127.0.0.1")/final",
                                                                         "Content-Length": "0"], body: Data(), fd: fd)
         case let target where target.hasPrefix("/redirect-marker"):
-            LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "/echo?keep=%2F&matchsticksds_update_request=redirect-secret",
+            LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "/echo?keep=%2F&matchsticksdriverstaion_update_request=redirect-secret",
                                                                         "Content-Length": "0"], body: Data(), fd: fd)
         case let target where target.hasPrefix("/redirect-sensitive"):
             LoopbackHTTPServer.respond(status: "302 Found", headers: ["Location": "/echo", "Content-Length": "0"], body: Data(), fd: fd)
@@ -348,7 +348,7 @@ func updateRequestRoutingTests(_ check: @MainActor (@autoclosure () -> Bool, Str
         check(markerRequests.dropFirst().first?.target == "/echo?keep=%2F",
               "\(route) strips private markers from the redirect target while preserving other escaping (actual: \(markerRequests.dropFirst().first?.target ?? "none"))")
 
-        let escapedTarget = "/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=&matchsticksds_update_request=\(routing.token!)"
+        let escapedTarget = "/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=&matchsticksdriverstaion_update_request=\(routing.token!)"
         let escapedResult = perform(URLRequest(url: URL(string: "\(base)\(escapedTarget)")!), session: session)
         check(escapedResult.error.value == nil && originRequests.value.last?.target == "/escaped/a%2Fb?keep=%2F%3F%26%3D%23%25%20%2B&flag&empty=",
               "\(route) preserves the exact percent-encoded request target (actual: \(originRequests.value.last?.target ?? "none"))")

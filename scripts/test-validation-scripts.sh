@@ -19,7 +19,7 @@ assert_absent() { # $1=描述 $2=文件 $3=文本
 }
 SHA="1111111111111111111111111111111111111111"
 CHANGED_SHA="2222222222222222222222222222222222222222"
-REMOTE_DIR="/tmp/matchsticks-ds-validation.abc123"
+REMOTE_DIR="/tmp/matchsticks-driver-staion-validation.abc123"
 
 make_fixture() { # $1=名称；向 stdout 输出临时夹具目录
     local dir="$WORK/$1"

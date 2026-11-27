@@ -139,7 +139,7 @@ private final class WiredEthernetProbe {
         var target = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
         if let query = components.percentEncodedQuery { target += "?\(query)" }
         let lines = ["HEAD \(target) HTTP/1.1", "Host: \(hostHeader)",
-                     "User-Agent: MatchSticksDS-update-probe", "Accept: */*", "Connection: close"]
+                     "User-Agent: MatchSticksDriverStaion-update-probe", "Accept: */*", "Connection: close"]
         let request = Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8)
 
         let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: parameters)

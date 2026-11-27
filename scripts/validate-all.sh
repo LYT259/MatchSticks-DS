@@ -319,11 +319,11 @@ if [ -z "$remote_major" ]; then
 fi
 [ "$remote_major" -ge 6 ] || linux_fail "$HOST 的 Swift 版本不满足 swift-tools-version 6.0：${remote_swift}"
 # 每次运行一个全新的远端目录：不做任何删除式同步，退出时只删这一个目录
-remote_tmp_raw="$("${SSH[@]}" 'umask 077 && mktemp -d "${TMPDIR:-/tmp}/matchsticks-ds-validation.XXXXXX"' 2>&1)"
+remote_tmp_raw="$("${SSH[@]}" 'umask 077 && mktemp -d "${TMPDIR:-/tmp}/matchsticks-driver-staion-validation.XXXXXX"' 2>&1)"
 [ "$?" = "0" ] || linux_fail "无法在 $HOST 上用 mktemp -d 创建独立临时目录：${remote_tmp_raw}"
-# 只接受「绝对路径 + 末段以 matchsticks-ds-validation. 开头 + 仅含保守字符集」的单行路径（它会被拼进远端 rm -rf）
+# 只接受「绝对路径 + 末段以 matchsticks-driver-staion-validation. 开头 + 仅含保守字符集」的单行路径（它会被拼进远端 rm -rf）
 case "$remote_tmp_raw" in
-    /*/matchsticks-ds-validation.*) ;;
+    /*/matchsticks-driver-staion-validation.*) ;;
     *) linux_fail "$HOST 的 mktemp 返回了意外路径（拒绝使用）：$remote_tmp_raw" ;;
 esac
 if [ "$(printf '%s\n' "$remote_tmp_raw" | wc -l | tr -d ' ')" != "1" ] \

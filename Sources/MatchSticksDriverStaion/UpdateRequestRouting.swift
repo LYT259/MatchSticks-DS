@@ -39,8 +39,8 @@ final class UpdateRequestHandle {
 /// 机器人、WebUI、Star 以及未标记的同源请求都不会命中；token 与凭证不会发往源站，应用自身不记录它们。
 final class UpdateRequestRouting {
     static let shared = UpdateRequestRouting()
-    static let feedParameter = "matchsticksds_update_request"
-    static let downloadHeader = "MatchSticksDS-Update-Request"
+    static let feedParameter = "matchsticksdriverstaion_update_request"
+    static let downloadHeader = "MatchSticksDriverStaion-Update-Request"
     static let errorDomain = "org.ghfrc.driverstation.update.routing"
     private static let sensitiveHeaders = ["Authorization", "Proxy-Authorization", "Cookie", downloadHeader]
     private static let installLock = NSLock()

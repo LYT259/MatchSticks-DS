@@ -671,10 +671,10 @@ grep -Eq '^GET /new-9\.9\.9\.zip HTTP/' "$HTTP_REQUEST_LOG" \
     || fail "本地源站未收到 stable enclosure GET"
 grep -Eq '^GET /new-9\.9\.10\.zip HTTP/' "$HTTP_REQUEST_LOG" \
     || fail "本地源站未收到 beta enclosure GET"
-if grep -Eiq 'matchsticksds_update_request=|matchsticksds-update-request:|authorization:|proxy-authorization:|cookie:' "$HTTP_REQUEST_LOG"; then
+if grep -Eiq 'matchsticksdriverstaion_update_request=|matchsticksds-update-request:|authorization:|proxy-authorization:|cookie:' "$HTTP_REQUEST_LOG"; then
     fail "本地源站日志发现 query/header token、Authorization 或 Cookie（不输出敏感值）"
 fi
-if grep -Eiq 'matchsticksds_update_request=|matchsticksds-update-request:|authorization:|cookie:' "$WORK"/leg*.log; then
+if grep -Eiq 'matchsticksdriverstaion_update_request=|matchsticksds-update-request:|authorization:|cookie:' "$WORK"/leg*.log; then
     fail "App 日志发现 update token、Authorization 或 Cookie（不输出敏感值）"
 fi
 AFTER_PRODUCTION="$(snapshot_production_domain "$WORK/production-after.plist")"
