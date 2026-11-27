@@ -8,8 +8,16 @@ import Network
 protocol LocalNetworkBrowsing: AnyObject {
     var onState: ((NWBrowser.State) -> Void)? { get set }
     var onServices: (([String]) -> Void)? { get set }
+    var onServiceEvidence: (([LocalNetworkServiceEvidence]) -> Void)? { get set }
     func start(queue: DispatchQueue)
     func cancel()
+}
+
+/// 可注入、可测试的服务证据；生产由 NWBrowser.Result 映射，不公开 endpoint 或授权信息。
+struct LocalNetworkServiceEvidence: Equatable {
+    let name: String
+    let serviceType: String
+    let interfaces: [NWInterface.InterfaceType]
 }
 
 /// 发现事件：只用于日志 / 诊断——不改连接目标，不进发送轮转，也不自动连接。
@@ -24,6 +32,8 @@ enum LocalNetworkDiscoveryEvent: Equatable {
     case ready
     /// 当前发现的 NI 服务名（排序；仅在集合变化时发出）
     case services([String])
+    /// 带明确非回环接口证据的 NI 服务发现
+    case nonLoopbackService(String)
 }
 
 /// 生产浏览器：`NWBrowser(for: .bonjour(type: "_ni._tcp", domain: nil))`。
@@ -41,10 +51,18 @@ final class NIBonjourBrowser: LocalNetworkBrowsing {
     }
 
     var onServices: (([String]) -> Void)? {
-        didSet {
-            browser.browseResultsChangedHandler = { [weak self] results, _ in
-                self?.onServices?(Self.serviceNames(results))
-            }
+        didSet { updateBrowseHandler() }
+    }
+
+    var onServiceEvidence: (([LocalNetworkServiceEvidence]) -> Void)? {
+        didSet { updateBrowseHandler() }
+    }
+
+    private func updateBrowseHandler() {
+        browser.browseResultsChangedHandler = { [weak self] results, _ in
+            guard let self else { return }
+            self.onServices?(Self.serviceNames(results))
+            self.onServiceEvidence?(Self.serviceEvidence(results))
         }
     }
 
@@ -61,6 +79,14 @@ final class NIBonjourBrowser: LocalNetworkBrowsing {
         if case .service(let name, _, _, _) = endpoint { return name }
         return nil
     }
+
+    static func serviceEvidence(_ results: Set<NWBrowser.Result>) -> [LocalNetworkServiceEvidence] {
+        results.compactMap { result in
+            guard case .service(let name, let type, _, _) = result.endpoint else { return nil }
+            return LocalNetworkServiceEvidence(
+                name: name, serviceType: type, interfaces: result.interfaces.map(\.type))
+        }
+    }
 }
 
 /// NWBrowser 的薄封装：一次启动、可取消、幂等。回调在主队列交付（start 传 .main），
@@ -72,6 +98,7 @@ final class LocalNetworkDiscovery {
     private let makeBrowser: () -> LocalNetworkBrowsing
     private var browser: LocalNetworkBrowsing?
     private var discovered: [String] = []
+    private var reportedNonLoopbackServices: Set<String> = []
     /// 最近一次已上报的终态事件（跨重启保留：同一会话内同一拒绝 / 失败不刷第二条日志）
     private var lastTerminalEvent: LocalNetworkDiscoveryEvent?
     var onEvent: ((LocalNetworkDiscoveryEvent) -> Void)?
@@ -88,11 +115,15 @@ final class LocalNetworkDiscovery {
         let browser = makeBrowser()
         self.browser = browser
         discovered = []
+        reportedNonLoopbackServices = []
         browser.onState = { [weak self] state in
             MainActor.assumeIsolated { self?.handle(state) }
         }
         browser.onServices = { [weak self] names in
             MainActor.assumeIsolated { self?.handle(names) }
+        }
+        browser.onServiceEvidence = { [weak self] evidence in
+            MainActor.assumeIsolated { self?.handle(evidence) }
         }
         browser.start(queue: .main)
     }
@@ -103,6 +134,7 @@ final class LocalNetworkDiscovery {
         self.browser = nil
         browser.onState = nil
         browser.onServices = nil
+        browser.onServiceEvidence = nil
         browser.cancel()
     }
 
@@ -138,6 +170,25 @@ final class LocalNetworkDiscovery {
         guard names != discovered else { return }
         discovered = names
         onEvent?(.services(names))
+    }
+
+    private func handle(_ evidence: [LocalNetworkServiceEvidence]) {
+        var newlyVerified: [String] = []
+        for item in evidence where Self.isNonLoopbackEvidence(item) && !reportedNonLoopbackServices.contains(item.name) {
+            reportedNonLoopbackServices.insert(item.name)
+            newlyVerified.append(item.name)
+        }
+        for name in newlyVerified {
+            onEvent?(.nonLoopbackService(name))
+        }
+    }
+
+    /// 只有明确的 Wi-Fi / 有线 / 蜂窝接口才构成非回环证据；空接口、回环和 .other 均不算。
+    static func isNonLoopbackEvidence(_ evidence: LocalNetworkServiceEvidence) -> Bool {
+        evidence.serviceType == NIBonjourBrowser.serviceType &&
+            evidence.interfaces.contains { knownInterface in
+                [.wifi, .wiredEthernet, .cellular].contains(knownInterface)
+            }
     }
 
     /// kDNSServiceErr_PolicyDenied（-65570）＝系统拒绝本地网络访问；Network 框架以 NWError.dns 上报。

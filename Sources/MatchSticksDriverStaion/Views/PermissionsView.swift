@@ -3,61 +3,17 @@ import AppKit
 import CoreGraphics
 import DSCore
 
-/// 权限面板徽章的色调。`.success` 只用于有正面证据表明权限可用的情形；`.warning` 表示没有证据
-/// （并不代表被拒绝）；`.neutral` 用于应用根本不读取该配置的面板。
+/// 权限面板徽章的色调，两项权限共用同一套含义：`.success` 只用于本次启动的真实非回环证据；
+/// `.danger` 只用于系统明确拒绝；`.warning` 表示尚未取得证据；`.neutral` 表示本次会话已跳过检测。
 enum PermissionTone: Equatable {
-    case success, warning, neutral
+    case success, warning, neutral, danger
 
     var color: Color {
         switch self {
         case .success: return DSTheme.success
         case .warning: return DSTheme.warning
         case .neutral: return DSTheme.textSecondary
-        }
-    }
-}
-
-/// 本地网络面板的证据。连接记录不是权限查询：只有真实的非回环机器人连接才能证明本地网络访问可用。
-@MainActor
-enum LocalNetworkEvidence: Equatable {
-    case verifiedRobot
-    case loopbackSimulator
-    case unverified
-
-    init(commState: DSClient.CommState) {
-        switch commState {
-        case .idle, .searching: self = .unverified
-        case .connected(let host): self = Self.isLoopbackHost(host) ? .loopbackSimulator : .verifiedRobot
-        }
-    }
-
-    /// 回环主机（本机模拟器）不经本地网络权限；点分地址复用模型的 127/8 解析，命名回环主机按字面匹配。
-    static func isLoopbackHost(_ host: String) -> Bool {
-        host == "localhost" || host == "::1" || DSModel.isLoopbackIPv4(host)
-    }
-
-    var tone: PermissionTone {
-        switch self {
-        case .verifiedRobot: return .success
-        case .loopbackSimulator, .unverified: return .warning
-        }
-    }
-
-    var badge: String {
-        switch self {
-        case .verifiedRobot: return tr("机器人通信正常")
-        case .loopbackSimulator: return tr("已连接本机模拟器")
-        case .unverified: return tr("尚未通过连接验证")
-        }
-    }
-
-    var symbol: String { self == .verifiedRobot ? "checkmark.circle.fill" : "info.circle" }
-
-    func explanation(connectionDetail: String) -> String {
-        switch self {
-        case .verifiedRobot: return tr("已与 %@ 建立通信，当前连接可用。", connectionDetail)
-        case .loopbackSimulator: return tr("本机连接正常，但它不能验证真实机器人所需的本地网络权限。")
-        case .unverified: return tr("目前没有机器人连接记录可用于确认网络访问。连接失败时，可先检查本地网络权限。")
+        case .danger: return DSTheme.danger
         }
     }
 }
@@ -68,7 +24,8 @@ struct PermissionsView: View {
     @State private var inputMonitoringOK = false
     @State private var settingsMessage = ""
 
-    private var networkEvidence: LocalNetworkEvidence { LocalNetworkEvidence(commState: model.commState) }
+    private var networkEvidence: LocalNetworkEvidence { model.permissionMonitor.networkEvidence }
+    private var firewallEvidence: FirewallEvidence { model.permissionMonitor.firewallEvidence }
 
     var body: some View {
         ScrollView {
@@ -113,6 +70,8 @@ struct PermissionsView: View {
                 Text(tr("macOS 15 及更新系统提供本地网络权限设置。"))
                     .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 Spacer()
+                Button(tr("重新检测")) { model.restartPermissionVerification() }
+                    .buttonStyle(DSActionStyle())
                 // 深链不保证直达本地网络子页面：按钮只承诺打开「隐私与安全性」，提示也只说“已请求”
                 Button(tr("打开隐私与安全性")) {
                     openSettings("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
@@ -152,12 +111,41 @@ struct PermissionsView: View {
 
     private var firewallPanel: some View {
         DSPanel(title: tr("防火墙")) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "shield")
+                    .font(.system(size: 25, weight: .light)).foregroundStyle(DSTheme.textSecondary)
+                    .frame(width: 36)
+                VStack(alignment: .leading, spacing: 8) {
+                    DSBadge(text: firewallEvidence.badge,
+                            color: firewallEvidence.tone.color,
+                            symbol: firewallEvidence.symbol)
+                    Text(firewallEvidence.explanation)
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    if case .waiting(let url) = firewallEvidence {
+                        Text(tr("在同一网络的另一台设备打开："))
+                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
+                        Text(url.absoluteString)
+                            .font(.system(size: 13, design: .monospaced))
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(tr("验证成功后监听会自动关闭；重新启动应用会重新检测。"))
+                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
+                    } else if firewallEvidence == .timedOut || firewallEvidence == .failed || firewallEvidence == .unavailable {
+                        Text(tr("可点击重新检测再试。"))
+                            .font(.caption).foregroundStyle(DSTheme.textSecondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            Divider()
             Text(tr("在「系统设置 → 网络 → 防火墙 → 选项」中，检查 MatchSticks Driver Station 是否允许接收传入连接。保留其他应用的防火墙设置即可。"))
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             HStack {
-                // 未读取系统防火墙配置：中性灰，不暗示已授权或被拒绝
-                DSBadge(text: tr("未检测系统防火墙配置"), color: PermissionTone.neutral.color, symbol: "info.circle")
+                Text(tr("只验证当前地址和端口的 TCP 入站路径。"))
+                    .font(.caption).foregroundStyle(DSTheme.textSecondary)
                 Spacer()
+                Button(tr("重新检测")) { model.restartPermissionVerification() }
+                    .buttonStyle(DSActionStyle())
                 Button(tr("打开防火墙设置")) {
                     openSettings("x-apple.systempreferences:com.apple.Network-Settings.extension?Firewall")
                 }

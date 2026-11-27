@@ -55,6 +55,8 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
   Sources/MatchSticksDriverStaion/DSModel.swift Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift \
+  Sources/MatchSticksDriverStaion/PermissionRuntimeMonitor.swift \
+  Sources/MatchSticksDriverStaion/FirewallVerificationProbe.swift \
   Sources/MatchSticksDriverStaion/HIDInputManager.swift \
   Sources/MatchSticksDriverStaion/MacStatusMonitor.swift Sources/MatchSticksDriverStaion/Views/DSStyle.swift \
   Sources/MatchSticksDriverStaion/Views/DSControls.swift Sources/MatchSticksDriverStaion/PracticeAudioPlayer.swift \
@@ -90,11 +92,14 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/ArtworkIntegrityTests.swift \
   Tests/MatchSticksDriverStaionUITests/GamepadRenderingTests.swift Tests/MatchSticksDriverStaionUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDriverStaionUITests/JoystickSlotOrderingTests.swift \
+  Tests/MatchSticksDriverStaionUITests/JoystickCardInteractionTests.swift \
   Tests/MatchSticksDriverStaionUITests/AppIconAppearanceTests.swift \
   Tests/MatchSticksDriverStaionUITests/DriverStationBrandTests.swift \
   Sources/MatchSticksDriverStaion/Views/MiniView.swift Sources/MatchSticksDriverStaion/MiniDriverStation.swift \
   Tests/MatchSticksDriverStaionUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDriverStaionUITests/LocalNetworkDiscoveryTests.swift \
+  Tests/MatchSticksDriverStaionUITests/PermissionRuntimeMonitorTests.swift \
+  Tests/MatchSticksDriverStaionUITests/FirewallVerificationProbeTests.swift \
   Tests/MatchSticksDriverStaionUITests/PracticeProgressTests.swift \
   Tests/MatchSticksDriverStaionUITests/PracticeCountdownSpeechTests.swift \
   -o .build/MatchSticksDriverStaionUIStateTests

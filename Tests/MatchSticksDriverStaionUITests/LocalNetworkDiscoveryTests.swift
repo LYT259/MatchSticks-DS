@@ -15,6 +15,7 @@ import DSCore
 private final class FakeLocalNetworkBrowser: LocalNetworkBrowsing {
     var onState: ((NWBrowser.State) -> Void)?
     var onServices: (([String]) -> Void)?
+    var onServiceEvidence: (([LocalNetworkServiceEvidence]) -> Void)?
     private(set) var startCount = 0
     private(set) var cancelCount = 0
 
@@ -172,6 +173,36 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
     check(NIBonjourBrowser.serviceType == "_ni._tcp",
           "the browser browses the NI service type declared in Info.plist")
 
+    // ===== D2. 只有明确的非回环接口 + NI 服务类型才产生验证证据 =====
+    let evidenceFake = FakeLocalNetworkBrowser()
+    let evidenceDiscovery = LocalNetworkDiscovery(makeBrowser: { evidenceFake })
+    var evidenceEvents: [LocalNetworkDiscoveryEvent] = []
+    evidenceDiscovery.onEvent = { evidenceEvents.append($0) }
+    evidenceDiscovery.start()
+    evidenceFake.onServiceEvidence?([
+        LocalNetworkServiceEvidence(name: "other", serviceType: "_ni._tcp", interfaces: [.other]),
+        LocalNetworkServiceEvidence(name: "loopback", serviceType: "_ni._tcp", interfaces: [.loopback]),
+        LocalNetworkServiceEvidence(name: "empty", serviceType: "_ni._tcp", interfaces: []),
+        LocalNetworkServiceEvidence(name: "wrong-type", serviceType: "_http._tcp", interfaces: [.wifi]),
+    ])
+    check(evidenceEvents.isEmpty, "other/loopback/empty interfaces and wrong service types do not verify")
+    evidenceFake.onServiceEvidence?([
+        LocalNetworkServiceEvidence(name: "wifi", serviceType: "_ni._tcp", interfaces: [.wifi]),
+        LocalNetworkServiceEvidence(name: "mixed", serviceType: "_ni._tcp", interfaces: [.loopback, .wiredEthernet]),
+    ])
+    check(evidenceEvents == [.nonLoopbackService("wifi"), .nonLoopbackService("mixed")],
+          "Wi-Fi and mixed loopback/wired results qualify as non-loopback NI discovery")
+    evidenceFake.onServiceEvidence?([
+        LocalNetworkServiceEvidence(name: "cellular", serviceType: "_ni._tcp", interfaces: [.cellular]),
+    ])
+    check(evidenceEvents.last == .nonLoopbackService("cellular"),
+          "cellular also supplies non-loopback discovery evidence")
+    evidenceFake.onServiceEvidence?([
+        LocalNetworkServiceEvidence(name: "wifi", serviceType: "_ni._tcp", interfaces: [.wifi]),
+    ])
+    check(evidenceEvents.count == 3, "unchanged non-loopback service evidence is not emitted repeatedly")
+    check(evidenceDiscovery.isRunning, "evidence observation does not stop or connect the browser")
+
     // ===== E. DSModel：默认队号 0 / 空手动地址也启动；重复 start 只开一次；AUTO_SIM 不启动 =====
     let model = DSModel()
     check(model.teamNumber == 0 && model.manualIP.isEmpty, "default model has team 0 and no manual IP")
@@ -201,8 +232,15 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
 
     // ===== F. 浏览结果永不进发送轮转：连接配置不变，只写日志 =====
     modelFake.onState?(.ready)
+    modelFake.onServiceEvidence?([
+        LocalNetworkServiceEvidence(name: "roboRIO-FRC", serviceType: "_ni._tcp", interfaces: [.wifi]),
+    ])
+    check(model.permissionMonitor.networkEvidence == .verifiedDiscovery,
+          "non-loopback discovery evidence reaches the launch-scoped monitor")
     modelFake.onServices?(["roboRIO-2590-FRC"])
     modelFake.onState?(.failed(policyDenied))
+    check(model.permissionMonitor.networkEvidence == .denied,
+          "explicit policy denial reaches the launch-scoped monitor")
     check(model.teamNumber == 0 && model.manualIP.isEmpty && model.protocolKind == .ni && model.commState == .idle,
           "discovered services and browser states leave the connection configuration untouched")
     check(DSClient.sendCandidates(manualIP: model.manualIP, teamNumber: model.teamNumber) == ["172.22.11.2"],
@@ -242,11 +280,26 @@ func localNetworkDiscoveryTests(_ check: @MainActor (@autoclosure () -> Bool, St
        let clientRange = modelSource.range(of: "startWebUI()\n        client.start()", range: guardRange.upperBound..<modelSource.endIndex) {
         check(guardRange.lowerBound < discoverRange.lowerBound && discoverRange.lowerBound < clientRange.lowerBound,
               "start() starts discovery after its idempotence guard and before the control client")
+        let startupSource = String(modelSource[guardRange.lowerBound..<clientRange.lowerBound])
+        check(startupSource.components(separatedBy: "startLocalNetworkDiscovery()").count - 1 == 1,
+              "start() starts discovery exactly once")
+        check(startupSource.contains("permissionMonitor.beginNewLaunch(autoSim: Self.isAutoSim)") &&
+              startupSource.contains("permissionMonitor.startFirewallVerification(autoSim: Self.isAutoSim)") &&
+              modelSource.contains("permissionMonitor.record(commState: s)"),
+              "a fresh launch resets permission evidence and starts the firewall check before the control client")
     } else {
         check(false, "start() guard, discovery call and control client start can be located in order")
     }
-    check(modelSource.components(separatedBy: "startLocalNetworkDiscovery()").count - 1 == 1,
-          "start() starts discovery exactly once")
+    if let recheckStart = modelSource.range(of: "func restartPermissionVerification()")?.lowerBound,
+       let recheckEnd = modelSource.range(of: "/// 启动一次 NI 服务发现")?.lowerBound {
+        let recheckSource = String(modelSource[recheckStart..<recheckEnd])
+        check(recheckSource.contains("permissionMonitor.beginNewLaunch(autoSim: Self.isAutoSim)") &&
+              recheckSource.contains("permissionMonitor.record(commState: commState)") &&
+              !recheckSource.contains("client."),
+              "manual permission recheck resets evidence without touching the robot control client")
+    } else {
+        check(false, "manual permission recheck method can be located")
+    }
     check(modelSource.contains("func startLocalNetworkDiscovery(autoSim: Bool? = nil)") &&
           modelSource.contains("autoSim ?? DSModel.isAutoSim"),
           "the production gate defaults to the real AUTO_SIM session flag")
