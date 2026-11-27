@@ -199,9 +199,14 @@ func directInterfaceLoopbackBindingTests() {
         check(false, "创建 127.0.0.1 接收套接字")
     }
 
+    let hadBindingBeforeNoMatch = DirectInterface.boundInterfaceIndex(fd: fd) != nil
     let noMatch = DirectInterface.bind(fd: fd, target: "0.0.0.0")
-    check(noMatch == .noMatch, "无匹配返回 .noMatch（得到 \(noMatch)）")
-    check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "无匹配时清除旧绑定")
+    if hadBindingBeforeNoMatch && noMatch == .failed(errno: 1) {
+        check(true, "清除旧绑定被主机拒绝时显式失败，不伪装成已清除")
+    } else {
+        check(noMatch == .noMatch, "无匹配返回 .noMatch（得到 \(noMatch)）")
+        check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "无匹配时清除旧绑定")
+    }
 
     let rebound = DirectInterface.bind(fd: fd, target: "127.8.9.10")
     if supportsBinding {
@@ -210,9 +215,14 @@ func directInterfaceLoopbackBindingTests() {
     } else {
         check(rebound == .noMatch, "不支持钉绑的平台仍返回 .noMatch（得到 \(rebound)）")
     }
+    let hadBindingBeforeInvalid = DirectInterface.boundInterfaceIndex(fd: fd) != nil
     let invalid = DirectInterface.bind(fd: fd, target: "not-an-ip")
-    check(invalid == .noMatch, "非法目标返回 .noMatch（得到 \(invalid)）")
-    check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "非法目标也清除旧绑定")
+    if hadBindingBeforeInvalid && invalid == .failed(errno: 1) {
+        check(true, "旧绑定清除失败时显式失败，不伪装成无匹配")
+    } else {
+        check(invalid == .noMatch, "非法目标返回 .noMatch（得到 \(invalid)）")
+        check(DirectInterface.boundInterfaceIndex(fd: fd) == nil, "非法目标也清除旧绑定")
+    }
 
     check(DirectInterface.bind(fd: -1, target: "127.0.0.1") == .failed(errno: SocketCompat.ebadf),
           "无效 fd 返回 EBADF")
@@ -262,10 +272,15 @@ func directInterfaceLoopbackBindingTests() {
         } else {
             check(prebound == .noMatch, "不支持钉绑的平台未绑定 UDP 返回 .noMatch（得到 \(prebound)）")
         }
+        let hadBindingBeforeWildcard = DirectInterface.boundInterfaceIndex(fd: wildcard) != nil
         let result = DirectInterface.bindAccepted(fd: wildcard)
-        check(result == .noMatch, "未绑定套接字本地 0.0.0.0 返回 .noMatch（得到 \(result)）")
-        check(DirectInterface.boundInterfaceIndex(fd: wildcard) == nil,
-              "bindAccepted 无匹配时清除旧绑定")
+        if hadBindingBeforeWildcard && result == .failed(errno: 1) {
+            check(true, "accepted 无匹配且清除失败时显式失败，不沿用旧绑定")
+        } else {
+            check(result == .noMatch, "未绑定套接字本地 0.0.0.0 返回 .noMatch（得到 \(result)）")
+            check(DirectInterface.boundInterfaceIndex(fd: wildcard) == nil,
+                  "bindAccepted 无匹配时清除旧绑定")
+        }
         SocketCompat.closeSocket(wildcard)
     }
 

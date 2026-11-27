@@ -168,12 +168,15 @@ public enum DirectInterface {
     private static func applyBinding(fd: Int32, chosen: Candidate?) -> BindResult {
         // 平台不实现接口钉绑（Windows）：按系统路由发送，不算失败
         guard SocketCompat.supportsInterfaceBinding else { return .noMatch }
+        let previousIndex = SocketCompat.boundInterfaceIndex(fd)
         let code = SocketCompat.setBoundInterfaceIndex(fd, chosen?.index ?? 0)
         guard code != 0 else {
             guard let chosen else { return .noMatch }
             return .bound(name: chosen.name, index: chosen.index)
         }
         #if os(Linux)
+        // 无匹配时若旧绑定仍在，清除失败必须显式报错，不能伪装成已清除后继续沿用旧接口。
+        if chosen == nil, previousIndex != nil, code == 1 { return .failed(errno: code) }
         // 内核不认识 SO_BINDTOIFINDEX（< 5.12），或当前用户无权钉绑（EPERM）：
         // 按系统路由发送，不算失败；不能把可用连接误判为接口错误。
         if code == SocketCompat.enoprotoopt || code == SocketCompat.einval || code == 1 { return .noMatch }
