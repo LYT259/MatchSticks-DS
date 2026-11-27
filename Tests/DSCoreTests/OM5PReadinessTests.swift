@@ -243,6 +243,21 @@ func radioAutoTargetTests() {
     check(RadioProbe.autoTarget(autoSim: false, teamNumber: 0) == nil, "队号未设置 → 不探测")
 }
 
+func thirdPartyRadioTargetTests() {
+    let cudy = RadioProbe.autoTarget(autoSim: false, teamNumber: 0, manualIP: " 192.168.10.1\n")
+    check(cudy?.host == "192.168.10.1", "Cudy TR1200 出厂 Radio 地址可独立指定并去除空白（got \(cudy?.host ?? "nil")）")
+    check(cudy?.port == 80, "第三方 Radio 默认仍探测 TCP 80")
+
+    let custom = RadioProbe.autoTarget(autoSim: false, teamNumber: 2590, manualIP: "192.168.10.1")
+    check(custom?.host == "192.168.10.1", "手动 Radio 地址优先于队号派生地址（got \(custom?.host ?? "nil")）")
+    check(RadioProbe.autoTarget(autoSim: false, teamNumber: 2590, manualIP: "192.168.10") == nil,
+          "损坏的手动 Radio 地址不得回退队号地址造成误报")
+    check(RadioProbe.autoTarget(autoSim: false, teamNumber: 2590, manualIP: "  ")?.host == "10.25.90.1",
+          "空白手动 Radio 地址保留原队号自动选址")
+    check(RadioProbe.autoTarget(autoSim: true, teamNumber: 2590, manualIP: "192.168.10.1")?.host == "127.0.0.1",
+          "AUTO_SIM 始终使用本机模拟 Radio，不受持久化手动地址影响")
+}
+
 // MARK: ③ 发送候选：只收数字 IP；.local 仅作 mDNS 解析输入
 
 func sendCandidatesTests() {
@@ -419,6 +434,7 @@ func runAllOM5PReadinessTests() {
     runTest("boundedConnectClassification", boundedConnectClassificationTests)
     runTest("radioProbeClassification", radioProbeClassificationTests)
     runTest("radioAutoTarget", radioAutoTargetTests)
+    runTest("thirdPartyRadioTarget", thirdPartyRadioTargetTests)
     runTest("sendCandidatesNoHostname", sendCandidatesTests)
     runTest("manualResponseSource", manualResponseSourceTests)
     runTest("sendRotationUnique", sendRotationTests)

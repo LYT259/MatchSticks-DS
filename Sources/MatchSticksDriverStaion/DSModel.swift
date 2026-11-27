@@ -107,13 +107,13 @@ enum Diag {
     }
 }
 
-// MARK: radio 探测目标盒（主线程写队号，probe 队列读——hostProvider 不再跨线程读 MainActor 状态）
+// MARK: radio 探测目标盒（主线程写目标，probe 队列读——hostProvider 不跨线程读 MainActor 状态）
 
-final class RadioTeamBox: @unchecked Sendable {
+final class RadioTargetBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var team = 0
-    func set(_ t: Int) { lock.lock(); team = t; lock.unlock() }
-    func get() -> Int { lock.lock(); defer { lock.unlock() }; return team }
+    private var target: (host: String, port: UInt16)?
+    func set(_ target: (host: String, port: UInt16)?) { lock.lock(); self.target = target; lock.unlock() }
+    func get() -> (host: String, port: UInt16)? { lock.lock(); defer { lock.unlock() }; return target }
 }
 
 // MARK: - DSModel：应用层唯一状态源（@MainActor + @Observable）
@@ -163,7 +163,7 @@ final class DSModel {
     var teamNumber: Int = 0 {
         didSet {
             settings.set("teamNumber", teamNumber)
-            radioTeamBox.set(teamNumber)
+            updateRadioTarget()
             syncClientConfig()
         }
     }
@@ -175,6 +175,20 @@ final class DSModel {
             }
             syncClientConfig()
         }
+    }
+    var manualRadioIP: String = "" {
+        didSet {
+            if persistenceEnabled {
+                settings.set("manualRadioIP", manualRadioIP.isEmpty ? nil : manualRadioIP)
+            }
+            updateRadioTarget()
+        }
+    }
+    var currentRadioTarget: (host: String, port: UInt16)? {
+        RadioProbe.autoTarget(autoSim: Self.isAutoSim, teamNumber: teamNumber, manualIP: manualRadioIP)
+    }
+    private func updateRadioTarget() {
+        radioTargetBox.set(currentRadioTarget)
     }
     /// 已应用手动地址的提示（读 model，不读编辑中的草稿）。
     /// 普通手动地址：自动发现已关闭，仅向该地址发送；
@@ -473,7 +487,7 @@ final class DSModel {
     private let client = DSClient()
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
-    private let radioTeamBox = RadioTeamBox()
+    private let radioTargetBox = RadioTargetBox()
     private let settings: SettingsStore
     private var appSupportDirectory: AppSupportDirectory?
     private let persistenceAllowed: Bool
@@ -539,6 +553,7 @@ final class DSModel {
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }
+        if let ip = settings.string("manualRadioIP") { manualRadioIP = ip }
         if let raw = settings.string("alliance"), let a = AllianceStation(rawValue: UInt8(raw) ?? 255) { alliance = a }
         // 新多选键优先；缺失或损坏时回退旧版单选键（空串 = 全部取消，属合法值）
         if let stored = settings.string("dashboards").flatMap(DashboardKind.selection(from:)) {
@@ -632,15 +647,13 @@ final class DSModel {
             Task { @MainActor in self.handle(event) }
         }
         // radio 选址（root cause ②，2026-10-31 真机确认）：
-        // - 纯函数 RadioProbe.autoTarget 决定目标——普通自动 = 队号派生 10.T.E.1:80，
-        //   与 roboRIO manualIP 无关（旧实现填手动 IP 后 radio 灯亮来自 roboRIO:80）；
+        // - 普通自动 = 队号派生 10.T.E.1:80；manualRadioIP 可独立指定 Cudy 等第三方 radio，
+        //   roboRIO manualIP 始终不参与（旧实现曾让 radio 灯亮来自 roboRIO:80）；
         // - AUTO_SIM 保持 127.0.0.1 + 模拟 radio 端口 8080；
-        // - hostProvider 只捕获值盒（不跨线程读 MainActor 属性）；队号变化经 radioTeamBox 生效。
-        radioTeamBox.set(teamNumber)
+        // - hostProvider 只捕获已解析目标值盒，不跨线程读 MainActor 属性。
+        updateRadioTarget()
         let probe = RadioProbe(configuration: RadioProbe.Configuration())
-        probe.hostProvider = { [radioTeamBox] in
-            RadioProbe.autoTarget(autoSim: DSModel.isAutoSim, teamNumber: radioTeamBox.get())
-        }
+        probe.hostProvider = { [radioTargetBox] in radioTargetBox.get() }
         probe.onResult = { [weak self] ok in
             Task { @MainActor in self?.applyRadioResult(ok) }
         }
