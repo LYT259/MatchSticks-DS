@@ -169,6 +169,10 @@ public enum DirectInterface {
         // 平台不实现接口钉绑（Windows）：按系统路由发送，不算失败
         guard SocketCompat.supportsInterfaceBinding else { return .noMatch }
         let previousIndex = SocketCompat.boundInterfaceIndex(fd)
+        if let chosen, previousIndex == chosen.index {
+            // 已钉在目标接口时无需再次 setsockopt；这也覆盖「清除失败但目标未改变」的合法复用。
+            return .bound(name: chosen.name, index: chosen.index)
+        }
         let code = SocketCompat.setBoundInterfaceIndex(fd, chosen?.index ?? 0)
         guard code != 0 else {
             guard let chosen else { return .noMatch }
