@@ -9,6 +9,7 @@
 ## 功能（当前版本）
 
 - **连接**：roboRIO 1.0/2.0 NI 协议——UDP 1110 控制环（20ms / 50Hz）+ UDP 1150 遥测回传 + TCP 1740 慢速通道；目标自动轮换（mDNS `roboRIO-<队号>-FRC.local` → 静态 `10.T.E.2` → USB `172.22.11.2`），支持手动 IP；机器人 socket 自动绑定同子网物理网卡，Clash Verge 系统代理 / TUN（规则、全局、直连）下均保持直连，无需添加分流规则
+- **Radio**：OM5P 与第三方路由器（含 Cudy TR1200）的可达性探测；默认按队号探测 `10.T.E.1`，也可在 Connection 独立填写 Radio IPv4，且不与 roboRIO 手动地址混用；TR1200 配置见 [台架手册](docs/bench-checklist.md#2i-cudy-tr1200-作为第三方-radio)
 - **操作**：Teleop / Autonomous / Test 模式、Enable / Disable / **E-Stop**（协议位直发 + FMS 全场 Foghorn 音效）、E-Stop 复位（First DS 语义）、Alliance 站位（R1–B3）、使能计时、Practice 比赛时间线（2022–2026 官方预设与阶段音效 + 2026 Transition/Alliance Shifts/Endgame + 2022 八分钟 Timeout 提示 + 可拖动分段时长 + A-Stop）、远程 Reboot roboRIO / Restart Robot Code
 - **界面**：Apple 原生风格（实色自适应表面、无模糊/材质装饰）——侧栏导航（操作/监测两组，底部设置/权限）+ 每页常驻安全控制条（使能/失能/急停 + 状态解释）；状态条：机器人状态、通信/程序/手柄指示、电池电压（brownout 红字警示）；队伍号常驻侧栏；迷你驾驶台独立小窗（状态 + 三键 + 电池）
 - **手柄**：IOHIDManager 枚举所有 HID 设备（含 Attack3 / Extreme 3D Pro 等非游戏标准手柄）、槽位排序 + **槽位锁定**、轴 / 按键 / POV 实时显示
