@@ -68,6 +68,9 @@ EOF
 #!/bin/bash
 set -euo pipefail
 printf 'ssh\t%s\n' "$*" >> "$VALIDATION_TEST_LOG"
+if [ -n "${VALIDATION_TEST_SSH_OFFLINE:-}" ]; then
+    exit 255
+fi
 if [[ "$*" == *'uname=$(uname -s)'* ]]; then
     printf '%s\n' 'uname=Linux' 'bash=/bin/bash' 'tar=/bin/tar' 'mktemp=/usr/bin/mktemp' 'swift=Swift version 6.4.2'
 elif [[ "$*" == *'mktemp -d'* ]]; then
@@ -205,13 +208,21 @@ assert_contains "运行期目录校验 swiftCore.dll 存在" .github/workflows/f
 assert_contains "运行期目录经 GITHUB_ENV 传出" .github/workflows/full-validation.yml 'SWIFT_RUNTIME_BIN='
 assert_contains "构建步骤把运行期目录加进 PATH" .github/workflows/full-validation.yml \
     'set "PATH=%SWIFT_ROOT%\bin;%SWIFT_RUNTIME_BIN%;%PATH%"'
-build_block="$(sed -n '/- name: Build and run DSCoreTests/,/- name: Coverage/p' .github/workflows/full-validation.yml | sed '$d')"
+build_block="$(sed -n '/- name: Build and run DSCoreTests (native Winsock, Git Bash)/,/- name: Coverage/p' .github/workflows/full-validation.yml | sed '$d')"
 build_last_line="$(printf '%s\n' "$build_block" | grep -v -E '^[[:space:]]*$' | tail -1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
 if [ "$build_last_line" = "exit /b 1" ]; then
     ok "构建步骤以 exit /b 1 收尾（失败不被诊断分支吞掉）"
 else
     bad "构建步骤没有以 exit /b 1 收尾（实际最后一行：${build_last_line}）"
 fi
+
+echo "== workflow：Linux fallback 仅在明确批准后运行 =="
+assert_contains "Linux job 存在" .github/workflows/full-validation.yml 'linux-core:'
+assert_contains "workflow_dispatch 输入明确写允许" .github/workflows/full-validation.yml "github.event.inputs.linux_approval == '允许'"
+assert_contains "PR 仅在批准提交信息下触发 Linux fallback" .github/workflows/full-validation.yml \
+    "github.event.pull_request.head_commit.message, '允许使用 GitHub Linux 验证'"
+assert_contains "Linux fallback 使用 GitHub 托管 Ubuntu" .github/workflows/full-validation.yml 'runs-on: ubuntu-24.04'
+assert_contains "云端结果不冒充实体验证" .github/workflows/full-validation.yml '不冒充实体 SSH 主机验证'
 
 echo "== test-core：ss UDP 样例只按 Local Address:Port（第 4 列）过滤 =="
 ss_sample="UNCONN 0      0                                 0.0.0.0:4000 0.0.0.0:1150
@@ -269,6 +280,30 @@ else
 fi
 assert_contains "失败报告包含原 SHA 与新 SHA" "$case_dir/stdout" "$SHA"
 assert_contains "失败报告包含变化后的 SHA" "$case_dir/stdout" "$CHANGED_SHA"
+
+echo "== validate-all：实体 Linux 不可达且未批准会立即停止 =="
+case_dir="$(make_fixture offline-unapproved)"
+if VALIDATION_TEST_SSH_OFFLINE=1 run_validation "$case_dir"; then
+    bad "SSH 不可达且未批准仍然通过"
+else
+    ok "SSH 不可达且未批准会失败"
+fi
+assert_contains "失败时询问是否允许 GitHub Linux" "$case_dir/stdout" '是否允许使用 GitHub 提供的 Linux 环境进行验证'
+assert_contains "提示批准的明确环境变量" "$case_dir/stdout" 'MATCHSTICKS_DS_LINUX_GITHUB_APPROVED=允许'
+assert_absent "未批准不执行 Linux 归档" "$case_dir/commands.log" 'git\tarchive'
+assert_absent "未批准不启动 Mac 构建" "$case_dir/commands.log" 'swift\t'
+assert_absent "未批准不触发云端 dispatch" "$case_dir/commands.log" 'workflow run'
+
+echo "== validate-all：明确批准后才允许 GitHub Linux fallback =="
+case_dir="$(make_fixture offline-approved)"
+if MATCHSTICKS_DS_LINUX_GITHUB_APPROVED=允许 VALIDATION_TEST_SSH_OFFLINE=1 run_validation "$case_dir"; then
+    ok "明确批准后 Linux fallback 可完成"
+else
+    bad "明确批准后 Linux fallback 仍失败：$(cat "$case_dir/stdout")"
+fi
+assert_contains "云端结果明确标为 GitHub Ubuntu" "$case_dir/stdout" 'Linux GitHub Actions ubuntu-24.04 DSCoreTests'
+assert_contains "云端结果不冒充实体验证" "$case_dir/stdout" '用户已批准'
+assert_absent "批准 fallback 后不跑实体 Linux 测试" "$case_dir/commands.log" 'scripts/test-core.sh'
 
 echo
 if [ "$FAIL" -eq 0 ]; then

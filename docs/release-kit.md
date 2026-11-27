@@ -64,7 +64,7 @@
 > 本单只覆盖 **stable 发版链**（`beta` → `stable` 合并 + 新的 Latest Release）。**发 beta 不走本单**，走「五、5.1」（前置 = 功能已合入 `beta` + 三端全量通过，见「六」）。本单是操作单，不表示已执行。
 
 0. **前置（缺一不可）**：① 自上个 stable 以来累计的用户可感知改动达标（一个值得写进 Release notes 的新功能 / 显著改进，或一批明显修复；纯内部 CI / docs / 重构不算）；② 用户明确同意合并 stable 并发版——stable Latest 仍需用户批准 stable 链；agent 只能提醒「可能可以合并」，不得自行合并、不得先跑下面的发版链
-1. **三平台全量验证**（`scripts/validate-all.sh`：Mac 本机 + Linux 实体 SSH 主机 + Windows GitHub Actions）——**stable 合并前**在待合并的 beta 树上**重新跑**（不沿用改动合入 beta 时那次的结果）。执行前完成**同一 SHA 预检**：工作树干净、分支已推送、本地 `HEAD` = `origin/<branch>`；Mac 自动发现并逐个执行全部 `scripts/test-*.sh`（完整 App / UI / E2E），Linux 与 Windows 各自运行完整 `DSCoreTests`，Windows 只接受相同 `headSha` 的 run，任何不一致都不复用其他 SHA 的结果。Linux / Windows 端不运行 Windows / Linux App。三端全部实际通过才允许下一步；失败 / 未运行 / 跳过一律不算通过，停在此步，不得合并 / tag / 打包 / 发布
+1. **三平台全量验证**（`scripts/validate-all.sh`：Mac 本机 + Linux 优先实体 SSH 主机 + Windows GitHub Actions）——**stable 合并前**在待合并的 beta 树上**重新跑**（不沿用改动合入 beta 时那次的结果）。执行前完成**同一 SHA 预检**：工作树干净、分支已推送、本地 `HEAD` = `origin/<branch>`；Mac 自动发现并逐个执行全部 `scripts/test-*.sh`（完整 App / UI / E2E），Linux 与 Windows 各自运行完整 `DSCoreTests`，Windows 只接受相同 `headSha` 的 run，任何不一致都不复用其他 SHA 的结果。Linux / Windows 端不运行 Windows / Linux App。**实体 Linux 主机不可达时先停止并询问是否允许 GitHub Linux fallback；只有用户明确回答「允许」后才可运行 GitHub `ubuntu-24.04`，结果不冒充实体验证**。三端全部实际通过才允许下一步；失败 / 未运行 / 跳过一律不算通过，停在此步，不得合并 / tag / 打包 / 发布
 2. `beta` → `stable` 合并（稳定分支名 = `stable`；用户点名后执行）。验证与合并之间 beta 不得再合入新改动；若有，回到上一步重新验证
 3. `git tag vX.Y.Z && git push origin vX.Y.Z`（tag 等点名）
 4. 打包 + 校验：`bash scripts/build-app.sh X.Y.Z`（含 universal 构建、deep 签名自检、dmg、SHA256SUMS）

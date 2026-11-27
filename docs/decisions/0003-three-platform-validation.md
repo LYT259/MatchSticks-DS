@@ -9,7 +9,7 @@
 
 - 2026-10-04 因账号 Actions 配额告急，用户指令全面停用 GitHub Actions 与 GitHub Pages / Sites 托管（原 `.github/workflows/ci.yml` 已 disable 并从 `beta` 移除）。此后改动检查只在本机 macOS 跑。
 - 本轮（2026-11-23）开始把协议核心与回归验证扩到 Windows / Linux：需要一个可重复的三平台全量验证，而不是「本机过了就算过」。
-- 用户本轮明确授权：GitHub Actions **仅**用于 Windows full-validation；Mac 在本机跑；Linux 在配置的实体 SSH 主机跑。其他 Actions 用途仍不允许。
+- 用户本轮明确授权：GitHub Actions 用于 Windows full-validation；Mac 在本机跑；Linux 优先在配置的实体 SSH 主机跑。后续补充：实体 Linux 主机不可达时先停下询问，只有用户明确允许后，才可临时使用 GitHub Linux runner 作为 fallback，结果不得冒充实体验证。其他 Actions 用途仍不允许。
 - 同时需要把 beta → stable 的触发、合并与发版的授权边界写死，避免 agent 自行合并或先跑发版链。
 
 ## 决策
@@ -19,8 +19,8 @@
 | 平台 | 运行位置 | 说明 |
 |---|---|---|
 | macOS | 本机 | 日常改动检查 + 全量验证 |
-| Linux | 配置的实体 SSH 主机 | 主机地址与凭据只留在本机 SSH 配置与脚本环境，不写入公开文档 |
-| Windows | GitHub Actions 上的 full-validation 工作流 | 本项目 GitHub Actions 的唯一授权用途；不得启用 macOS / Linux runner，不得新增其他 workflow |
+| Linux | 优先配置的实体 SSH 主机；仅在用户明确批准后使用 GitHub Linux fallback | 主机地址与凭据只留在本机 SSH 配置与脚本环境，不写入公开文档；云端结果单独标注，不冒充实体验证 |
+| Windows | GitHub Actions 上的 full-validation 工作流 | 常规 Windows 验证；不得启用 macOS runner；Linux runner 仅按下节的明确批准路径启用 |
 
 GitHub Pages / Sites 托管继续停用（下载与镜像维持 Releases + Cloudflare Pages 既有方案）。
 
@@ -38,6 +38,7 @@ GitHub Pages / Sites 托管继续停用（下载与镜像维持 Releases + Cloud
 - 统一入口 = `scripts/validate-all.sh`；本节规定集成后的执行契约，脚本存在或能跑不表示已经通过：
   - **Mac（本机）**：`swift build` 后**自动发现并逐个执行全部 `scripts/test-*.sh`**，新增脚本自动纳入，不维护手工清单；覆盖完整 `DSCoreTests` 与 macOS App / UI / E2E——只有这里运行 App；
   - **Linux（实体 SSH 主机）**：用 `git archive HEAD` 将同一已提交 SHA 经 SSH 解包到远端 `mktemp -d` 创建的独立临时目录，再跑 `scripts/test-core.sh`，执行**完整 `DSCoreTests`**，不做抽样或过滤，不含 macOS App / UI / E2E；
+  - **Linux（GitHub fallback，仅明确批准）**：实体主机 SSH 不可达时，预检立即停止并询问「是否允许使用 GitHub 提供的 Linux 环境进行验证」，不继续 Mac / Windows，也不自动切云端。只有用户明确回答「允许」后，才运行 GitHub `ubuntu-24.04` 的完整 `DSCoreTests`。首次进入 stable 前用提交信息为「允许使用 GitHub Linux 验证」的 PR head 提交触发；进入 stable 后也可 `workflow_dispatch` 输入 `linux_approval=允许`。结果单独标为云端 fallback，不冒充实体验证。
   - **Windows（GitHub Actions）**：读取 `headSha` 与本地 HEAD 一致的 full-validation 运行（windows-2025 原生 Swift）；可消费目标为 beta / stable 的 pull_request、beta / stable push 与当前分支的 workflow_dispatch，执行**完整 `DSCoreTests`**，不做抽样或过滤。没有可消费运行时才至多 dispatch 一次，不自动重试 GitHub 操作。
   - 因此「三端全过」证明的是 `DSCore` 协议核心与回归测试在三个平台通过 + macOS App 全套检查通过，**不意味着 Windows / Linux 上有可用的 App**；应用与分发物料仍为 macOS（见 ADR 影响节）。
 - **同一 SHA 预检**：任何平台测试开始前，要求工作树干净、当前分支已推送、本地 `HEAD` = `origin/<branch>`；Mac 只在该树运行，Linux 只同步该树，Windows 只接受相同 `headSha` 的 run。任何不一致都在运行前判失败，不复用其他 SHA 的 Mac / Linux / Windows 结果。

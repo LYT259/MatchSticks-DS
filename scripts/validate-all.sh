@@ -17,7 +17,7 @@
 #
 # 流程（预检不过 = 一个测试、一条 SSH、一次 Actions 调用都不会发生）：
 #   [0/4] 预检：环境变量 → 所需工具 → 仓库根 → Mac 脚本清单齐全 → 工作树干净 → HEAD 已推送且与 origin 一致
-#         → gh 已登录 → workflow 文件已提交
+#         → gh 已登录 → workflow 文件已提交 → 实体 Linux SSH 优先；不可达时未获明确批准立即停
 #   [1/4] Mac：swift build + Mac 脚本清单（必需基础脚本 + 自动发现的 scripts/test-*.sh，去重后各跑一次）
 #   [2/4] Linux：探测远端（Linux / bash / tar / mktemp / Swift >= 6）→ mktemp -d 独立目录
 #         → df 预检 /tmp 与根分区 → git archive <固定 SHA> | ssh tar -xf -
@@ -40,7 +40,7 @@
 #   自动发现：scripts/test-*.sh 的全部普通文件（与必需清单去重）；新增测试脚本无需改本文件，
 #   按路径名字典序（LC_ALL=C）排在必需清单之后。
 #
-# Linux（实体主机，经 SSH）
+# Linux（优先实体主机，经 SSH；GitHub ubuntu-24.04 fallback 仅在明确批准后运行）
 #   与 Mac/Windows 同一套 DSCoreTests（glibc/musl 原生 Swift）；不含 macOS App/UI/E2E。
 # Windows（GitHub Actions，windows-2025 原生 Swift + Winsock；不是 WSL）
 #   workflow：.github/workflows/full-validation.yml（pull_request 目标 beta/stable、push beta/stable、workflow_dispatch）。
@@ -52,6 +52,10 @@
 #   MATCHSTICKS_DS_LINUX_SWIFT_BIN   远端 swift 可执行文件：swift（默认，按非交互 SSH 的 PATH 查找）或绝对路径。
 #                                    非交互 SSH 看不到交互终端里由 swiftly/自定义 .bashrc 加的 PATH 时，用它指定；
 #                                    给绝对路径时脚本会在远端把其所在目录前置到 PATH 再跑 test-core.sh
+#   MATCHSTICKS_DS_LINUX_GITHUB_APPROVED  仅留空或填“允许”：实体主机 SSH 不通时，留空 = 停止并询问；
+#                                    填“允许” = 本次使用 GitHub ubuntu-24.04 fallback，结果不冒充实体验证。
+#                                    首次进入 stable 前用提交信息“ci: 允许使用 GitHub Linux 验证”的 PR head 提交触发；
+#                                    进入 stable 后也可由脚本 dispatch 并传 linux_approval=允许。
 #   MATCHSTICKS_DS_WINDOWS_WORKFLOW   workflow 文件名（默认 full-validation.yml）
 #   MATCHSTICKS_DS_WINDOWS_REF        Windows 端验证的分支（默认当前分支）：其远端 tip 必须等于本地 HEAD
 #   MATCHSTICKS_DS_WINDOWS_WAIT       等待 Actions 完成的最长分钟数（默认 90）
@@ -67,6 +71,8 @@ WORKFLOW="${MATCHSTICKS_DS_WINDOWS_WORKFLOW:-full-validation.yml}"
 WINDOWS_REF="${MATCHSTICKS_DS_WINDOWS_REF:-}"
 WINDOWS_WAIT="${MATCHSTICKS_DS_WINDOWS_WAIT:-90}"
 MATCHSTICKS_DS_TEST_PORT_WAIT="${MATCHSTICKS_DS_TEST_PORT_WAIT:-900}"
+LINUX_GITHUB_APPROVAL="${MATCHSTICKS_DS_LINUX_GITHUB_APPROVED:-}"
+LINUX_MODE="ssh"
 
 # Mac 必需基础脚本（顺序即运行顺序；缺任一即失败，任何步骤都不跑）。其余 scripts/test-*.sh 自动发现。
 REQUIRED_MAC_STEPS=(
@@ -103,7 +109,11 @@ summary() {
     echo
     echo "== 三端验证汇总 =="
     printf '  %-8s %-8s commit=%s · %s\n' "Mac" "$MAC_STATUS" "${HEAD_SHA:-未确定}" "Mac ${MAC_DETAIL}"
-    printf '  %-8s %-8s commit=%s · %s\n' "Linux" "$LINUX_STATUS" "${HEAD_SHA:-未确定}" "Linux git archive ${HEAD_SHA:-未确定} → 远端独立目录 DSCoreTests ${LINUX_DETAIL}"
+    if [ "$LINUX_MODE" = "github" ]; then
+        printf '  %-8s %-8s commit=%s · %s\n' "Linux" "$LINUX_STATUS" "${HEAD_SHA:-未确定}" "Linux GitHub Actions ubuntu-24.04 DSCoreTests ${LINUX_DETAIL}"
+    else
+        printf '  %-8s %-8s commit=%s · %s\n' "Linux" "$LINUX_STATUS" "${HEAD_SHA:-未确定}" "Linux git archive ${HEAD_SHA:-未确定} → 远端独立目录 DSCoreTests ${LINUX_DETAIL}"
+    fi
     printf '  %-8s %-8s commit=%s · %s\n' "Windows" "$WINDOWS_STATUS" "${HEAD_SHA:-未确定}" "Windows GitHub Actions windows-2025 DSCoreTests ${WINDOWS_DETAIL}"
     [ "$MAC_STATUS$LINUX_STATUS$WINDOWS_STATUS" = "通过通过通过" ] && echo "三端 commit 一致：$HEAD_SHA"
     return 0
@@ -167,6 +177,10 @@ preflight() {
         /*) REMOTE_PATH_PREFIX="PATH='$(dirname "$SWIFT_BIN")':\$PATH " ;;
         *)  [ "$SWIFT_BIN" = "swift" ] || pf "MATCHSTICKS_DS_LINUX_SWIFT_BIN 含目录时必须是绝对路径（得到：${SWIFT_BIN}）"
             REMOTE_PATH_PREFIX="" ;;
+    esac
+    case "$LINUX_GITHUB_APPROVAL" in
+        ''|允许) ;;
+        *) pf "MATCHSTICKS_DS_LINUX_GITHUB_APPROVED 只能留空或填“允许”；其他值不代表用户明确批准" ;;
     esac
     case "$WORKFLOW" in
         ''|*[!A-Za-z0-9._-]*|.*/*) pf "MATCHSTICKS_DS_WINDOWS_WORKFLOW 只能是 .github/workflows/ 下的文件名（得到：${WORKFLOW}）" ;;
@@ -244,7 +258,20 @@ EOF
     # workflow 文件已提交（工作树已确认干净，磁盘上有 = HEAD 内有）
     [ -f ".github/workflows/$WORKFLOW" ] || pf "缺少 .github/workflows/${WORKFLOW}（Windows 端的验证 workflow）"
 
-    echo "预检通过：commit=${HEAD_SHA}（分支 $WINDOWS_REF 已推送且与 origin 一致；工作树干净）"
+    # 实体 Linux 主机优先：SSH 不通时先停，不跑其他平台。只有用户明确批准后才进入 GitHub Linux fallback。
+    REMOTE_PROBE='echo "uname=$(uname -s)"; echo "bash=$(command -v bash || true)"; echo "tar=$(command -v tar || true)"; echo "mktemp=$(command -v mktemp || true)"; echo "swift=$('"$SWIFT_BIN"' --version 2>&1 | head -1)"'
+    probe="$("${SSH[@]}" "$REMOTE_PROBE" 2>&1)"
+    if [ "$?" -ne 0 ]; then
+        if [ "$LINUX_GITHUB_APPROVAL" = "允许" ]; then
+            LINUX_MODE="github"
+            LINUX_DETAIL="github ubuntu-24.04 · 用户已批准"
+        else
+            LINUX_STATUS="不可达"
+            fail "Linux 主机 ${HOST} 不可达，已停止：${probe}。是否允许使用 GitHub 提供的 Linux 环境进行验证？请用户明确回答“允许”后，以 MATCHSTICKS_DS_LINUX_GITHUB_APPROVED=允许 重跑；未授权时不自动切云端，云端结果也不冒充实体验证"
+        fi
+    fi
+
+    echo "预检通过：commit=${HEAD_SHA}（分支 $WINDOWS_REF 已推送且与 origin 一致；工作树干净；Linux=${LINUX_MODE}）"
 }
 preflight
 export MATCHSTICKS_DS_TEST_PORT_WAIT
@@ -264,10 +291,15 @@ for step in "${MAC_STEPS[@]}"; do
 done
 MAC_STATUS="通过"
 
-# ---- [2/4] Linux：git archive HEAD → 实体 SSH 主机的独立临时目录 ----
-echo
-echo "== [2/4] Linux：git archive $HEAD_SHA → 实体 SSH 主机 =="
-LINUX_STATUS="运行中"
+# ---- [2/4] Linux：实体主机优先；只有明确批准时才走 GitHub Linux fallback ----
+if [ "$LINUX_MODE" = "github" ]; then
+    echo
+    echo "== [2/4] Linux：GitHub ubuntu-24.04 fallback（用户已批准；不冒充实体验证）=="
+    LINUX_STATUS="待云端"
+else
+    echo
+    echo "== [2/4] Linux：git archive $HEAD_SHA → 实体 SSH 主机 =="
+    LINUX_STATUS="运行中"
 linux_fail() { LINUX_STATUS="失败"; fail "Linux $*"; }
 # 一次 SSH 探测远端环境（系统 / 解包与建目录所需工具 / Swift 版本）；连接失败即停，不重试
 REMOTE_PROBE='echo "uname=$(uname -s)"; echo "bash=$(command -v bash || true)"; echo "tar=$(command -v tar || true)"; echo "mktemp=$(command -v mktemp || true)"; echo "swift=$('"$SWIFT_BIN"' --version 2>&1 | head -1)"'
@@ -333,12 +365,17 @@ fi
 head_unchanged || linux_fail "验证结束时 HEAD 已改变或无法复核"
 LINUX_STATUS="通过"
 LINUX_DETAIL="host=$HOST · ${remote_swift} ✓"
+fi
 
 # ---- [3/4] Windows：GitHub Actions 原生 Swift DSCoreTests，headSha == HEAD ----
 echo
 echo "== [3/4] Windows：GitHub Actions 原生 Swift DSCoreTests（headSha == ${HEAD_SHA}）=="
 WINDOWS_STATUS="运行中"
-windows_fail() { WINDOWS_STATUS="失败"; fail "Windows $*"; }
+windows_fail() {
+    WINDOWS_STATUS="失败"
+    [ "$LINUX_MODE" != "github" ] || LINUX_STATUS="失败"
+    fail "Windows $*"
+}
 # 运行记录里的 name 是 workflow 的显示名（YAML 顶层 name；缺省时 GitHub 用文件名）
 WF_NAME="$(sed -n 's/^name:[[:space:]]*//p' ".github/workflows/$WORKFLOW" | head -1)"
 DQ='"'
@@ -405,12 +442,21 @@ $registered
 EOF
     if [ -z "$wf_state" ]; then
         # 首次：workflow 文件尚未进入默认分支 stable，GitHub 未注册、workflow_dispatch 不可用——立即失败，不空等
-        windows_fail "没有 headSha=${HEAD_SHA} 的运行，且 ${WORKFLOW} 尚未进入默认分支 stable（GitHub 未注册，dispatch 不可用）。处置：先开 PR 到 beta（pull_request 触发）或把该提交推到 beta/stable（push 触发），Windows 运行出现后重跑本脚本；本脚本不代开 PR、不推送"
+        if [ "$LINUX_MODE" = "github" ]; then
+            windows_fail "没有 headSha=${HEAD_SHA} 的 Linux fallback 运行，且 ${WORKFLOW} 尚未进入默认分支 stable，dispatch 不可用。请先创建提交信息为“ci: 允许使用 GitHub Linux 验证”的空提交并推送，使 PR 以该 head SHA 触发 Linux job；或在 workflow 进入 stable 后用 linux_approval=允许 dispatch。不得擅自创建批准提交或推送"
+        else
+            windows_fail "没有 headSha=${HEAD_SHA} 的运行，且 ${WORKFLOW} 尚未进入默认分支 stable（GitHub 未注册，dispatch 不可用）。处置：先开 PR 到 beta（pull_request 触发）或把该提交推到 beta/stable（push 触发），Windows 运行出现后重跑本脚本；本脚本不代开 PR、不推送"
+        fi
     elif [ "$wf_state" != "active" ]; then
         windows_fail "${WORKFLOW} 在 GitHub 上的状态是 ${wf_state}（已停用），dispatch 不可用；请到仓库 Actions 设置启用后重跑（不自动重试）"
     else
-        gh workflow run "$WORKFLOW" --ref "$WINDOWS_REF" \
-            || windows_fail "dispatch ${WORKFLOW}@${WINDOWS_REF} 失败（不自动重试）"
+        if [ "$LINUX_MODE" = "github" ]; then
+            gh workflow run "$WORKFLOW" --ref "$WINDOWS_REF" -f linux_approval=允许 \
+                || windows_fail "dispatch Linux fallback ${WORKFLOW}@${WINDOWS_REF} 失败（不自动重试）"
+        else
+            gh workflow run "$WORKFLOW" --ref "$WINDOWS_REF" \
+                || windows_fail "dispatch ${WORKFLOW}@${WINDOWS_REF} 失败（不自动重试）"
+        fi
         echo "已 dispatch 一次（${WORKFLOW}@${WINDOWS_REF}，期望 headSha=${HEAD_SHA}）；等待运行出现……"
         appeared=0
         for _ in $(seq 1 40); do
@@ -447,6 +493,10 @@ while :; do
 done
 head_unchanged || windows_fail "三端验证结束时 HEAD 已改变或无法复核"
 WINDOWS_STATUS="通过"
+if [ "$LINUX_MODE" = "github" ]; then
+    LINUX_STATUS="通过"
+    LINUX_DETAIL="github ubuntu-24.04 · 用户已批准"
+fi
 
 summary
 echo

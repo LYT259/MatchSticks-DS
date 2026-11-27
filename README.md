@@ -120,7 +120,8 @@ docs/                                  协议档案 / 发版操作单（release-
 
 ### 三平台全量验证（发版门禁）
 
-- **平台**：macOS（本机）、Linux（配置的实体 SSH 主机）、Windows（GitHub Actions——本项目唯一允许的 Actions 用途）；
+- **平台**：macOS（本机）、Linux（优先配置的实体 SSH 主机）、Windows（GitHub Actions）；
+- **Linux 不可达时**：立即停止并询问「是否允许使用 GitHub 提供的 Linux 环境进行验证」，未获明确批准不得自动切云端。只有用户回答「允许」后，才可运行 GitHub `ubuntu-24.04` 的完整 `DSCoreTests`；结果必须标注为云端 fallback，不能冒充实体验证。批准方式：PR head 提交信息包含「允许使用 GitHub Linux 验证」，或在 `workflow_dispatch` 输入 `linux_approval=允许`；
 - **时机**：**所有合入 `beta` 的改动**之后——不论 `feat/`、`fix/`、`docs/` 等分支前缀，也不论代码 / 文档 / 测试 / CI 改动，没有豁免；stable 合并前（用户同意后在待合并的 beta 树上重新跑，不沿用旧结果）；
 - **通过标准**：三端实际运行并全部通过才算通过；失败 / 未运行 / 跳过一律不算通过，任一端未通过不得继续（不得合 stable、不得发版）；
 - **执行范围**：Mac 自动发现并逐个执行全部 `scripts/test-*.sh`，覆盖完整 `DSCoreTests` 与 macOS App / UI / E2E；Linux / Windows 各自运行完整 `DSCoreTests`（`scripts/test-core.sh` / `.github/workflows/full-validation.yml`，不做抽样或过滤），不构建、不运行 Windows / Linux App。三端全过 ≠ Windows / Linux 上有可用 App；

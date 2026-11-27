@@ -1,4 +1,4 @@
-name: Full validation (Windows)
+name: Full validation
 
 # 三端验证的 Windows 一端（Mac 本机 / 实体 Linux SSH 主机 / GitHub Actions Windows；入口见
 # scripts/validate-all.sh 与 scripts/test-core.sh）：在 GitHub 托管的 Windows 原生 Swift 工具链上
@@ -9,8 +9,9 @@ name: Full validation (Windows)
 #     不验证 GitHub 临时生成的 merge ref。workflow_dispatch 只有在 workflow 文件
 #     进入默认分支 stable 之后才可用，首个 PR 只能靠这个触发器；
 #   - push 到 beta/stable；
-#   - workflow_dispatch（scripts/validate-all.sh 在文件已进入 stable 后走这条）。
-#   配额纪律：只有这一个 Windows job（AGENTS.md 红线 5，用户点名恢复用于 Windows 验证）。
+#   - workflow_dispatch（Linux fallback 还需输入“允许”；首次进入 stable 前，可用提交信息含
+#     “允许使用 GitHub Linux 验证”的 PR head 提交触发 Linux job）。
+#   配额纪律：常规验证只有 Windows job；Linux job 仅在实体主机不可达且用户明确批准后运行。
 # 本 workflow 只做验证：不合并、不发 Release、不自动重试；失败即红，由人工处理。
 #
 # 可复现性（2026-11-23 逐项核实）：
@@ -43,6 +44,12 @@ on:
   pull_request:
     branches: [beta, stable]
   workflow_dispatch:
+    inputs:
+      linux_approval:
+        description: "仅在实体 Linux 主机不可达时，输入允许以使用 GitHub Linux runner"
+        required: true
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -205,4 +212,47 @@ jobs:
         shell: bash
         run: |
           echo "Windows 覆盖：DSCore 协议/控制环/安全/日志/映射/迁移/双语/WebUI/SocketCompat（原生 Winsock）"
+          echo "不覆盖：macOS App/SwiftUI/Sparkle/打包版 E2E —— 由 Mac 一键脚本 scripts/validate-all.sh 承担"
+
+  linux-core:
+    name: Linux · DSCoreTests (approved fallback)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.linux_approval == '允许') ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.head_commit.message, '允许使用 GitHub Linux 验证'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Swift 6.4.2 (swift.org, pinned URL)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/swift-6.4.2-RELEASE-ubuntu24.04.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            'https://download.swift.org/swift-6.4.2-release/ubuntu2404/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-ubuntu24.04.tar.gz'
+          test "$(wc -c < "$archive")" -gt 1000000000
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "SWIFT_ROOT=$RUNNER_TEMP/swift-6.4.2-RELEASE-ubuntu24.04" >> "$GITHUB_ENV"
+
+      - name: Build and run DSCoreTests (native Linux)
+        shell: bash
+        env:
+          PATH: ${{ env.SWIFT_ROOT }}/usr/bin:${{ env.PATH }}
+          MATCHSTICKS_DS_TEST_PORT_WAIT: 900
+        run: |
+          set -euo pipefail
+          swift --version
+          bash scripts/test-core.sh
+
+      - name: Coverage
+        if: always()
+        shell: bash
+        run: |
+          echo "Linux fallback 覆盖：完整 DSCoreTests（GitHub ubuntu-24.04 原生 Swift）"
+          echo "这是用户明确批准后的云端替代验证，不冒充实体 SSH 主机验证。"
           echo "不覆盖：macOS App/SwiftUI/Sparkle/打包版 E2E —— 由 Mac 一键脚本 scripts/validate-all.sh 承担"
