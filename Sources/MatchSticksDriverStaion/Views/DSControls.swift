@@ -4,11 +4,13 @@ import DSCore
 struct DSSelectOption<Value: Hashable>: Identifiable {
     let value: Value
     let label: String
+    let triggerLabel: String?
     var id: Value { value }
 
-    init(value: Value, label: String) {
+    init(value: Value, label: String, triggerLabel: String? = nil) {
         self.value = value
         self.label = label
+        self.triggerLabel = triggerLabel
     }
 }
 
@@ -58,7 +60,10 @@ struct DSSelectControl<Value: Hashable>: View {
     }
 
     private var selectedLabel: String {
-        options.first(where: { $0.value == selection })?.label ?? String(describing: selection)
+        guard let option = options.first(where: { $0.value == selection }) else {
+            return String(describing: selection)
+        }
+        return option.triggerLabel ?? option.label
     }
 
     private var listHeight: CGFloat {

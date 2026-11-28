@@ -1,0 +1,258 @@
+name: Full validation
+
+# 三端验证的 Windows 一端（Mac 本机 / 实体 Linux SSH 主机 / GitHub Actions Windows；入口见
+# scripts/validate-all.sh 与 scripts/test-core.sh）：在 GitHub 托管的 Windows 原生 Swift 工具链上
+# 构建并运行 DSCoreTests（同一套断言，经 Winsock）。不是 WSL，不是 Linux 冒充 Windows。
+#
+# 触发：
+#   - pull_request 目标 beta/stable —— 首次随 PR 即在 Windows 真跑；checkout 显式使用 PR head SHA，
+#     不验证 GitHub 临时生成的 merge ref。workflow_dispatch 只有在 workflow 文件
+#     进入默认分支 stable 之后才可用，首个 PR 只能靠这个触发器；
+#   - push 到 beta/stable；
+#   - workflow_dispatch（Linux fallback 还需输入“允许”；首次进入 stable 前，可用提交信息含
+#     “允许使用 GitHub Linux 验证”的 PR head 提交触发 Linux job）。
+#   配额纪律：常规验证只有 Windows job；Linux job 仅在实体主机不可达且用户明确批准后运行。
+# 本 workflow 只做验证：不合并、不发 Release、不自动重试；失败即红，由人工处理。
+#
+# 可复现性（2026-11-23 逐项核实）：
+#   - Swift 安装包钉 swift.org 的 6.4.2 RELEASE 固定 URL（HTTP 200，2,098,337,696 字节；与 Mac 端 Xcode 自带
+#     的 Apple Swift 6.4.2 同一版本线；swift.org 现已发布 6.4.3，升级属主动决策）；
+#   - actions/checkout 钉 tag v4 对应的完整提交 SHA；
+#   - runner 镜像钉 windows-2025（2026-11-24 实测：标签解析到 windows-2025-vs2026 镜像 20261116.315.1——
+#     Windows Server 2025 + Visual Studio Enterprise 2026 18.12 + Windows SDK 10.0.26100.0 + Git 2.56 + VSWhere 3.1.7）。
+#     镜像自带的 Visual Studio 版本会变（此前为 VS 2022 17.14），所以不写死安装路径，经 vswhere 定位；
+#     MSVC、Windows SDK 与 Git 均由镜像自带。
+# 覆盖范围：同 scripts/test-core.sh（协议/控制环/安全/日志/映射/迁移/双语/WebUI/SocketCompat）；
+# 不含 macOS App/SwiftUI/Sparkle/打包版 E2E（只能在 Mac 上跑）。
+#
+# Windows 执行环境注意：
+#   - `shell: cmd` 步骤里不能裸写 `bash`：镜像只在 C:\shells 放了 gitbash.exe / wslbash.exe 命名 shim，
+#     裸 `bash` 按 PATH 会解析到 C:\Windows\System32\bash.exe（WSL 存根），MSVC 环境也带不进去；
+#     这里显式调用 Git for Windows 的 bash.exe，继承 vcvarsall 设置的 INCLUDE/LIB/PATH。
+#   - Swift 安装根目录不写死：安装器把 <root>\bin 写进 Machine/User PATH（当前进程不会刷新，从注册表读），
+#     兜底 Program Files（提升权限安装）与 %LocalAppData%\Programs\Swift（swift.org 文档所述默认位置）。
+#   - SDKROOT 同理：安装器（swift-installer-scripts 的 platforms/Windows）把 Windows SDK 装到
+#     <安装根>\Platforms\<版本>\Windows.platform\Developer\SDKs\Windows.sdk（与 Toolchains\<版本>+<变体>\usr 平级）
+#     并写入用户环境变量 SDKROOT；当前进程不会刷新，从注册表读，读不到再按安装布局找。找不到即失败。
+#   - 运行期 DLL（swiftCore.dll / Foundation.dll）与 VC++ 运行库在 <安装根>\Runtimes\<版本>\usr\bin，安装器只把它
+#     追加进用户 PATH；当前进程看不到，必须读出来加进 PATH——否则新编译出的可执行文件一启动就是
+#     STATUS_DLL_NOT_FOUND（2026-11-24 实测：最小 Foundation 程序编译成功、运行退出码 0xC0000135）。
+
+on:
+  push:
+    branches: [beta, stable]
+  pull_request:
+    branches: [beta, stable]
+  workflow_dispatch:
+    inputs:
+      linux_approval:
+        description: "仅在实体 Linux 主机不可达时，输入允许以使用 GitHub Linux runner"
+        required: true
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-core:
+    name: Windows · DSCoreTests
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Swift 6.4.2 (swift.org, pinned URL) and locate the toolchain, SDK and Visual Studio
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = 'https://download.swift.org/swift-6.4.2-release/windows10/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-windows10.exe'
+          $installer = Join-Path $env:RUNNER_TEMP 'swift-6.4.2-RELEASE-windows10.exe'
+          & curl.exe -L --fail --silent --show-error -o $installer $url
+          if ($LASTEXITCODE -ne 0) { throw "Swift installer download failed (curl exit $LASTEXITCODE)" }
+          $size = (Get-Item $installer).Length
+          Write-Host "installer bytes: $size"
+          if ($size -lt 1500000000) { throw "Swift installer looks truncated ($size bytes; swift.org reports 2098337696)" }
+          $process = Start-Process -FilePath $installer -ArgumentList '/quiet', '/norestart' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Swift installer exit code $($process.ExitCode)" }
+
+          $roots = @()
+          foreach ($scope in @('Machine', 'User')) {
+            $pathValue = [Environment]::GetEnvironmentVariable('Path', $scope)
+            if ($pathValue) {
+              foreach ($dir in ($pathValue -split ';')) {
+                $trimmed = $dir.Trim().Trim('"')
+                if ($trimmed -and (Test-Path (Join-Path $trimmed 'swift.exe'))) { $roots += (Split-Path $trimmed -Parent) }
+              }
+            }
+          }
+          $roots += (Join-Path $env:ProgramFiles 'Swift')
+          $roots += (Join-Path $env:LOCALAPPDATA 'Programs\Swift')
+          $swiftRoot = $roots | Where-Object { $_ -and (Test-Path (Join-Path $_ 'bin\swift.exe')) } | Select-Object -First 1
+          if (-not $swiftRoot) { throw "swift.exe not found after install (searched: $($roots -join '; '))" }
+          $swiftExe = Join-Path $swiftRoot 'bin\swift.exe'
+          $version = (& $swiftExe --version 2>&1 | Out-String)
+          Write-Host "swift root: $swiftRoot"
+          Write-Host $version
+          if ($version -notmatch 'Swift version 6\.4\.2') { throw "Unexpected Swift version (expected 6.4.2): $version" }
+          Add-Content -Path $env:GITHUB_ENV -Value "SWIFT_ROOT=$swiftRoot"
+
+          # Visual Studio 的年份/版本随 runner 镜像变化（windows-2025 标签 2026-11-24 实测为 VS 2026 镜像），
+          # 用镜像自带的 vswhere 定位带 x64 C++ 工具集的最新安装，不写死安装路径。
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path -LiteralPath $vswhere)) { throw "vswhere.exe not found: $vswhere" }
+          $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath |
+            Select-Object -First 1
+          if (-not $vsInstall) { throw "vswhere found no Visual Studio installation with the x64 C++ toolset" }
+          $vcvarsall = Join-Path $vsInstall 'VC\Auxiliary\Build\vcvarsall.bat'
+          if (-not (Test-Path -LiteralPath $vcvarsall)) { throw "vcvarsall.bat not found under $vsInstall" }
+          Write-Host "Visual Studio: $vsInstall"
+          Add-Content -Path $env:GITHUB_ENV -Value "VCVARSALL=$vcvarsall"
+
+          # Windows SDK：安装器把它装到 <安装根>\Platforms\<版本>\Windows.platform\Developer\SDKs\Windows.sdk
+          #（与 Toolchains\<版本>+<变体>\usr 平级），并写入用户环境变量 SDKROOT；当前进程不会刷新，
+          # 先从注册表读（只接受本次安装根之下的值），读不到再按安装布局找。找不到即失败，不留到编译期。
+          $toolchainVersion = (Split-Path $swiftRoot -Parent).Split('+')[0]
+          $installRoot = Split-Path (Split-Path (Split-Path $swiftRoot -Parent) -Parent) -Parent
+          $platformsRoot = Join-Path $installRoot 'Platforms'
+          $sdkRoot = $null
+          foreach ($scope in @('User', 'Machine')) {
+            $registered = [Environment]::GetEnvironmentVariable('SDKROOT', $scope)
+            $registered = if ($registered) { [Environment]::ExpandEnvironmentVariables($registered) } else { $null }
+            if ($registered -and $registered.StartsWith($platformsRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                (Test-Path -LiteralPath $registered -PathType Container)) {
+              $sdkRoot = $registered
+              Write-Host "SDKROOT (from the $scope environment written by the installer): $sdkRoot"
+              break
+            }
+          }
+          if (-not $sdkRoot) {
+            $layoutSdk = Join-Path $platformsRoot "$toolchainVersion\Windows.platform\Developer\SDKs\Windows.sdk"
+            if (Test-Path -LiteralPath $layoutSdk -PathType Container) {
+              $sdkRoot = $layoutSdk
+              Write-Host "SDKROOT (from the install layout): $sdkRoot"
+            }
+          }
+          if (-not $sdkRoot) {
+            throw "Windows SDK (Windows.sdk) not found for toolchain ${toolchainVersion}: neither an SDKROOT environment variable under $platformsRoot nor $platformsRoot\$toolchainVersion\Windows.platform\Developer\SDKs\Windows.sdk"
+          }
+          # 安装器写进注册表的目录属性带末尾反斜杠（…\Windows.sdk\）；统一去掉再导出。
+          $sdkRoot = $sdkRoot.TrimEnd('\')
+          Add-Content -Path $env:GITHUB_ENV -Value "SDKROOT_VALUE=$sdkRoot"
+
+          # 运行期 DLL（swiftCore.dll / Foundation.dll 与 VC++ 运行库）由同一安装器装到
+          # <安装根>\Runtimes\<版本>\usr\bin，并只追加进用户 PATH；当前进程同样看不到。
+          # 新编译出的可执行文件（SwiftPM 清单程序、DSCoreTests.exe）没有它就 STATUS_DLL_NOT_FOUND。
+          # 先认安装器写进注册表 PATH 的那一项（须含 swiftCore.dll 且在安装根之下），读不到再按安装布局找。
+          $runtimeBin = $null
+          foreach ($scope in @('User', 'Machine')) {
+            $registeredPath = [Environment]::GetEnvironmentVariable('Path', $scope)
+            if ($registeredPath) {
+              foreach ($dir in ($registeredPath -split ';')) {
+                $trimmed = [Environment]::ExpandEnvironmentVariables($dir.Trim().Trim('"'))
+                if ($trimmed -and $trimmed.StartsWith($installRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                    (Test-Path -LiteralPath (Join-Path $trimmed 'swiftCore.dll'))) {
+                  $runtimeBin = $trimmed
+                  break
+                }
+              }
+            }
+            if ($runtimeBin) { break }
+          }
+          if (-not $runtimeBin) {
+            $layoutRuntimeBin = Join-Path $installRoot "Runtimes\$toolchainVersion\usr\bin"
+            if (Test-Path -LiteralPath (Join-Path $layoutRuntimeBin 'swiftCore.dll')) { $runtimeBin = $layoutRuntimeBin }
+          }
+          if (-not $runtimeBin) {
+            throw "Swift runtime (swiftCore.dll) not found for toolchain ${toolchainVersion}: neither on the PATH entries under $installRoot nor under $installRoot\Runtimes\$toolchainVersion\usr\bin"
+          }
+          Write-Host "Swift runtime: $runtimeBin"
+          Add-Content -Path $env:GITHUB_ENV -Value "SWIFT_RUNTIME_BIN=$runtimeBin"
+
+      - name: Build and run DSCoreTests (native Winsock, Git Bash)
+        shell: cmd
+        run: |
+          if not defined VCVARSALL (echo VCVARSALL was not located by the toolchain step & exit 1)
+          call "%VCVARSALL%" x64
+          if errorlevel 1 (echo vcvarsall.bat failed & exit 1)
+          if not defined SWIFT_RUNTIME_BIN (echo SWIFT_RUNTIME_BIN was not located by the toolchain step & exit 1)
+          set "PATH=%SWIFT_ROOT%\bin;%SWIFT_RUNTIME_BIN%;%PATH%"
+          if not defined SDKROOT_VALUE (echo SDKROOT was not located by the toolchain step & exit 1)
+          set "SDKROOT=%SDKROOT_VALUE%"
+          if not exist "C:\Program Files\Git\bin\bash.exe" (echo Git Bash not found at C:\Program Files\Git\bin\bash.exe & exit 1)
+          where swift >nul 2>&1
+          if errorlevel 1 (echo swift.exe not found in PATH & exit 1)
+          swift --version
+          if errorlevel 1 exit 1
+          echo SDKROOT=%SDKROOT%
+          "C:\Program Files\Git\bin\bash.exe" scripts/test-core.sh && exit /b 0
+          rem test-core.sh failed: the lines below only collect evidence. No retry; the step still fails.
+          echo ::group::Diagnosis - verbose SwiftPM output. The step above already failed.
+          swift build --verbose --product DSCoreTests
+          echo ::endgroup::
+          echo ::group::Diagnosis - compile and run a minimal Foundation program
+          > "%RUNNER_TEMP%\msds-hello.swift" echo import Foundation
+          >> "%RUNNER_TEMP%\msds-hello.swift" echo print("hello from Foundation")
+          swiftc -o "%RUNNER_TEMP%\msds-hello.exe" "%RUNNER_TEMP%\msds-hello.swift"
+          echo hello compile exit code %errorlevel%
+          "%RUNNER_TEMP%\msds-hello.exe"
+          echo hello run exit code %errorlevel%
+          echo ::endgroup::
+          exit /b 1
+
+      - name: Coverage
+        if: always()
+        shell: bash
+        run: |
+          echo "Windows 覆盖：DSCore 协议/控制环/安全/日志/映射/迁移/双语/WebUI/SocketCompat（原生 Winsock）"
+          echo "不覆盖：macOS App/SwiftUI/Sparkle/打包版 E2E —— 由 Mac 一键脚本 scripts/validate-all.sh 承担"
+
+  linux-core:
+    name: Linux · DSCoreTests (approved fallback)
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.linux_approval == '允许') ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.head_commit.message, '允许使用 GitHub Linux 验证'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Swift 6.4.2 (swift.org, pinned URL)
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/swift-6.4.2-RELEASE-ubuntu24.04.tar.gz"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            'https://download.swift.org/swift-6.4.2-release/ubuntu2404/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE-ubuntu24.04.tar.gz'
+          test "$(wc -c < "$archive")" -gt 1000000000
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "SWIFT_ROOT=$RUNNER_TEMP/swift-6.4.2-RELEASE-ubuntu24.04" >> "$GITHUB_ENV"
+
+      - name: Build and run DSCoreTests (native Linux)
+        shell: bash
+        env:
+          PATH: ${{ env.SWIFT_ROOT }}/usr/bin:${{ env.PATH }}
+          MATCHSTICKS_DS_TEST_PORT_WAIT: 900
+        run: |
+          set -euo pipefail
+          swift --version
+          bash scripts/test-core.sh
+
+      - name: Coverage
+        if: always()
+        shell: bash
+        run: |
+          echo "Linux fallback 覆盖：完整 DSCoreTests（GitHub ubuntu-24.04 原生 Swift）"
+          echo "这是用户明确批准后的云端替代验证，不冒充实体 SSH 主机验证。"
+          echo "不覆盖：macOS App/SwiftUI/Sparkle/打包版 E2E —— 由 Mac 一键脚本 scripts/validate-all.sh 承担"
