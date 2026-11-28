@@ -24,7 +24,10 @@ enum MiniFloatingWindow {
         window.styleMask.remove(.resizable)
         window.standardWindowButton(.zoomButton)?.isEnabled = false
         window.isMovable = false
-        window.setFrame(bottomFrame(for: screen), display: true, animate: false)
+        let target = bottomFrame(for: screen)
+        if window.frame != target {
+            window.setFrame(target, display: true, animate: false)
+        }
     }
 }
 
@@ -36,12 +39,15 @@ struct MiniFloatingWindowConfigurator: NSViewRepresentable {
     func updateNSView(_ view: HostView, context: Context) {}
 
     final class HostView: NSView {
-        private var screenObserver: NSObjectProtocol?
+        private var observers: [NSObjectProtocol] = []
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             applyConfiguration()
-            observeWindowScreen()
+            observeWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.applyConfiguration()
+            }
         }
 
         override func viewDidChangeBackingProperties() {
@@ -54,27 +60,31 @@ struct MiniFloatingWindowConfigurator: NSViewRepresentable {
             MiniFloatingWindow.configure(window, on: window.screen ?? NSScreen.main)
         }
 
-        private func observeWindowScreen() {
-            if let screenObserver {
-                NotificationCenter.default.removeObserver(screenObserver)
-                self.screenObserver = nil
-            }
+        private func observeWindow() {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
             guard let window else { return }
-            screenObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.didChangeScreenNotification,
-                object: window,
-                queue: .main
-            ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.applyConfiguration()
+            let notifications: [Notification.Name] = [
+                NSWindow.didChangeScreenNotification,
+                NSWindow.didMoveNotification,
+                NSWindow.didResizeNotification,
+                NSWindow.didBecomeKeyNotification,
+            ]
+            observers = notifications.map { name in
+                NotificationCenter.default.addObserver(
+                    forName: name,
+                    object: window,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.applyConfiguration()
+                    }
                 }
             }
         }
 
         deinit {
-            if let screenObserver {
-                NotificationCenter.default.removeObserver(screenObserver)
-            }
+            observers.forEach(NotificationCenter.default.removeObserver)
         }
     }
 }

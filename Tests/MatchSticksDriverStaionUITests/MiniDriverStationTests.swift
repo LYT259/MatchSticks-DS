@@ -98,6 +98,7 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
     // ===== ④ 真实渲染几何：宽横向布局 =====
     miniDriverStationRenderTests(check)
     miniReferenceStyleRenderTests(check)
+    miniNarrowReferenceStyleRenderTests(check)
 
     // ===== ⑤ 窗口切换决策（纯状态，可注入）=====
     miniDriverStationWindowFlowTests(check)
@@ -205,6 +206,45 @@ private func miniReferenceStyleRenderTests(_ check: @MainActor (@autoclosure () 
         check(sawGreen && sawRed, "\(style.rawValue) renders the real Enable and E-Stop safety controls")
         check(redMaxX < width - 16,
               "\(style.rawValue) keeps E-Stop inside the 200pt bottom-window content (redMaxX=\(redMaxX), width=\(width))")
+    }
+}
+
+@MainActor
+private func miniNarrowReferenceStyleRenderTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    let width = 736, height = 200
+    for style in MiniReferenceStyle.allCases {
+        let model = DSModel(settingsDefaults: UserDefaults(suiteName: "org.ghfrc.driverstation.test.uitests.mini-narrow.\(UUID().uuidString)"),
+                            persistenceEnabled: false)
+        model.miniReferenceStyle = style
+        let renderer = ImageRenderer(content: MiniConsoleBar(model: model, flow: DriverStationWindowFlow(), refresh: RobotRefreshFlow())
+            .frame(width: CGFloat(width), height: CGFloat(height)))
+        renderer.scale = 1
+        guard let image = renderer.nsImage,
+              let bitmap = image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else {
+            check(false, "\(style.rawValue) renders at the 736pt narrow-screen width")
+            continue
+        }
+        var redPixels = 0, greenPixels = 0, redMaxX = 0, maxRedRun = 0
+        for y in stride(from: 0, to: height, by: 2) {
+            var redRun = 0
+            for x in stride(from: 0, to: width, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+                if g > 0.55 && g > r + 0.12 && g > b + 0.12 { greenPixels += 1 }
+                if r > 0.8 && r > g + 0.15 && r > b + 0.15 {
+                    redPixels += 1
+                    redRun += 2
+                    maxRedRun = max(maxRedRun, redRun)
+                    redMaxX = max(redMaxX, x)
+                } else {
+                    redRun = 0
+                }
+            }
+        }
+        check(greenPixels > 50 && maxRedRun >= 50,
+              "\(style.rawValue) keeps full-width Enable/E-Stop controls visible at 736pt (redRun=\(maxRedRun))")
+        check(redMaxX > 0 && redMaxX < width - 8,
+              "\(style.rawValue) does not clip the right-hand safety control at 736pt")
     }
 }
 

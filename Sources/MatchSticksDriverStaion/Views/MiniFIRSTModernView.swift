@@ -7,8 +7,52 @@ struct MiniFIRSTModernView: View {
     let refresh: RobotRefreshFlow
 
     private let modes: [NIMode] = [.teleoperated, .autonomous, .test]
+    @State private var liveHistory: [Float] = []
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            fullBody
+            compactBody
+        }
+        .onAppear {
+            liveHistory = model.commConnected ? model.batteryHistory : []
+        }
+        .onChange(of: model.commState) { _, _ in
+            liveHistory = []
+        }
+        .onChange(of: model.batteryHistory) { _, history in
+            guard model.commConnected, let latest = history.last else {
+                liveHistory = []
+                return
+            }
+            liveHistory.append(latest)
+            if liveHistory.count > 240 {
+                liveHistory.removeFirst(liveHistory.count - 240)
+            }
+        }
+    }
+
+    private var compactBody: some View {
+        HStack(spacing: 8) {
+            MiniRestoreButton(flow: flow)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Team: \(model.teamNumber > 0 ? String(model.teamNumber) : "—")")
+                    .font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                Text(model.mode.displayName).font(.system(size: 11))
+                DSBadge(text: model.uiStatus, color: model.uiStatusColor)
+            }
+            .frame(width: 140, alignment: .leading)
+            MiniAlliancePicker(model: model).frame(width: 110)
+            Spacer(minLength: 0)
+            MiniSafetyControls(model: model)
+            MiniRefreshButton(model: model, refresh: refresh)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(DSTheme.canvas)
+    }
+
+    private var fullBody: some View {
         HStack(spacing: 12) {
             modeList
             Divider()
@@ -85,7 +129,7 @@ struct MiniFIRSTModernView: View {
             Canvas { context, size in
                 let baseline = Path(CGRect(x: 0, y: size.height - 1, width: size.width, height: 1))
                 context.fill(baseline, with: .color(DSTheme.line))
-                let history = model.batteryHistory.map(Double.init)
+                let history = liveHistory.map(Double.init)
                 guard history.count >= 2 else { return }
                 let low = history.min() ?? 0
                 let high = history.max() ?? 0

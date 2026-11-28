@@ -119,7 +119,7 @@ struct MiniStatusLights: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 5) {
             light("Communications", active: model.commConnected)
-            light("Robot Code", active: model.commConnected && !model.batteryHistory.isEmpty)
+            light("Robot Code", active: model.commConnected && model.robotTrace.hasRobotCode)
             light("Joysticks", active: !model.joystickSlots.isEmpty)
         }
     }

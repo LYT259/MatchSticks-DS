@@ -7,6 +7,36 @@ struct MiniNIClassicView: View {
     let refresh: RobotRefreshFlow
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            fullBody
+            compactBody
+        }
+    }
+
+    private var compactBody: some View {
+        HStack(spacing: 8) {
+            MiniRestoreButton(flow: flow)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Team # \(model.teamNumber > 0 ? String(model.teamNumber) : "—")")
+                    .font(.system(size: 14, weight: .semibold)).monospacedDigit()
+                Text(model.mode.displayName)
+                    .font(.system(size: 11, weight: .medium))
+                Text(model.uiStatus)
+                    .font(.system(size: 10)).foregroundStyle(model.uiStatusColor)
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            .frame(width: 130, alignment: .leading)
+            MiniAlliancePicker(model: model).frame(width: 110)
+            Spacer(minLength: 0)
+            MiniSafetyControls(model: model)
+            MiniRefreshButton(model: model, refresh: refresh)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(DSTheme.canvas)
+    }
+
+    private var fullBody: some View {
         HStack(spacing: 12) {
             MiniRestoreButton(flow: flow)
             statusPane
