@@ -24,6 +24,8 @@ app_sources=(
   Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift
   Sources/MatchSticksDriverStaion/HIDInputManager.swift
   Sources/MatchSticksDriverStaion/MacStatusMonitor.swift
+  Sources/MatchSticksDriverStaion/MacHardware.swift
+  Sources/MatchSticksDriverStaion/MacHardwareSources.swift
   Sources/MatchSticksDriverStaion/PermissionRuntimeMonitor.swift
   Sources/MatchSticksDriverStaion/FirewallVerificationProbe.swift
   Sources/MatchSticksDriverStaion/Views/PermissionsView.swift
