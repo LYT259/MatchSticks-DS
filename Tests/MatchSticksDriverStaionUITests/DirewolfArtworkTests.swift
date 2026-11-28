@@ -17,7 +17,7 @@ func direwolfArtworkTests(_ check: (@autoclosure () -> Bool, String) -> Void) {
         .faceWest: CGRect(x: 314.08, y: 82.70, width: 30.99, height: 31.63),
         .back: CGRect(x: 190.72, y: 73.16, width: 32.58, height: 24.90),
         .start: CGRect(x: 265.21, y: 73.60, width: 31.71, height: 24.15),
-        .guide: CGRect(x: 230.46, y: 33.47, width: 29.08, height: 35.97),
+        .guide: CGRect(x: 230.5, y: 76.0, width: 30, height: 30.5),
     ]
     for (region, rect) in original {
         let actual = spec.regions[region]

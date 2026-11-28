@@ -102,6 +102,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/ThumbstickSceneTests.swift \
   Tests/MatchSticksDriverStaionUITests/FlightStickSceneTests.swift \
   Tests/MatchSticksDriverStaionUITests/DirewolfArtworkTests.swift \
+  Tests/MatchSticksDriverStaionUITests/ArtworkIntegrityTests.swift \
   Tests/MatchSticksDriverStaionUITests/GamepadRenderingTests.swift Tests/MatchSticksDriverStaionUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDriverStaionUITests/JoystickSlotOrderingTests.swift \
   Tests/MatchSticksDriverStaionUITests/JoystickCardInteractionTests.swift \
