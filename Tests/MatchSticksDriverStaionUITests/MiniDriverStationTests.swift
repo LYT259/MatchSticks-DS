@@ -21,8 +21,41 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
     }
     let appSource = source("Sources/MatchSticksDriverStaion/MatchSticksDriverStaionApp.swift")
     let miniSource = source("Sources/MatchSticksDriverStaion/Views/MiniView.swift")
+    let settingsSource = source("Sources/MatchSticksDriverStaion/Views/SettingsView.swift")
     check(!appSource.isEmpty && !miniSource.isEmpty,
           "mini driver station tests load their source fixtures")
+
+    let styleSuiteName = "org.ghfrc.driverstation.test.uitests.mini-style.\(UUID().uuidString)"
+    let styleDefaults = UserDefaults(suiteName: styleSuiteName)!
+    let styleModel = DSModel(settingsDefaults: styleDefaults, persistenceEnabled: true)
+    check(styleModel.miniReferenceStyle == .niClassic,
+          "Mini reference defaults to NI Classic")
+    styleModel.miniReferenceStyle = .firstModern
+    check(styleDefaults.string(forKey: "matchsticks.miniReferenceStyle") == "firstModern",
+          "selecting FIRST Modern persists immediately")
+    let restoredStyleModel = DSModel(settingsDefaults: styleDefaults, persistenceEnabled: true)
+    restoredStyleModel.loadPersistedSettings()
+    check(restoredStyleModel.miniReferenceStyle == .firstModern,
+          "FIRST Modern survives a settings restore")
+    styleDefaults.set("not-a-real-style", forKey: "matchsticks.miniReferenceStyle")
+    let invalidStyleModel = DSModel(settingsDefaults: styleDefaults, persistenceEnabled: true)
+    invalidStyleModel.loadPersistedSettings()
+    check(invalidStyleModel.miniReferenceStyle == .niClassic,
+          "invalid persisted style falls back to NI Classic")
+    styleDefaults.removePersistentDomain(forName: styleSuiteName)
+    check(settingsSource.contains("$model.miniReferenceStyle") &&
+          settingsSource.contains("NI Classic") && settingsSource.contains("FIRST Modern"),
+          "Settings exposes both Mini UI references")
+
+    let niSource = source("Sources/MatchSticksDriverStaion/Views/MiniNIClassicView.swift")
+    let firstSource = source("Sources/MatchSticksDriverStaion/Views/MiniFIRSTModernView.swift")
+    let niImplementation = niSource + miniSource
+    let firstImplementation = firstSource + miniSource
+    check(["macStatus.batteryPercent", "macStatus.systemCPUPercent", "enabledElapsed",
+           "robotStatus", "joystickSlots", "alliance"].allSatisfy(niImplementation.contains),
+          "NI Classic exposes real Team/status lights/enabled time/PC metrics and Alliance")
+    check(["batteryHistory", "Canvas", "model.mode", "model.alliance", "model.connectionDetail"].allSatisfy(firstImplementation.contains),
+          "FIRST Modern exposes real mode, Alliance, Team/IP and live battery history")
 
     // ===== ① 窗口声明：标准标题栏（原生 standardWindowButton 位置与行为，无自绘背景）=====
     let miniScene = String(appSource.slice(from: "Window(\"Mini Driver Station\"", to: "struct RootView"))
@@ -64,12 +97,15 @@ func miniDriverStationTests(_ check: @MainActor (@autoclosure () -> Bool, String
 
     // ===== ④ 真实渲染几何：宽横向布局 =====
     miniDriverStationRenderTests(check)
+    miniReferenceStyleRenderTests(check)
+    miniNarrowReferenceStyleRenderTests(check)
 
     // ===== ⑤ 窗口切换决策（纯状态，可注入）=====
     miniDriverStationWindowFlowTests(check)
 
     // ===== ⑥ 真实 NSWindow 应用层：隐藏/恢复/关闭事件（永不无窗）=====
     miniDriverStationPresenterTests(check)
+    miniFloatingWindowTests(check)
 
     // ===== ⑦ 刷新反馈与模型动作 =====
     miniDriverStationRefreshTests(check)
@@ -129,6 +165,118 @@ private func miniDriverStationRenderTests(_ check: @MainActor (@autoclosure () -
           "safety controls reach into the right region of the wide console (maxX=\(controlsMaxX))")
     check(redMaxX < width - 16,
           "E-Stop remains fully inside the console instead of clipped at the right edge (maxX=\(redMaxX))")
+}
+
+@MainActor
+private func miniReferenceStyleRenderTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    let width = 1100, height = 200
+    let previousAppearance = NSApplication.shared.appearance
+    NSApplication.shared.appearance = NSAppearance(named: .aqua)
+    defer { NSApplication.shared.appearance = previousAppearance }
+
+    for style in MiniReferenceStyle.allCases {
+        let model = DSModel(settingsDefaults: UserDefaults(suiteName: "org.ghfrc.driverstation.test.uitests.mini-style-render.\(UUID().uuidString)"),
+                            persistenceEnabled: false)
+        model.miniReferenceStyle = style
+        model.teamNumber = 8810
+        model.commState = .connected(host: "10.88.10.2")
+        model.batteryVolts = 12.25
+        model.batteryHistory = [11.8, 12.1, 12.25]
+        let renderer = ImageRenderer(content: MiniConsoleBar(model: model, flow: DriverStationWindowFlow(), refresh: RobotRefreshFlow())
+            .frame(width: CGFloat(width), height: CGFloat(height)))
+        renderer.scale = 1
+        guard let image = renderer.nsImage,
+              let bitmap = image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else {
+            check(false, "\(style.rawValue) renders into a 1100×200 bitmap")
+            continue
+        }
+        var sawGreen = false, sawRed = false
+        var redMaxX = 0
+        for x in stride(from: 0, to: width, by: 2) {
+            for y in stride(from: 0, to: height, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+                if g > 0.55 && g > r + 0.12 && g > b + 0.12 { sawGreen = true }
+                if r > 0.8 && r > g + 0.15 && r > b + 0.15 {
+                    sawRed = true
+                    redMaxX = max(redMaxX, x)
+                }
+            }
+        }
+        check(sawGreen && sawRed, "\(style.rawValue) renders the real Enable and E-Stop safety controls")
+        check(redMaxX < width - 16,
+              "\(style.rawValue) keeps E-Stop inside the 200pt bottom-window content (redMaxX=\(redMaxX), width=\(width))")
+    }
+}
+
+@MainActor
+private func miniNarrowReferenceStyleRenderTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    let width = 736, height = 200
+    for style in MiniReferenceStyle.allCases {
+        let model = DSModel(settingsDefaults: UserDefaults(suiteName: "org.ghfrc.driverstation.test.uitests.mini-narrow.\(UUID().uuidString)"),
+                            persistenceEnabled: false)
+        model.miniReferenceStyle = style
+        let renderer = ImageRenderer(content: MiniConsoleBar(model: model, flow: DriverStationWindowFlow(), refresh: RobotRefreshFlow())
+            .frame(width: CGFloat(width), height: CGFloat(height)))
+        renderer.scale = 1
+        guard let image = renderer.nsImage,
+              let bitmap = image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)) else {
+            check(false, "\(style.rawValue) renders at the 736pt narrow-screen width")
+            continue
+        }
+        var redPixels = 0, greenPixels = 0, redMaxX = 0, maxRedRun = 0
+        for y in stride(from: 0, to: height, by: 2) {
+            var redRun = 0
+            for x in stride(from: 0, to: width, by: 2) {
+                guard let color = bitmap.colorAt(x: x, y: y) else { continue }
+                let r = color.redComponent, g = color.greenComponent, b = color.blueComponent
+                if g > 0.55 && g > r + 0.12 && g > b + 0.12 { greenPixels += 1 }
+                if r > 0.8 && r > g + 0.15 && r > b + 0.15 {
+                    redPixels += 1
+                    redRun += 2
+                    maxRedRun = max(maxRedRun, redRun)
+                    redMaxX = max(redMaxX, x)
+                } else {
+                    redRun = 0
+                }
+            }
+        }
+        check(greenPixels > 50 && maxRedRun >= 50,
+              "\(style.rawValue) keeps full-width Enable/E-Stop controls visible at 736pt (redRun=\(maxRedRun))")
+        check(redMaxX > 0 && redMaxX < width - 8,
+              "\(style.rawValue) does not clip the right-hand safety control at 736pt")
+    }
+}
+
+@MainActor
+private func miniFloatingWindowTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    guard let screen = NSScreen.main ?? NSScreen.screens.first else {
+        check(false, "floating-window tests have a real screen")
+        return
+    }
+    let visible = screen.visibleFrame
+    let expected = MiniFloatingWindow.bottomFrame(for: screen)
+    check(expected.height == 200, "Mini uses the official FIRST-inspired 200pt height")
+    check(expected.width == min(1280, visible.width - 32),
+          "Mini width fits the visible screen and never exceeds 1280pt")
+    check(expected.midX == visible.midX && expected.minY == visible.minY,
+          "Mini is centered at the bottom of the visible screen")
+
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+                          styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+    MiniFloatingWindow.configure(window, on: screen)
+    check(window.level == .floating && !window.hidesOnDeactivate,
+          "Mini remains above other apps and does not hide on deactivation")
+    check(window.collectionBehavior.contains(.canJoinAllSpaces) &&
+          window.collectionBehavior.contains(.fullScreenAuxiliary) &&
+          !window.collectionBehavior.contains(.moveToActiveSpace),
+          "Mini joins every Space and can stay beside fullscreen apps without moving between Spaces")
+    check(!window.isMovable && window.standardWindowButton(.zoomButton)?.isEnabled == false &&
+          !window.styleMask.contains(.resizable),
+          "Mini has a fixed bottom frame and no zoom-to-large-window action")
+    check(window.frame == expected,
+          "restored Mini window state is replaced by the fixed bottom frame")
+    window.close()
 }
 
 // MARK: - 窗口切换决策（纯状态）

@@ -439,6 +439,10 @@ final class DSModel {
         }
     }
 
+    var miniReferenceStyle = MiniReferenceStyle.niClassic {
+        didSet { settings.set("miniReferenceStyle", miniReferenceStyle.rawValue) }
+    }
+
     // MARK: 应用图标（运行中 Dock 图标；独立两维偏好：样式 × 外观，与界面主题互不影响）
 
     var iconStyle = IconStyle.color {
@@ -567,6 +571,9 @@ final class DSModel {
         }
         if let raw = settings.string("appearance"), let mode = AppearanceMode(rawValue: raw) {
             appearanceMode = mode
+        }
+        if let raw = settings.string("miniReferenceStyle"), let style = MiniReferenceStyle(rawValue: raw) {
+            miniReferenceStyle = style
         }
         // 更新渠道与语言 / 外观 / 图标同属偏好：门控前恢复（AUTO_SIM 会话同样按上次选择检查更新）
         if let raw = settings.string("updateChannel"), let channel = UpdateChannel(rawValue: raw) {
