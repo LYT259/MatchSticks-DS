@@ -54,11 +54,13 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   Sources/DSCore/*.swift .build/uitest/BundleModuleShim.swift -o .build/uitest/libDSCore.dylib
 swiftc -parse-as-library -swift-version 5 \
   -I .build/uitest -L .build/uitest -lDSCore \
-  Sources/MatchSticksDriverStaion/DSModel.swift Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift \
+  Sources/MatchSticksDriverStaion/DSModel.swift Sources/MatchSticksDriverStaion/MiniReferenceStyle.swift \
+  Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift \
   Sources/MatchSticksDriverStaion/PermissionRuntimeMonitor.swift \
   Sources/MatchSticksDriverStaion/FirewallVerificationProbe.swift \
   Sources/MatchSticksDriverStaion/HIDInputManager.swift \
-  Sources/MatchSticksDriverStaion/MacStatusMonitor.swift Sources/MatchSticksDriverStaion/Views/DSStyle.swift \
+  Sources/MatchSticksDriverStaion/MacStatusMonitor.swift Sources/MatchSticksDriverStaion/MacHardware.swift \
+  Sources/MatchSticksDriverStaion/MacHardwareSources.swift Sources/MatchSticksDriverStaion/Views/DSStyle.swift \
   Sources/MatchSticksDriverStaion/Views/DSControls.swift Sources/MatchSticksDriverStaion/PracticeAudioPlayer.swift \
   Sources/MatchSticksDriverStaion/PracticeCountdownSpeech.swift \
   Sources/MatchSticksDriverStaion/AppLifecycle.swift \
@@ -100,17 +102,23 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/ThumbstickSceneTests.swift \
   Tests/MatchSticksDriverStaionUITests/FlightStickSceneTests.swift \
   Tests/MatchSticksDriverStaionUITests/DirewolfArtworkTests.swift \
+  Tests/MatchSticksDriverStaionUITests/ArtworkIntegrityTests.swift \
   Tests/MatchSticksDriverStaionUITests/GamepadRenderingTests.swift Tests/MatchSticksDriverStaionUITests/GamepadTriggerRangeTests.swift \
   Tests/MatchSticksDriverStaionUITests/JoystickSlotOrderingTests.swift \
   Tests/MatchSticksDriverStaionUITests/JoystickCardInteractionTests.swift \
   Tests/MatchSticksDriverStaionUITests/AppIconAppearanceTests.swift \
   Tests/MatchSticksDriverStaionUITests/DriverStationBrandTests.swift \
+  Sources/MatchSticksDriverStaion/Views/MiniNIClassicView.swift \
+  Sources/MatchSticksDriverStaion/Views/MiniFIRSTModernView.swift \
   Sources/MatchSticksDriverStaion/Views/MiniView.swift Sources/MatchSticksDriverStaion/MiniDriverStation.swift \
+  Sources/MatchSticksDriverStaion/MiniFloatingWindow.swift \
   Tests/MatchSticksDriverStaionUITests/MiniDriverStationTests.swift \
   Tests/MatchSticksDriverStaionUITests/LocalNetworkDiscoveryTests.swift \
   Tests/MatchSticksDriverStaionUITests/PermissionRuntimeMonitorTests.swift \
   Tests/MatchSticksDriverStaionUITests/FirewallVerificationProbeTests.swift \
   Tests/MatchSticksDriverStaionUITests/PracticeProgressTests.swift \
   Tests/MatchSticksDriverStaionUITests/PracticeCountdownSpeechTests.swift \
+  Tests/MatchSticksDriverStaionUITests/MacHardwareMonitoringTests.swift \
+  Tests/MatchSticksDriverStaionUITests/MacHardwareInterfaceTests.swift \
   -o .build/MatchSticksDriverStaionUIStateTests
 .build/MatchSticksDriverStaionUIStateTests "$@"

@@ -21,9 +21,12 @@ swiftc -swift-version 5 -emit-library -emit-module -module-name DSCore \
   -o "$BUILD_DIR/libDSCore.dylib"
 app_sources=(
   Sources/MatchSticksDriverStaion/DSModel.swift
+  Sources/MatchSticksDriverStaion/MiniReferenceStyle.swift
   Sources/MatchSticksDriverStaion/LocalNetworkDiscovery.swift
   Sources/MatchSticksDriverStaion/HIDInputManager.swift
   Sources/MatchSticksDriverStaion/MacStatusMonitor.swift
+  Sources/MatchSticksDriverStaion/MacHardware.swift
+  Sources/MatchSticksDriverStaion/MacHardwareSources.swift
   Sources/MatchSticksDriverStaion/PermissionRuntimeMonitor.swift
   Sources/MatchSticksDriverStaion/FirewallVerificationProbe.swift
   Sources/MatchSticksDriverStaion/Views/PermissionsView.swift
