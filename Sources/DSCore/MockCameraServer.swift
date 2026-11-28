@@ -1,5 +1,4 @@
 import Foundation
-import Darwin
 
 // MARK: - MOCK 摄像头通道（MatchSticksDriverStaionSim 侧；Phase 4 摄像头流的无硬件占位）
 //
@@ -39,57 +38,42 @@ public final class MockCameraServer {
         runningFlag = false
         let sock = listenSock
         lock.unlock()
-        if sock >= 0 { close(sock) }
+        if sock >= 0 { SocketCompat.closeSocket(sock) }
     }
 
     private func listenLoop() {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = SocketCompat.tcpSocket()
         guard fd >= 0 else { onLog?(tr("MOCK 摄像头 socket 创建失败")); return }
-        var yes: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1")) // 仅回环（字节序见 WebUIServer 注释）
-        let bound = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-        }
-        guard bound == 0, listen(fd, 4) == 0 else {
-            onLog?(tr("MOCK 摄像头监听失败 :%d（errno %d）", port, errno))
-            close(fd)
+        _ = SocketCompat.setReuseAddress(fd)
+        var addr = SocketCompat.loopbackAddress(port: port) // 仅回环
+        let bound = SocketCompat.bindSocket(fd, &addr)
+        guard bound == 0, SocketCompat.listenSocket(fd, backlog: 4) == 0 else {
+            onLog?(tr("MOCK 摄像头监听失败 :%d（errno %d）", port, Int(SocketCompat.lastError)))
+            SocketCompat.closeSocket(fd)
             lock.lock(); runningFlag = false; lock.unlock()
             return
         }
-        var got = sockaddr_in(); var len = socklen_t(MemoryLayout<sockaddr_in>.size)
         var realPort: UInt16 = port
-        let gs = withUnsafeMutablePointer(to: &got) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) }
-        }
-        if gs == 0 { realPort = UInt16(bigEndian: got.sin_port) }
+        if let local = SocketCompat.localAddress(fd) { realPort = SocketCompat.port(of: local) }
         lock.lock(); listenSock = fd; boundPortValue = realPort; lock.unlock()
         onLog?(tr("MOCK 摄像头通道：http://127.0.0.1:%d/frame.jpg", realPort))
 
         while true {
             lock.lock(); let active = runningFlag; lock.unlock()
-            if !active { close(fd); return }
-            var clientAddr = sockaddr_in()
-            var alen = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let client = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { accept(fd, $0, &alen) }
-            }
+            if !active { SocketCompat.closeSocket(fd); return }
+            let client = SocketCompat.acceptSocket(fd)
             guard client >= 0 else { break }
             DispatchQueue.global(qos: .utility).async { [weak self] in self?.handle(client) }
         }
-        close(fd)
+        SocketCompat.closeSocket(fd)
     }
 
     private func handle(_ fd: Int32) {
-        defer { close(fd) }
-        var tv = timeval(tv_sec: 5, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        defer { SocketCompat.closeSocket(fd) }
+        _ = SocketCompat.setReceiveTimeout(fd, seconds: 5)
         // 只读请求行即可路由（本通道无 body 语义）
         var buf = [UInt8](repeating: 0, count: 4096)
-        let n = recv(fd, &buf, buf.count, 0)
+        let n = SocketCompat.receive(fd, &buf, buf.count)
         guard n > 0, let head = String(bytes: buf[0..<n], encoding: .utf8),
               let line = head.components(separatedBy: "\r\n").first else {
             _ = WebUIServer.send(fd, Data("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))

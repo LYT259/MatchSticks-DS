@@ -8,8 +8,8 @@ struct OperationView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top, spacing: 18) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 18) {
                     DSPanel(title: tr("驾驶模式")) {
                         VStack(spacing: 8) {
                             modeRow(.teleoperated, title: tr("遥控"), detail: tr("用手柄直接控制机器人"), symbol: "gamecontroller")
@@ -22,6 +22,22 @@ struct OperationView: View {
                             opModePicker
                         }
                     }
+                    DSPanel(title: tr("联盟站位")) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .top, spacing: 12) {
+                                blueAllianceGroup
+                                redAllianceGroup
+                            }
+                            VStack(alignment: .leading, spacing: 12) {
+                                blueAllianceGroup
+                                redAllianceGroup
+                            }
+                        }
+                    }
+                    maintenancePanel
+                }
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .leading, spacing: 18) {
                     DSPanel(title: tr("练习赛")) {
                         VStack(alignment: .leading, spacing: 14) {
                             PracticeDurationCards(model: model)
@@ -53,29 +69,14 @@ struct OperationView: View {
                             }
                         }
                     }
-                }
-                DSPanel(title: tr("联盟站位")) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .top, spacing: 12) {
-                            blueAllianceGroup
-                            redAllianceGroup
-                        }
-                        VStack(alignment: .leading, spacing: 12) {
-                            blueAllianceGroup
-                            redAllianceGroup
-                        }
+                    DSPanel(title: tr("比赛时间线"), subtitle: tr("拖动分隔线调整各阶段时长；用于下一次练习。")) {
+                        PracticeMatchTimeline(model: model)
                     }
-                }
-                DSPanel(title: tr("比赛时间线")) {
-                    PracticeMatchTimeline(model: model)
-                }
-                HStack(alignment: .top, spacing: 18) {
-                    practiceTimingPanel
                     if model.practiceSeasonYear == 2022 {
                         timeoutPanel
                     }
-                    maintenancePanel
                 }
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(24)
@@ -89,22 +90,6 @@ struct OperationView: View {
             Button(tr("重启程序"), role: .destructive) { model.restartRobotCode() }
         } message: {
             Text(tr("重启会中断当前程序。请先确认机器人已失能。"))
-        }
-    }
-
-    private var practiceTimingPanel: some View {
-        DSPanel(title: tr("练习时序"), subtitle: tr("时长设置用于下一次练习。")) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 12) {
-                    Text(tr("官方时序"))
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
-                        .buttonStyle(DSActionStyle())
-                }
-                .padding(.bottom, 12)
-                PracticeTimingEditor(model: model)
-            }
         }
     }
 

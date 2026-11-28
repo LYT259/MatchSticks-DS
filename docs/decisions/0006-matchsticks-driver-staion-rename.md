@@ -1,6 +1,6 @@
 # ADR-0006：产品二级更名为 MatchSticks Driver Station（无空格拼写修正、二级命名映射与兼容边界）
 
-- 状态：已接受（Accepted）
+- 状态：已接受（Accepted）；其中“Sparkle 密钥与 `SUPublicEDKey` 不变”的部分已被 [ADR-0007](0007-update-signing-key-rotation.md) 取代（2026-11-25），其余决定继续有效
 - 日期：2026-11-23（二级更名）；2026-11-24 修订（无空格拼写修正；远端仓库状态核对）
 - 决策：产品所有者（LYT259）
 - 编号核查（2026-11-24）：`git fetch origin beta`（远端 `beta` = `b972212`）后，检查本地全部 `refs/heads` 与远端全部 `refs/remotes/origin` 的 `docs/decisions/`。本 ADR 初稿误用 `0003`，该编号已由 `docs/three-platform-validation` 的 `0003-three-platform-validation.md` 占用；`0004-update-channels-and-connectivity.md` 与 `0005-portable-dscore-validation.md` 也已在其他本地分支占用。按「全分支最大号 +1」，最终编号取 `0006`。`origin/beta` 现有 ADR-0001 与 ADR-0002；beta 上尚无的 0003–0005 已在其他分支占用，不代表编号可用。本 ADR 以 `0006` 随本分支提交，合并后 `origin/beta` 的编号集为 0001/0002/0006，`0006` 保留、不重编。本文件于 2026-11-24 随无空格名称修正改名为 `0006-matchsticks-driver-staion-rename.md`，编号仍为 `0006`。

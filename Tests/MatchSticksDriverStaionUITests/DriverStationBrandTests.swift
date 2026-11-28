@@ -5,6 +5,10 @@ import DSCore
 
 @MainActor
 func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void) {
+    let brandRed = NSColor.red
+    let brandBlue = NSColor.blue
+    checkSyntheticBrandPixels(check, brandRed: brandRed, brandBlue: brandBlue)
+
     NSApplication.shared.finishLaunching()
     let previousAppearance = NSApplication.shared.appearance
     defer { NSApplication.shared.appearance = previousAppearance }
@@ -13,12 +17,12 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
     defer { NSApplication.shared.setActivationPolicy(previousPolicy) }
 
     let light = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in
-        NSColor.red.setFill()
+        brandRed.setFill()
         rect.fill()
         return true
     }
     let dark = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in
-        NSColor.blue.setFill()
+        brandBlue.setFill()
         rect.fill()
         return true
     }
@@ -53,7 +57,7 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
         return bitmap
     }
 
-    guard let initial = snapshot(named: "brand-light"), let initialIcon = brandColorBounds(in: initial, red: true) else {
+    guard let initial = snapshot(named: "brand-light"), let initialIcon = brandColorBounds(in: initial, matching: brandRed) else {
         check(false, "the selected icon is rendered in the real AppKit-hosted sidebar")
         return
     }
@@ -72,13 +76,13 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
 
     model.appearanceMode = .dark
     guard let interfaceDark = snapshot(named: "brand-interface-dark"),
-          brandColorBounds(in: interfaceDark, red: true) != nil else {
+          brandColorBounds(in: interfaceDark, matching: brandRed) != nil else {
         check(false, "changing the interface theme does not replace the selected light icon artwork")
         return
     }
 
     model.iconStyle = .monochrome
-    guard let updated = snapshot(named: "brand-monochrome"), let updatedIcon = brandColorBounds(in: updated, red: false) else {
+    guard let updated = snapshot(named: "brand-monochrome"), let updatedIcon = brandColorBounds(in: updated, matching: brandBlue) else {
         check(false, "changing icon style immediately renders the newly resolved artwork")
         return
     }
@@ -114,26 +118,77 @@ func driverStationBrandTests(_ check: @MainActor (@autoclosure () -> Bool, Strin
           "the first brand render pushes monochrome dark artwork exactly once and applies the same NSImage")
 }
 
-private func brandColorBounds(in bitmap: NSBitmapImageRep, red redChannel: Bool) -> (top: Int, bottom: Int)? {
+/// Boundary pixels for the brand detector, independent of the attached display. The AppKit snapshot
+/// lives in the display's color space, not sRGB: there sRGB red is no longer (255, 0, 0) and its green
+/// channel lands exactly on 51/255 = 0.2000, the value the former `green < 0.2` threshold rejected.
+/// Display P3 reproduces that boundary without a wide-gamut display.
+@MainActor
+private func checkSyntheticBrandPixels(_ check: @MainActor (@autoclosure () -> Bool, String) -> Void,
+                                       brandRed: NSColor, brandBlue: NSColor) {
+    let space = NSColorSpace.displayP3
+    func bitmap(_ codes: [CGFloat]) -> NSBitmapImageRep? {
+        guard codes.count == 3, let cgSpace = space.cgColorSpace,
+              let context = CGContext(data: nil, width: 2, height: 2, bitsPerComponent: 8, bytesPerRow: 8,
+                                      space: cgSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.setFillColor(NSColor(colorSpace: space, components: codes + [1], count: 4).cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        guard let image = context.makeImage() else { return nil }
+        return NSBitmapImageRep(cgImage: image)
+    }
+    func detected(_ codes: [CGFloat]) -> Bool {
+        bitmap(codes).flatMap { brandColorBounds(in: $0, matching: brandRed) } != nil
+    }
+    func shifted(_ codes: [CGFloat], by steps: CGFloat) -> [CGFloat] {
+        codes.map { $0 + steps / 255 }
+    }
+
+    let sidebar = NSColor(srgbRed: 0xF1 / 255, green: 0xF1 / 255, blue: 0xF3 / 255, alpha: 1)
+    guard let red = brandPixelChannels(of: brandRed, in: space),
+          let background = brandPixelChannels(of: sidebar, in: space),
+          let blue = brandPixelChannels(of: brandBlue, in: space),
+          let otherRed = brandPixelChannels(of: NSColor.systemRed, in: space) else {
+        check(false, "every synthetic color can be resolved in Display P3")
+        return
+    }
+    check((red[1] * 255).rounded() == 51,
+          "precondition: the declared brand red quantizes to green exactly 51/255 in Display P3 (actual: \(red[1] * 255))")
+    check(detected(red), "a brand pixel whose green quantizes to exactly 0.2000 is detected")
+    check(detected(shifted(red, by: 1)), "a brand pixel one 8-bit code step above the declared color is detected")
+    check(detected(shifted(red, by: -1)), "a brand pixel one 8-bit code step below the declared color is detected")
+    check(!detected(shifted(red, by: 2)), "a brand pixel two 8-bit code steps away is a different color")
+    check(!detected(background), "a snapshot holding only the sidebar background carries no icon")
+    check(!detected(blue), "the other artwork's color is not mistaken for the selected one")
+    check(!detected(otherRed), "a different red is not accepted as the declared color")
+}
+
+/// Vertical extent of the opaque pixels that render `declared`, resolved in the snapshot's own color space.
+private func brandColorBounds(in bitmap: NSBitmapImageRep, matching declared: NSColor) -> (top: Int, bottom: Int)? {
+    guard bitmap.colorSpace.colorSpaceModel == .rgb,
+          let expected = brandPixelChannels(of: declared, in: bitmap.colorSpace) else { return nil }
     var top = Int.max
     var bottom = Int.min
     for y in 0..<bitmap.pixelsHigh {
         for x in 0..<bitmap.pixelsWide {
-            // 快照位图为 Generic RGB，且采样值随会话的色彩管理漂移（同一 NSColor.red 曾采得
-            // (1.0, 0.0, 0.11) 与 (0.86, 0.20, 0.14)），固定阈值会假失败；改按 sRGB 主导通道判定。
-            guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                  color.alphaComponent > 0.9 else { continue }
-            let red = color.redComponent, green = color.greenComponent, blue = color.blueComponent
-            let matches = redChannel
-                ? red - max(green, blue) > 0.4
-                : blue - max(red, green) > 0.4
-            if matches {
-                top = min(top, y)
-                bottom = max(bottom, y)
-            }
+            guard let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.9 else { continue }
+            // colorAt hands back the bitmap's raw components (merely tagged Generic RGB), so they
+            // already live in bitmap.colorSpace and must not be converted again.
+            let channels = [color.redComponent, color.greenComponent, color.blueComponent]
+            guard zip(channels, expected).allSatisfy({ abs($0 - $1) <= brandPixelTolerance }) else { continue }
+            top = min(top, y)
+            bottom = max(bottom, y)
         }
     }
     return top == Int.max ? nil : (top, bottom)
+}
+
+/// One 8-bit code step per side around the renderer's quantization, plus an epsilon for floating-point noise on the boundary.
+private let brandPixelTolerance: CGFloat = 1 / 255 + 1e-6
+
+/// `color` in `space` rounded to the 8-bit channels the snapshot renderer produces, as 0...1 fractions.
+private func brandPixelChannels(of color: NSColor, in space: NSColorSpace) -> [CGFloat]? {
+    color.usingColorSpace(space).map { converted in
+        [converted.redComponent, converted.greenComponent, converted.blueComponent].map { ($0 * 255).rounded() / 255 }
+    }
 }
 
 private func brandTextObservations(in bitmap: NSBitmapImageRep) -> [(text: String, top: Int)] {

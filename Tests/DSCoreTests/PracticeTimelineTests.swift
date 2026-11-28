@@ -159,6 +159,62 @@ func practiceTimelineTests() {
     check(near(legacyLayout.totalDuration, 153) && near(rebuiltLayout.totalDuration, 165),
           "赛季切换改变总时长与比例")
 
+    // MARK: 可拖动分隔线：只改相邻时长，保持总时长与字段边界
+
+    let dragBoundaries = PracticeTimeline.editingBoundaries(for: rebuilt)
+    check(dragBoundaries.map(\.id) == [
+        "startDelay-autonomous", "autonomous-autoToTeleop", "autoToTeleop-transitionShift",
+        "transitionShift-allianceShift1", "allianceShift4-endgame",
+    ], "2026 只为独立时长字段提供拖动边界，不为四个共享 Shift 制造假边界")
+    check(near(dragBoundaries[0].offset, 2) && near(dragBoundaries[1].offset, 22) &&
+          near(dragBoundaries[2].offset, 25) && near(dragBoundaries[3].offset, 35) &&
+          near(dragBoundaries[4].offset, 135),
+          "拖动边界使用包含零时长区段的真实时间偏移")
+    let transitionBoundary = dragBoundaries[2]
+    let longerDelay = PracticeTimeline.configuration(rebuilt, dragging: transitionBoundary, deltaSeconds: 2)
+    check(near(longerDelay.delayTime, 5) && near(longerDelay.transitionShift, 8) &&
+          near(longerDelay.totalDuration, rebuilt.totalDuration),
+          "向右拖 Auto→Teleop / Transition Shift：左段 +2s、右段 −2s、总时长不变")
+    let clampedLeft = PracticeTimeline.configuration(rebuilt, dragging: transitionBoundary, deltaSeconds: -20)
+    check(near(clampedLeft.delayTime, 0) && near(clampedLeft.transitionShift, 13) &&
+          near(clampedLeft.totalDuration, rebuilt.totalDuration),
+          "向左拖过界：Auto→Teleop 到下限 0s 即停，Transition 只接收夹取后的 3s")
+    let clampedRight = PracticeTimeline.configuration(rebuilt, dragging: transitionBoundary, deltaSeconds: 100)
+    check(near(clampedRight.delayTime, 13) && near(clampedRight.transitionShift, 0) &&
+          near(clampedRight.totalDuration, rebuilt.totalDuration),
+          "向右拖过界：Transition 到下限 0s 即停，Auto→Teleop 只接收夹取后的 10s")
+    let nanDrag = PracticeTimeline.configuration(rebuilt, dragging: transitionBoundary, deltaSeconds: .nan)
+    check(nanDrag == rebuilt, "非有限拖动增量不修改配置")
+
+    let zeroDelay = rebuilt
+    var noStart = zeroDelay
+    noStart.startDelay = 0
+    let startBoundary = PracticeTimeline.editingBoundaries(for: noStart)[0]
+    let createdStart = PracticeTimeline.configuration(noStart, dragging: startBoundary, deltaSeconds: 5)
+    check(near(createdStart.startDelay, 5) && near(createdStart.autoTime, 15) &&
+          near(createdStart.totalDuration, noStart.totalDuration),
+          "0 秒开始等待也能从最左边界拖出 5 秒，Auto 同步缩短")
+    let allianceBoundary = dragBoundaries[3]
+    let sharedAlliance = PracticeTimeline.configuration(rebuilt, dragging: allianceBoundary, deltaSeconds: 4)
+    check(near(sharedAlliance.transitionShift, 14) && near(sharedAlliance.allianceShift, 24) &&
+          near(sharedAlliance.totalDuration, rebuilt.totalDuration),
+          "Transition / Shift 分隔线按四段共享折算：Transition +4s、每个 Shift −1s、总时长不变")
+    let endBoundary = dragBoundaries[4]
+    let longerEndgame = PracticeTimeline.configuration(rebuilt, dragging: endBoundary, deltaSeconds: -2)
+    check(near(longerEndgame.allianceShift, 23) && near(longerEndgame.endgame, 38) &&
+          near(longerEndgame.totalDuration, rebuilt.totalDuration),
+          "Shift / Endgame 分隔线向左拖：每个 Shift −2s、Endgame 接收四段合计的 +8s")
+
+    let legacyBoundary = PracticeTimeline.editingBoundaries(for: legacy).last
+    check(legacyBoundary?.id == "autoToTeleop-teleoperated",
+          "旧赛季最后一个拖动边界是 Auto→Teleop / Teleop")
+    if let legacyBoundary {
+        let legacyDrag = PracticeTimeline.configuration(legacy, dragging: legacyBoundary, deltaSeconds: 2)
+        check(near(legacyDrag.delayTime, 5) && near(legacyDrag.teleopTime, 133) &&
+              near(legacyDrag.totalDuration, legacy.totalDuration),
+              "旧赛季拖动沿用 Auto→Teleop 与单一 Teleop 字段")
+    }
+
     // MARK: Sequencer 开始等待行为保持不变（回归）
 
     var waiting = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140,
