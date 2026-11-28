@@ -10,6 +10,7 @@ struct RobotHistoryView: View {
         VStack(spacing: 16) {
             BatteryHistoryPanel(model: model)
             CPUHistoryPanel(model: model)
+            CANHistoryPanel(model: model)
             LinkHistoryPanel(model: model)
         }
     }
@@ -101,6 +102,41 @@ private struct CPUHistoryPanel: View {
         .chartLegend(position: .bottom, alignment: .leading)
     }
 
+}
+
+private struct CANHistoryPanel: View {
+    let model: DSModel
+    var body: some View {
+        DSPanel(title: tr("CAN 总线历史"), subtitle: tr("连接期间每秒记录 · 最近 1 小时")) {
+            if model.canHistory.count > 1 {
+                Chart {
+                    ForEach(model.canHistory) { point in
+                        LineMark(x: .value(tr("时间"), point.timestamp), y: .value(tr("总线利用率"), point.utilization))
+                            .foregroundStyle(DSTheme.accent)
+                            .lineStyle(StrokeStyle(lineWidth: 1.8))
+                    }
+                }
+                .chartYScale(domain: 0...100)
+                .chartYAxis {
+                    AxisMarks(position: .leading, values: [0, 25, 50, 75, 100]) { value in
+                        AxisGridLine()
+                        AxisValueLabel { if let number = value.as(Double.self) { Text("\(Int(number))%") } }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.hour().minute().second())
+                    }
+                }
+                .frame(height: 160)
+                Text(tr("当前 %.1f%% · 仅在机器人连接期间记录，不用离线零值填充曲线。", Double(model.can.utilizationPercent)))
+                    .font(.caption).monospacedDigit().foregroundStyle(DSTheme.textSecondary)
+            } else {
+                emptyState(tr("等待 CAN 采样"), detail: tr("连接机器人后持续记录 CAN 总线占用率，便于回看异常。"))
+            }
+        }
+    }
 }
 
 private struct LinkHistoryPanel: View {

@@ -213,6 +213,10 @@ final class DSModel {
     private(set) var watchdogNotFed = false
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
+    var macCPUHistory: [MacCPUHistorySample] = []
+    var macGPUHistory: [MacGPUHistorySample] = []
+    var macTemperatureHistory: [MacTemperatureHistorySample] = []
+    var macBatteryHistory: [MacBatteryHistorySample] = []
     var localNetworkSummary = tr("检测中…")
     let permissionMonitor = PermissionRuntimeMonitor()
     private let networkMonitor = NetworkPathMonitor()
@@ -252,6 +256,7 @@ final class DSModel {
     var ramTotal: UInt32 = 0
     var diskFree: UInt32 = 0
     var can = CANMetrics()
+    var canHistory: [CANHistorySample] = []
     var joystickOutputs: [JoystickOutput] = []
     var lossPercent: Double = 0
     var txCount: UInt64 = 0
@@ -1672,7 +1677,7 @@ final class DSModel {
         seatPositions = seatPositions.filter { present.contains($0.key) || seatMemory.contains($0.key) }
     }
 
-    // MARK: .dslog 采样（1Hz）
+    // MARK: 本机监控历史与 .dslog 采样（1Hz）
 
     private func updateDSLogWriter() {
         if dslogEnabled {
@@ -1697,11 +1702,43 @@ final class DSModel {
         }
     }
 
+    func recordMacStatusSample(_ sample: MacStatusSnapshot) {
+        let now = sample.sampledAt
+        guard now != .distantPast else { return }
+        macCPUHistory = MacHardwareMath.trimmed(macCPUHistory, at: now, timestamp: \.timestamp)
+        macGPUHistory = MacHardwareMath.trimmed(macGPUHistory, at: now, timestamp: \.timestamp)
+        macTemperatureHistory = MacHardwareMath.trimmed(macTemperatureHistory, at: now, timestamp: \.timestamp)
+        macBatteryHistory = MacHardwareMath.trimmed(macBatteryHistory, at: now, timestamp: \.timestamp)
+        macCPUHistory.append(MacCPUHistorySample(timestamp: now, systemPercent: sample.systemCPUPercent,
+                                                 loads: sample.coreCPUPercentages))
+        if let gpu = sample.gpu {
+            macGPUHistory.append(MacGPUHistorySample(timestamp: now, deviceUtilization: gpu.deviceUtilization,
+                                                     rendererUtilization: gpu.rendererUtilization,
+                                                     tilerUtilization: gpu.tilerUtilization))
+        }
+        if !sample.temperatures.isEmpty {
+            macTemperatureHistory.append(MacTemperatureHistorySample(timestamp: now, readings: sample.temperatures))
+        }
+        if let percent = sample.batteryPercent {
+            macBatteryHistory.append(MacBatteryHistorySample(timestamp: now, percent: percent,
+                                                             onAC: sample.onAC ?? false, charging: sample.isCharging))
+        }
+    }
+
+    func recordCANSample(utilization: Float, connected: Bool, at now: Date = Date()) {
+        canHistory = MacHardwareMath.trimmed(canHistory, at: now, window: 3_600, timestamp: \.timestamp)
+        guard connected, utilization.isFinite else { return }
+        canHistory.append(CANHistorySample(timestamp: now,
+                                          utilization: Double(min(100, max(0, utilization)))))
+    }
+
     private func appendDSLogEntry() {
         // 读后台采样缓存（IOKit/mach 重采样已移出主线程）；日志写器仍在本主线程 tick 内
-        if let sampled = macStatusSampler.latest {
+        if let sampled = macStatusSampler.latest, sampled.sampledAt != macStatus.sampledAt {
             macStatus = sampled
+            recordMacStatusSample(sampled)
         }
+        recordCANSample(utilization: can.utilizationPercent, connected: commConnected)
         applyLocalNetworkSummary(networkMonitor.summary)
         appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }
