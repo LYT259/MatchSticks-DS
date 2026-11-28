@@ -145,6 +145,7 @@
 "阶段间等待" = "Delay Between Phases";
 "Auto → Teleop 过渡" = "Auto → Teleop Transition";
 "开始前等待" = "Start Delay";
+"自动识别" = "Auto Detect";
 "准备时间" = "Preparation Time";
 "关闭" = "Off";
 "0 秒关闭；开启至少 5 秒，保证完整播报" = "0s disables preparation; enabling requires at least 5s for the full announcement";

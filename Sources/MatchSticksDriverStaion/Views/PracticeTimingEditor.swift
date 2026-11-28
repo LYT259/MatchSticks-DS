@@ -2,61 +2,24 @@ import SwiftUI
 import AppKit
 import DSCore
 
-struct PracticeTimingEditor: View {
+struct PracticePreparationTimeControl: View {
     @Bindable var model: DSModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            if model.practiceSeasonYear >= 2026 {
-                rebuiltControls
-            } else {
-                legacyControls
-            }
-        }
-    }
-
-    private var legacyControls: some View {
-        VStack(spacing: 14) {
-            VStack(spacing: 18) {
-                compactSlider(tr("准备时间"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
-                compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
-                compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
-                compactSlider(tr("遥控阶段"), $model.practiceTeleopTime, range: 15...600, color: .matchBlue)
-            }
-        }
-        .padding(.vertical, 16)
-    }
-
-    private var rebuiltControls: some View {
-        VStack(spacing: 14) {
-            VStack(spacing: 18) {
-                compactSlider(tr("准备时间"), $model.practiceStartDelay, range: 0...30, color: .matchNeutral)
-                compactSlider(tr("自动阶段"), $model.practiceAutoTime, range: 1...60, color: .matchNavy)
-                compactSlider(tr("Auto → Teleop 过渡"), $model.practiceDelayTime, range: 0...30, color: .matchNeutral)
-                compactSlider(tr("Transition Shift"), $model.practiceTransitionShiftTime, range: 0...60, color: .matchYellow)
-                compactSlider(tr("每个 Alliance Shift"), $model.practiceAllianceShiftTime, range: 1...120, color: .matchBlue)
-                compactSlider(tr("Endgame"), $model.practiceEndgameTime, range: 0...120, color: .matchYellow)
-            }
-        }
-        .padding(.vertical, 16)
-    }
-
-    private func compactSlider(_ title: String, _ value: Binding<TimeInterval>, range: ClosedRange<Double>, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(tr("准备时间"))
                     .font(.system(size: 12, weight: .medium))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                Text(tr("%d 秒", Int(value.wrappedValue)))
+                Spacer()
+                Text(tr("%d 秒", Int(model.practiceStartDelay)))
                     .font(.system(size: 12).monospacedDigit())
             }
-            Slider(value: value, in: range, step: 1)
-                .accessibilityLabel(title)
-                .tint(color)
+            Slider(value: $model.practiceStartDelay, in: 0...30, step: 1)
+                .accessibilityLabel(tr("准备时间"))
                 .controlSize(.small)
+            Text(tr("0 秒关闭；开启至少 5 秒，保证完整播报"))
+                .font(.caption)
+                .foregroundStyle(DSTheme.textSecondary)
         }
     }
 }
@@ -116,6 +79,7 @@ struct PracticeMatchTimeline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            PracticePreparationTimeControl(model: model)
             HStack {
                 Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
                     .buttonStyle(DSActionStyle())

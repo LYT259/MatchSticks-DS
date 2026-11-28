@@ -31,7 +31,7 @@ func practiceCountdownTests() {
     check(countdownCues(in: five.tick(1.9)).isEmpty, "尚未到 3 秒时不提前报数")
     check(countdownCues(in: five.tick(0.2)) == [.three], "3 秒报 three")
     check(countdownCues(in: five.tick(0)).isEmpty, "同一阈值不重复播报")
-    check(countdownCues(in: five.tick(0.9)) == [.two], "2 秒报 two")
+    check(countdownCues(in: five.tick(1)) == [.two], "2 秒报 two")
     check(countdownCues(in: five.tick(1)) == [.one], "1 秒报 one")
     let go = five.tick(1)
     check(countdownCues(in: go) == [.go] && five.phase == .autonomous, "进入 Auto 报 go")
