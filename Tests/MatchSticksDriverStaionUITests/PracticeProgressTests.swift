@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 import DSCore
 
 // MARK: Practice 进度真实时间推进（2026-11-23）
@@ -131,4 +132,209 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     badStart.practiceTick()
     check(abs(badStart.practiceRemaining - 14.5) < 1e-9, "基点建立后正常推进")
     badStart.aStop()
+
+    // ===== D. 真实窗口：显示帧必须读取与 Practice 相同的单调时钟并连续推进 =====
+    hostedPracticeFrameTests(check, settings: suite)
+}
+
+private struct HostedPracticeGeometry {
+    let columns: Range<Int>
+    let contentWidth: Double
+}
+
+@MainActor
+private func hostedPracticeFrameTests(
+    _ check: @MainActor (@autoclosure () -> Bool, String) -> Void,
+    settings: UserDefaults
+) {
+    NSApplication.shared.finishLaunching()
+    let previousPolicy = NSApplication.shared.activationPolicy()
+    NSApplication.shared.setActivationPolicy(.regular)
+
+    let model = DSModel(settingsDefaults: settings, persistenceEnabled: false)
+    model.practiceSeasonYear = 2025
+    model.practiceStartDelay = 2
+    model.soundsEnabled = false
+    model.enableDisableSoundsEnabled = false
+    model.practiceCountdownSpeech = CountdownSpeechSpy()
+
+    let width = 1_200
+    let height = 360
+    let host = NSHostingView(rootView: OperationView(model: model)
+        .frame(width: CGFloat(width), height: CGFloat(height))
+        .background(DSTheme.canvas))
+    host.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.appearance = NSAppearance(named: .aqua)
+    window.contentView = host
+    window.isReleasedWhenClosed = false
+    window.makeKeyAndOrderFront(nil)
+    NSApplication.shared.activate(ignoringOtherApps: true)
+    window.layoutIfNeeded()
+    host.layoutSubtreeIfNeeded()
+    defer {
+        model.aStop()
+        window.orderOut(nil)
+        window.close()
+        NSApplication.shared.setActivationPolicy(previousPolicy)
+    }
+
+    func snapshot() -> NSBitmapImageRep? {
+        NSApplication.shared.updateWindows()
+        window.layoutIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB,
+            bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        bitmap.size = NSSize(width: width, height: height)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        NSGraphicsContext.current = nil
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap
+    }
+
+    RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    guard let initial = snapshot(), let geometry = hostedPracticeGeometry(in: initial) else {
+        check(false, "hosted Practice view exposes its real duration-card and progress-bar geometry")
+        return
+    }
+    model.startPractice()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap(descendants)
+    }
+    let hostedViews = descendants(host)
+    let progressIndicator = hostedViews.compactMap { $0 as? NSProgressIndicator }.first
+    var lastBitmap: NSBitmapImageRep?
+
+    var samples: [(at: TimeInterval, progress: Double)] = []
+    var captureFailed = false
+    let samplingStart = ProcessInfo.processInfo.systemUptime
+    func capture() {
+        if let progressIndicator {
+            samples.append((ProcessInfo.processInfo.systemUptime, progressIndicator.doubleValue))
+            return
+        }
+        guard let bitmap = snapshot() else {
+            captureFailed = true
+            return
+        }
+        samples.append((ProcessInfo.processInfo.systemUptime,
+                        hostedPracticeProgress(in: bitmap, geometry: geometry)))
+        lastBitmap = bitmap
+    }
+    let sampleTimer = Timer(timeInterval: 0.008, repeats: true) { _ in
+        MainActor.assumeIsolated { capture() }
+    }
+    RunLoop.main.add(sampleTimer, forMode: .common)
+    let stopTimer = Timer(timeInterval: 0.6, repeats: false) { _ in
+        MainActor.assumeIsolated {
+            NSApplication.shared.stop(nil)
+            let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero,
+                                           modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                           context: nil, subtype: 0, data1: 0, data2: 0)
+            if let event { NSApplication.shared.postEvent(event, atStart: true) }
+        }
+    }
+    RunLoop.main.add(stopTimer, forMode: .common)
+    NSApplication.shared.run()
+    sampleTimer.invalidate()
+    stopTimer.invalidate()
+    if let finalBitmap = snapshot() { lastBitmap = finalBitmap }
+    if captureFailed {
+        check(false, "hosted Practice view can be sampled during a real practice")
+        return
+    }
+    if let lastBitmap { saveHostedPracticeReview(lastBitmap, name: "practice-last") }
+
+    let description = samples.map { String(format: "%.3f@%.3fs", $0.progress, $0.at - samplingStart) }
+        .joined(separator: ", ")
+    print("Hosted Practice progress samples: \(description)")
+    guard let first = samples.first, let last = samples.last else {
+        check(false, "hosted Practice view produces real frame samples")
+        return
+    }
+
+    var advanceTimes: [TimeInterval] = []
+    for (previous, current) in zip(samples, samples.dropFirst()) where current.progress > previous.progress + 0.001 {
+        advanceTimes.append(current.at)
+    }
+    let elapsed = last.at - first.at
+    let advanceRate = elapsed > 0 ? Double(advanceTimes.count) / elapsed : 0
+    let closeAdvances = zip(advanceTimes, advanceTimes.dropFirst()).contains { $1 - $0 < 0.09 }
+    let regresses = zip(samples, samples.dropFirst()).contains { $1.progress + 0.02 < $0.progress }
+
+    check(samples.count >= 8, "real TimelineView frames are sampled during the hosted Practice run")
+    check(first.at - samplingStart < 0.3 && first.progress < 0.5,
+          "hosted Practice's first sample is early and does not jump to full (actual \(first.progress) at \(first.at - samplingStart)s)")
+    check(last.progress >= first.progress + 0.10,
+          "hosted Practice visibly advances during real display-frame sampling (actual \(first.progress) → \(last.progress))")
+    check(advanceRate > 12 && closeAdvances,
+          "hosted Practice progress advances on display frames, not only the 10 Hz Practice tick (actual \(advanceRate) Hz)")
+    check(!regresses, "hosted Practice progress remains monotonic between display frames")
+    check(abs(last.progress - model.livePracticeDisplay.progress) < 0.12,
+          "hosted native indicator uses the model's real systemUptime clock domain (rendered \(last.progress), model \(model.livePracticeDisplay.progress))")
+}
+
+private func saveHostedPracticeReview(_ bitmap: NSBitmapImageRep, name: String) {
+    guard let directory = ProcessInfo.processInfo.environment["MATCHSTICKS_DRIVER_STAION_RENDER_REVIEW"],
+          let data = bitmap.representation(using: .png, properties: [:]) else { return }
+    let root = URL(fileURLWithPath: directory, isDirectory: true)
+    try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try? data.write(to: root.appendingPathComponent("\(name).png"))
+}
+
+private func hostedPracticeGeometry(in bitmap: NSBitmapImageRep) -> HostedPracticeGeometry? {
+    for y in 0..<bitmap.pixelsHigh {
+        var navyColumns: [Int] = []
+        var blueColumns: [Int] = []
+        var hasRed = false
+        var hasYellow = false
+        for x in (bitmap.pixelsWide / 2)..<bitmap.pixelsWide {
+            if hostedPracticePixel(bitmap, x: x, y: y, hex: 0x131F25) { navyColumns.append(x) }
+            if hostedPracticePixel(bitmap, x: x, y: y, hex: 0x007BC0) { blueColumns.append(x) }
+            if hostedPracticePixel(bitmap, x: x, y: y, hex: 0xC81623) { hasRed = true }
+            if hostedPracticePixel(bitmap, x: x, y: y, hex: 0xF2D14B) { hasYellow = true }
+        }
+        if navyColumns.count > 30, blueColumns.count > 30, !hasRed, !hasYellow,
+           let left = navyColumns.min(), let right = blueColumns.max(), right - left > 200 {
+            return HostedPracticeGeometry(columns: left..<(right + 1), contentWidth: Double(right - left + 1))
+        }
+    }
+    return nil
+}
+
+private func hostedPracticeProgress(in bitmap: NSBitmapImageRep, geometry: HostedPracticeGeometry) -> Double {
+    var longestRun = 0
+    for y in 0..<bitmap.pixelsHigh {
+        var run = 0
+        for x in geometry.columns {
+            if hostedPracticePixel(bitmap, x: x, y: y, hex: 0x007AFF) ||
+                hostedPracticePixel(bitmap, x: x, y: y, hex: 0xAAAAAA) {
+                run += 1
+                longestRun = max(longestRun, run)
+            } else {
+                run = 0
+            }
+        }
+    }
+    return min(1, Double(longestRun) / geometry.contentWidth)
+}
+
+private func hostedPracticePixel(_ bitmap: NSBitmapImageRep, x: Int, y: Int, hex: UInt32) -> Bool {
+    guard let bytes = bitmap.bitmapData else { return false }
+    let offset = y * bitmap.bytesPerRow + x * 4
+    let red = Int((hex >> 16) & 0xFF)
+    let green = Int((hex >> 8) & 0xFF)
+    let blue = Int(hex & 0xFF)
+    return abs(Int(bytes[offset]) - red) <= 6 &&
+        abs(Int(bytes[offset + 1]) - green) <= 6 &&
+        abs(Int(bytes[offset + 2]) - blue) <= 6
 }

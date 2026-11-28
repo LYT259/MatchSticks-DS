@@ -53,6 +53,7 @@ struct OperationView: View {
                                             Text(String(format: "%.1f s", display.remaining)).monospacedDigit()
                                         }.font(.callout)
                                         ProgressView(value: display.progress)
+                                            .accessibilityValue(String(format: "%.0f%%", display.progress * 100))
                                             .tint(DSTheme.accent)
                                             .controlSize(.small)
                                     }

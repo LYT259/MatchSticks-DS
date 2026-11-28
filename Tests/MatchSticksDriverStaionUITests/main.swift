@@ -50,6 +50,13 @@ struct UIStateTests {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--practice-only") {
+            practiceProgressTests(check)
+            print("MatchSticks Driver Station practice state: \(checks) checks, \(failures.count) failures")
+            for failure in failures { print("FAIL: \(failure)") }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         let model = DSModel()
         check(model.uiStatus == "未连接机器人", "initial status explains missing connection")
         check(!model.canEnable, "offline enable stays unavailable")
