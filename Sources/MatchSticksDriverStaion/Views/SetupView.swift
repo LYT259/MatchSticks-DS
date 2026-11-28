@@ -35,6 +35,7 @@ struct SetupView: View {
         }
         .onChange(of: model.teamNumber) { _, _ in syncDraftIfClean() }
         .onChange(of: model.manualIP) { _, _ in syncDraftIfClean() }
+        .onChange(of: model.manualRadioIP) { _, _ in syncDraftIfClean() }
         .onChange(of: model.protocolKind) { _, _ in syncDraftIfClean() }
     }
 
@@ -75,6 +76,17 @@ struct SetupView: View {
                     .accessibilityLabel(tr("队伍号或 IP 地址"))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(tr("Radio IP（可选）")).font(.callout.weight(.medium))
+                TextField(tr("自动：10.T.E.1；Cudy TR1200：192.168.10.1"), text: $draft.radioIPText)
+                    .textFieldStyle(DSTextFieldStyle())
+                    .font(.system(.body, design: .monospaced))
+                    .accessibilityLabel(tr("Radio IP（可选）"))
+                Text(tr("留空按队号探测；Cudy TR1200 出厂网段填 192.168.10.1。"))
+                    .font(.footnote)
+                    .foregroundStyle(DSTheme.textSecondary)
+            }
 
             if let validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.circle")
@@ -147,8 +159,13 @@ struct SetupView: View {
     private var hasConnectionChanges: Bool { draft.hasChanges(comparedTo: model) }
 
     private var validationMessage: String? {
-        guard draft.parsedTarget == nil else { return nil }
-        return tr("请输入非负队伍号或有效的 IPv4 地址；队伍号 0 表示仅 USB。")
+        if draft.parsedTarget == nil {
+            return tr("请输入非负队伍号或有效的 IPv4 地址；队伍号 0 表示仅 USB。")
+        }
+        if draft.parsedRadioTarget == nil {
+            return tr("请输入有效的 Radio IPv4 地址，或留空使用队号自动探测。")
+        }
+        return nil
     }
 
     private func resetConnectionDraft() {

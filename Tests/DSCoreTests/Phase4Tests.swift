@@ -80,18 +80,10 @@ func makeWebUITempEnv() -> (WebUIServer.Environment, URL) {
 
 /// 连接 127.0.0.1:port 的 TCP 客户端（WebUI 回环测试用）
 func socketConnect(host: String, port: UInt16) -> Int32? {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    let fd = SocketCompat.tcpSocket()
     guard fd >= 0 else { return nil }
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = port.bigEndian
-    addr.sin_addr = in_addr(s_addr: inet_addr(host))
-    let ok = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-            connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard ok == 0 else { close(fd); return nil }
+    var addr = SocketCompat.address(host, port: port) ?? SocketCompat.loopbackAddress(port: port)
+    guard SocketCompat.connectSocket(fd, &addr) == 0 else { SocketCompat.closeSocket(fd); return nil }
     return fd
 }
 
@@ -162,7 +154,7 @@ func webuiSocketRoundTripTests() {
     server.start()
     var port: UInt16 = 0
     for _ in 0..<100 where port == 0 { // 轮询 boundPort（最多 ~5s）
-        usleep(50_000)
+        Thread.sleep(forTimeInterval: 0.05)
         port = server.boundPort
     }
     logLock.lock(); let logs = serverLogs.joined(separator: " | "); logLock.unlock()
@@ -171,12 +163,12 @@ func webuiSocketRoundTripTests() {
 
     func httpGet(_ raw: String) -> String? {
         guard let fd = socketConnect(host: "127.0.0.1", port: port) else { return nil }
-        defer { close(fd) }
+        defer { SocketCompat.closeSocket(fd) }
         guard WebUIServer.send(fd, Data(raw.utf8)) else { return nil }
         var data = Data()
         var buf = [UInt8](repeating: 0, count: 65536)
         while true {
-            let n = recv(fd, &buf, buf.count, 0)
+            let n = SocketCompat.receive(fd, &buf, buf.count)
             if n <= 0 { break }
             data.append(contentsOf: buf[0..<n])
             if data.range(of: Data("}\r\n".utf8)) != nil || data.count > 1_000_000 { break }
@@ -211,7 +203,7 @@ func mockCameraServerTests() {
     server.start()
     var port: UInt16 = 0
     for _ in 0..<100 where port == 0 {
-        usleep(50_000)
+        Thread.sleep(forTimeInterval: 0.05)
         port = server.boundPort
     }
     check(port > 0, "mock camera binds ephemeral port (got \(port))")
@@ -219,12 +211,12 @@ func mockCameraServerTests() {
 
     func httpGetRaw(_ path: String) -> Data? {
         guard let fd = socketConnect(host: "127.0.0.1", port: port) else { return nil }
-        defer { close(fd) }
+        defer { SocketCompat.closeSocket(fd) }
         guard WebUIServer.send(fd, Data("GET \(path) HTTP/1.1\r\nHost: localhost\r\n\r\n".utf8)) else { return nil }
         var data = Data()
         var buf = [UInt8](repeating: 0, count: 65536)
         while true {
-            let n = recv(fd, &buf, buf.count, 0)
+            let n = SocketCompat.receive(fd, &buf, buf.count)
             if n <= 0 { break }
             data.append(contentsOf: buf[0..<n])
         }

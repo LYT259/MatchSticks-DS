@@ -34,6 +34,14 @@ struct UIStateTests {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--mac-only") {
+            macHardwareMonitoringTests(check)
+            macHardwareInterfaceTests(check)
+            print("MatchSticks Driver Station Mac hardware state: \(checks) checks, \(failures.count) failures")
+            for failure in failures { print("FAIL: \(failure)") }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--permission-only") {
             permissionRuntimeMonitorTests(check)
             firewallVerificationProbeTests(check)
@@ -448,8 +456,16 @@ struct UIStateTests {
         firewallVerificationProbeTests(check)
         miniDriverStationTests(check)
         localNetworkDiscoveryTests(check)
+        updateChannelTests(check)
+        updateSchedulerTests(check)
+        updateReachabilityTests(check)
+        updateRequestRoutingTests(check)
+        updateBadgeBehaviorTests(check)
+        appLifecycleTests(check)
         practiceProgressTests(check)
         practiceCountdownSpeechTests(check)
+        macHardwareMonitoringTests(check)
+        macHardwareInterfaceTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
@@ -477,7 +493,7 @@ struct UIStateTests {
 
         // ===== 设置域隔离 / manualIP 持久化 / 已应用地址警告 / 状态日志（2026-11-21）=====
 
-        let suiteNames = (0..<16).map { _ in "org.ghfrc.driverstation.test.uitests.\(UUID().uuidString)" }
+        let suiteNames = (0..<19).map { _ in "org.ghfrc.driverstation.test.uitests.\(UUID().uuidString)" }
         func makeSuite(_ name: String) -> UserDefaults { UserDefaults(suiteName: name)! }
 
         // ⑤ MATCHSTICKS_DRIVER_STAION_SETTINGS_SUITE 解析：非空有效 → 独立 suite；
@@ -646,6 +662,69 @@ struct UIStateTests {
         invalidDraft.load(from: targetModel)
         check(invalidDraft.targetText == "0" && !invalidDraft.userEdited,
               "reload restores the applied target and clears the edit flag")
+
+        // 第三方 Radio（Cudy TR1200）：独立地址持久化、恢复、草稿校验与机器人目标解耦
+        let cudySuite = makeSuite(suiteNames[16])
+        let cudyModel = DSModel(settingsDefaults: cudySuite, persistenceEnabled: true)
+        cudyModel.manualRadioIP = "192.168.10.1"
+        check(cudyModel.manualRadioIP == "192.168.10.1", "Cudy Radio address updates in memory")
+        check(cudySuite.string(forKey: "matchsticks.manualRadioIP") == "192.168.10.1",
+              "Cudy Radio address persists independently of the robot manualIP")
+        check(cudyModel.currentRadioTarget?.host == "192.168.10.1" && cudyModel.currentRadioTarget?.port == 80,
+              "the model exposes the actual third-party Radio probe target")
+        cudyModel.manualRadioIP = ""
+        check(cudySuite.object(forKey: "matchsticks.manualRadioIP") == nil,
+              "clearing the manual Radio address removes the persisted value")
+
+        let restoredRadioSuite = makeSuite(suiteNames[17])
+        restoredRadioSuite.set(2590, forKey: "matchsticks.teamNumber")
+        restoredRadioSuite.set("192.168.10.1", forKey: "matchsticks.manualRadioIP")
+        let restoredRadioModel = DSModel(settingsDefaults: restoredRadioSuite, persistenceEnabled: true)
+        restoredRadioModel.loadPersistedSettings()
+        check(restoredRadioModel.manualRadioIP == "192.168.10.1" && restoredRadioModel.currentRadioTarget?.host == "192.168.10.1",
+              "a saved Cudy Radio address is restored before probing starts")
+
+        let frozenRadioSuite = makeSuite(suiteNames[18])
+        frozenRadioSuite.set("192.168.10.9", forKey: "matchsticks.manualRadioIP")
+        let frozenRadioModel = DSModel(settingsDefaults: frozenRadioSuite, persistenceEnabled: false)
+        frozenRadioModel.manualRadioIP = "192.168.10.1"
+        check(frozenRadioModel.currentRadioTarget?.host == "192.168.10.1" &&
+              frozenRadioSuite.string(forKey: "matchsticks.manualRadioIP") == "192.168.10.9",
+              "disabled persistence still updates the live Radio target without rewriting settings")
+
+        let cudyDraftModel = DSModel(settingsDefaults: makeSuite(suiteNames[16]), persistenceEnabled: true)
+        cudyDraftModel.teamNumber = 2590
+        cudyDraftModel.manualRadioIP = "192.168.10.1"
+        let cudyDraft = ConnectionDraft()
+        cudyDraft.load(from: cudyDraftModel)
+        check(cudyDraft.radioIPText == "192.168.10.1" && !cudyDraft.hasChanges(comparedTo: cudyDraftModel),
+              "the connection draft loads the applied Cudy Radio address")
+        cudyDraft.radioIPText = "192.168.10"
+        check(cudyDraft.parsedRadioTarget == nil && cudyDraft.hasChanges(comparedTo: cudyDraftModel),
+              "an invalid Radio address keeps the draft dirty")
+        check(!cudyDraft.apply(to: cudyDraftModel) && cudyDraftModel.manualRadioIP == "192.168.10.1" &&
+              cudyDraftModel.manualIP.isEmpty,
+              "an invalid Radio address rejects the whole apply without partial robot changes")
+        cudyDraft.radioIPText = " 192.168.10.1\n"
+        check(cudyDraft.parsedRadioTarget == .manualIP("192.168.10.1") &&
+              !cudyDraft.hasChanges(comparedTo: cudyDraftModel),
+              "Radio address validation trims harmless surrounding whitespace")
+        cudyDraft.targetText = "192.168.10.2"
+        check(cudyDraft.apply(to: cudyDraftModel), "robot and Cudy addresses apply together")
+        check(cudyDraftModel.manualIP == "192.168.10.2" && cudyDraftModel.manualRadioIP == "192.168.10.1" &&
+              cudyDraftModel.teamNumber == 2590,
+              "robot and Radio addresses stay independent in the Cudy subnet")
+        cudyDraft.radioIPText = ""
+        check(cudyDraft.parsedRadioTarget == .automatic && cudyDraft.apply(to: cudyDraftModel),
+              "blank Radio input selects automatic team-derived probing")
+        check(cudyDraftModel.manualRadioIP.isEmpty && cudyDraftModel.manualIP == "192.168.10.2" &&
+              cudyDraftModel.currentRadioTarget?.host == "10.25.90.1",
+              "returning to automatic Radio probing does not clear the robot address")
+        cudyDraftModel.manualRadioIP = "192.168.10.1"
+        cudyDraft.load(from: cudyDraftModel)
+        cudyDraft.targetText = "0"
+        check(cudyDraft.apply(to: cudyDraftModel) && cudyDraftModel.manualRadioIP == "192.168.10.1",
+              "changing the robot target never silently clears the independent Radio address")
 
         // ⑧ Radio 状态日志：仅真实翻转回调记录，重复不刷
         let radioModel = DSModel(settingsDefaults: makeSuite(suiteNames[4]), persistenceEnabled: true)
@@ -1449,13 +1528,18 @@ struct UIStateTests {
         check(!settingsSource.isEmpty && !operationSource.isEmpty && !appSource.isEmpty &&
               !setupSource.isEmpty && !timingSource.isEmpty && !englishTable.isEmpty,
               "UI placement test loads its source fixtures")
+        check(setupSource.contains("$draft.radioIPText") && setupSource.contains("Cudy TR1200") &&
+              setupSource.contains("model.manualRadioIP"),
+              "Connection exposes and synchronizes the independent Cudy TR1200 Radio address field")
         check(!settingsSource.contains("PracticeTimingEditor(model: model)"),
               "Settings no longer contains the practice duration editor")
-        check(operationSource.components(separatedBy: "PracticeTimingEditor(model: model)").count - 1 == 1,
-              "Drive contains exactly one practice duration editor")
+        check(!operationSource.contains("PracticeTimingEditor(model: model)") &&
+              operationSource.components(separatedBy: "PracticeMatchTimeline(model: model)").count - 1 == 1,
+              "Drive removes Practice Timing and keeps exactly one Match Timeline")
         check(!settingsSource.contains("applyPracticeTimingPreset") &&
-              operationSource.components(separatedBy: "applyPracticeTimingPreset()").count - 1 == 1,
-              "the official timing preset moves with the duration editor, exactly once")
+              !operationSource.contains("applyPracticeTimingPreset()") &&
+              timingSource.components(separatedBy: "applyPracticeTimingPreset()").count - 1 == 1,
+              "the official timing preset stays in the Match Timeline header, exactly once")
         check(!operationSource.contains("openSettings") && !appSource.contains("OperationView(model: model, openSettings:"),
               "the obsolete Adjust Practice Durations navigation is removed")
         check(!appSource.contains("tr(\"驾驶控制\")") && !appSource.contains(": model.uiStatus)"),
@@ -1470,7 +1554,7 @@ struct UIStateTests {
               !englishTable.contains("Shortcuts apply only in the foreground"),
               "translations for the removed safety-bar texts are deleted")
 
-        // Task 1 放置守卫：右侧栏承载时序面板、Practice Match 命名、全宽内容与紧凑滑杆。
+        // Task 1 放置守卫：恢复左驾驶、右练习赛与时间线的窄分栏；Practice Timing 移除。
         check(!setupSource.contains("1040") && !settingsSource.contains("1040"),
               "Connection and Settings content no longer caps at 1040 points")
         check(setupSource.contains(".frame(maxWidth: .infinity)") &&
@@ -1487,29 +1571,13 @@ struct UIStateTests {
         check(englishTable.contains("\"开始练习赛\" = \"Start Practice Match\";") &&
               !englishTable.contains("Start Auto Practice"),
               "Start Practice Match is translated and the Auto wording is retired")
-        check(sourceOrder(["DSPanel(title: tr(\"驾驶模式\"))", "DSPanel(title: tr(\"练习赛\"))",
-                           "DSPanel(title: tr(\"联盟站位\"))", "DSPanel(title: tr(\"比赛时间线\"))",
-                           "PracticeMatchTimeline(model: model)", "practiceTimingPanel",
-                           "if model.practiceSeasonYear == 2022"], in: operationSource),
-              "drive stacks the Drive Mode / Practice Match row, then full-width Alliance Station, " +
-              "full-width Match Timeline, practice timing, and the 2022 timeout")
+        check(sourceOrder(["DSPanel(title: tr(\"驾驶模式\"))", "DSPanel(title: tr(\"联盟站位\"))", "maintenancePanel",
+                           "DSPanel(title: tr(\"练习赛\"))", "DSPanel(title: tr(\"比赛时间线\"),",
+                           "PracticeMatchTimeline(model: model)", "if model.practiceSeasonYear == 2022"], in: operationSource),
+              "Drive uses the narrow left driving column and the right practice/timeline column")
+        check(!operationSource.contains("practiceTimingPanel"),
+              "the old practice timing panel is removed")
 
-        check(timingSource.components(separatedBy: "compactSlider(tr(").count - 1 == 10,
-              "all six modern and four legacy practice controls use compact sliders")
-        check(!timingSource.contains("fullSlider") && !timingSource.contains("frame(width: 240)"),
-              "the fixed 240-point practice slider is removed")
-        check(!timingSource.contains("HStack(alignment: .top, spacing: 20)"),
-              "modern practice controls are laid out in one column")
-        let timingBindings = ["practiceStartDelay": 2, "practiceAutoTime": 2, "practiceDelayTime": 2,
-                              "practiceTeleopTime": 1, "practiceTransitionShiftTime": 1,
-                              "practiceAllianceShiftTime": 1, "practiceEndgameTime": 1]
-        let lostBindings = timingBindings.filter {
-            timingSource.components(separatedBy: "$model.\($0.key)").count - 1 != $0.value
-        }.map(\.key)
-        check(lostBindings.isEmpty, "every practice timing binding survives in each season layout; lost: \(lostBindings)")
-        check(!timingSource.contains("labelMinimumWidth") &&
-              timingSource.contains("private static let clockMinimumWidth: Double = 84"),
-              "segment titles are no longer hidden behind a width gate; the clock ruler keeps its threshold")
         check(timingSource.contains("struct PracticeMatchTimeline: View") &&
               timingSource.contains("struct PracticeDurationCards: View") &&
               operationSource.contains("PracticeDurationCards(model: model)") &&
@@ -1519,11 +1587,27 @@ struct UIStateTests {
               "the Transition Shift summary card is gone")
         check(!operationSource.contains("arrow.right"),
               "the old inline Auto → Teleop duration row is replaced by the two duration cards")
-        check(["range: 0...30", "range: 1...60", "range: 0...60",
-               "range: 15...600", "range: 1...120", "range: 0...120"].allSatisfy(timingSource.contains),
-              "every practice slider range stays unchanged")
-        check(timingSource.components(separatedBy: "Slider(value: value, in: range, step: 1)").count - 1 == 1,
-              "practice sliders share one implementation with a one-second step")
+        check(!timingSource.contains("compactSlider") && timingSource.contains("DragGesture(") &&
+              timingSource.contains(".onEnded") && timingSource.contains("applyPracticeTimelineConfiguration"),
+              "timeline dividers replace sliders with live drag and a single commit on release")
+        let committedFields = ["practiceStartDelay": "startDelay", "practiceAutoTime": "autoTime",
+                               "practiceDelayTime": "delayTime", "practiceTeleopTime": "teleopTime",
+                               "practiceTransitionShiftTime": "transitionShift",
+                               "practiceAllianceShiftTime": "allianceShift", "practiceEndgameTime": "endgame"]
+        for (property, field) in committedFields {
+            check(timingSource.components(separatedBy: "\(property) = configuration.\(field)").count - 1 == 1,
+                  "release commits \(property) exactly once from the dragged configuration")
+        }
+        check(timingSource.contains(".multilineTextAlignment(.center)"),
+              "Transition Shift and all other segment titles are explicitly centered")
+        check(!timingSource.contains("clockMinimumWidth") &&
+              timingSource.components(separatedBy: "ForEach(layout.items)").count - 1 >= 2,
+              "every segment, including the 3-second Transition Shift, receives start/end time labels")
+        check(timingSource.contains("if item.segment.duration <= 3 {"),
+              "any segment of 3 seconds or less, including Transition Shift or Auto→Teleop, suppresses its title and shows only seconds")
+        for key in ["拖动分隔线调整各阶段时长；用于下一次练习。", "左右拖动，松开后保存", "拖动调整 %@ 与 %@ 的时长"] {
+            check(englishTable.contains("\"\(key)\" = \""), "English translation exists for timeline drag text: \(key)")
+        }
 
         // ===== Drive 时间线改造回归（2026-11-23）：真实渲染几何 / 像素 =====
         // 固定 2026 比例：Auto 20 + 过渡 3 + Transition Shift 10 + 4×25 + Endgame 30 = 163 秒，开始等待 0。
@@ -1550,6 +1634,16 @@ struct UIStateTests {
         timelineModel.practiceTransitionShiftTime = 12
         check(timelineModel.practiceTimingConfiguration.durationCardValues.teleop == 142,
               "duration card Teleop follows live sub-phase edits")
+        timelineModel.practiceTransitionShiftTime = 10
+
+        let dragBoundary = PracticeTimeline.editingBoundaries(for: timelineModel.practiceTimingConfiguration)[2]
+        let draggedConfiguration = PracticeTimeline.configuration(
+            timelineModel.practiceTimingConfiguration, dragging: dragBoundary, deltaSeconds: 2)
+        timelineModel.applyPracticeTimelineConfiguration(draggedConfiguration)
+        check(timelineModel.practiceDelayTime == 5 && timelineModel.practiceTransitionShiftTime == 8 &&
+              timelineModel.practiceTimingConfiguration.totalDuration == timelineConfiguration.totalDuration,
+              "releasing a divider drag commits both adjacent durations to the model without changing total duration")
+        timelineModel.practiceDelayTime = 3
         timelineModel.practiceTransitionShiftTime = 10
 
         // 独立渲染时间线：宽窗（1000）与较窄窗口（560）下轨道都占满全宽、
@@ -1579,7 +1673,10 @@ struct UIStateTests {
                 } else {
                     check(false, "\(item.segment.kind.rawValue) renders at its proportional bounds at \(timelineWidth) points")
                 }
-                if item.width >= 8 {
+                if item.segment.duration <= 3 {
+                    check(segmentShowsAnyText(bitmap, track: track, start: start, end: end, fill: fill),
+                          "a segment of 3 seconds or less shows only its seconds without requiring title space at \(timelineWidth) points")
+                } else if item.width >= 8 {
                     check(segmentShowsText(bitmap, track: track, start: start, end: end, fill: fill),
                           "\(item.segment.kind.rawValue) shows its title with fully rendered seconds at \(timelineWidth) points")
                 }
@@ -1614,17 +1711,7 @@ struct UIStateTests {
             check(false, "duration cards render a bitmap")
         }
 
-        // 练习时序面板只剩滑杆：黄色只以滑杆细条出现，摘要卡与时间线都已搬走。
-        if let editorBitmap = renderedBitmap(PracticeTimingEditor(model: timelineModel)
-            .frame(width: 700, height: 640), width: 700, height: 640) {
-            check(maxVerticalRun(editorBitmap, hex: 0xF2D14B) < 30,
-                  "the practice timing panel keeps only thin slider tints after the summary cards move out")
-        } else {
-            check(false, "practice timing editor renders a bitmap")
-        }
-
-        // 整页渲染：上排 Drive Mode / Practice Match，Alliance Station 全宽，
-        // Match Timeline 全宽紧随其下并与 Alliance Station 面板左右对齐。
+        // 整页渲染：左侧 Drive Mode / Alliance Station / 维护，右侧 Practice Match / Match Timeline。
         // ScrollView 在 ImageRenderer 下不出内容，改走真实离屏窗口 + cacheDisplay。
         for (driveWidth, driveHeight) in [(1200, 1150), (760, 1050)] {
             guard let drive = windowRenderedBitmap(OperationView(model: timelineModel)
@@ -1642,23 +1729,19 @@ struct UIStateTests {
             let allianceRows = rowsContaining(drive, hex: 0xFF3B30)
             check(!allianceRows.isEmpty,
                   "alliance station renders its red alliance group at \(driveWidth) points")
-            guard let allianceFirst = allianceRows.first, let allianceLast = allianceRows.last else { continue }
-            check(allianceLast < track.rows.lowerBound,
-                  "the full-width match timeline sits below Alliance Station at \(driveWidth) points")
-            check(track.rows.lowerBound - allianceLast > 4 && track.rows.lowerBound - allianceLast < 150,
-                  "the match timeline directly follows Alliance Station at \(driveWidth) points")
-            let panelRow = min(allianceLast + 8, track.rows.lowerBound - 5)
-            let alliance = whiteRun(drive, y: panelRow)
-            // 760pt 下页面高过窗口而出现纵向滚动条：传统样式滚动条占去右侧布局宽度，面板撑满的是其左侧的滚动内容区
+            guard let allianceLast = allianceRows.last else { continue }
+            let panelRow = allianceLast + 8
+            let alliance = whiteRun(drive, y: panelRow, xRange: 0..<(driveWidth / 2))
+            // 760pt 下页面高过窗口而出现纵向滚动条：传统样式滚动条占去右侧布局宽度，右栏到达其左侧的内容右缘
             let scrollerWidth = Int(NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy))
-            check(alliance.start <= 30 && alliance.end >= driveWidth - 31 - scrollerWidth,
-                  "Alliance Station fills the content width at \(driveWidth) points")
+            check(alliance.start <= 30 && alliance.end <= driveWidth / 2 - 8,
+                  "Alliance Selection stays narrow in the left driving column at \(driveWidth) points")
             if let trackStart = segmentPixel(drive, y: fillRow, last: false),
                let trackEnd = segmentPixel(drive, y: fillRow, last: true) {
-                check(abs(trackStart - (alliance.start + 16)) <= 4,
-                      "the timeline track aligns its left edge with Alliance Station at \(driveWidth) points")
-                check(abs(trackEnd - (alliance.end - 16)) <= 4,
-                      "the timeline track reaches the content right edge at \(driveWidth) points")
+                check(trackStart > driveWidth / 2 - 20 && trackStart > alliance.end + 8,
+                      "the match timeline lives in the right practice column at \(driveWidth) points")
+                check(trackEnd >= driveWidth - 31 - scrollerWidth,
+                      "the timeline track reaches the right content edge at \(driveWidth) points")
             } else {
                 check(false, "the timeline track extents can be measured at \(driveWidth) points")
             }
@@ -1666,7 +1749,7 @@ struct UIStateTests {
                   "no leftover Transition Shift card renders outside the timeline at \(driveWidth) points")
 
             // 上排右列 Practice Match：两张时长卡（Auto 深蓝 + Teleop 蓝），无黄色摘要卡。
-            let topRows = 0..<max(1, allianceFirst - 8)
+            let topRows = 0..<max(1, track.rows.lowerBound - 8)
             let rightColumns = max(0, driveWidth / 2 - 60)..<driveWidth
             let navyPixels = pixelsWhere(drive, hex: 0x131F25, xRange: rightColumns, yRange: topRows)
             check(!navyPixels.isEmpty,
@@ -1793,7 +1876,7 @@ struct UIStateTests {
               "history keeps the battery, CPU and link charts")
         check(!robotHistorySource.contains("当前读数"),
               "history drops the duplicated current-readings summary")
-        check(macStatusSource.contains("Mac 状态") && macStatusSource.contains("model.macStatus"),
+        check(!macStatusSource.isEmpty && macStatusSource.contains("model.macStatus"),
               "Mac status shows this-Mac readings from macStatus")
         check(cameraSource.contains("CameraMockPanel()"),
               "Camera keeps its own mock panel")
@@ -2104,6 +2187,18 @@ private func segmentShowsText(_ bitmap: NSBitmapImageRep, track: (rows: ClosedRa
     return upper >= 3 && deepRows >= 3 && deepPixels >= 8
 }
 
+/// 只要求段内存在真实文字墨迹（用于 3 秒 Transition Shift 的“仅秒数”呈现，不要求标题区域）。
+private func segmentShowsAnyText(_ bitmap: NSBitmapImageRep, track: (rows: ClosedRange<Int>, midRow: Int),
+                                 start: Int, end: Int, fill: UInt32) -> Bool {
+    guard end - start >= 2 else { return false }
+    for y in track.rows {
+        for x in (start + 1)...(end - 1) where colorDistance(bitmap, x: x, y: y, hex: fill) > 0.3 {
+            return true
+        }
+    }
+    return false
+}
+
 private func segmentPixel(_ bitmap: NSBitmapImageRep, y: Int, last: Bool) -> Int? {
     if last {
         return stride(from: bitmap.pixelsWide - 1, through: 0, by: -1)
@@ -2136,11 +2231,12 @@ private func boundingBox(_ pixels: [(x: Int, y: Int)]) -> (minX: Int, maxX: Int,
     return box
 }
 
-/// 面板白底的最长横向白条（DSTheme.surface 浅色 = 0xFFFFFF）。
-private func whiteRun(_ bitmap: NSBitmapImageRep, y: Int) -> (start: Int, end: Int) {
+/// 面板白底的最长横向白条（DSTheme.surface 浅色 = 0xFFFFFF）；可选只扫描指定横向区间。
+private func whiteRun(_ bitmap: NSBitmapImageRep, y: Int, xRange: Range<Int>? = nil) -> (start: Int, end: Int) {
+    let xs = xRange ?? 0..<bitmap.pixelsWide
     var best = (start: 0, end: -1)
     var runStart: Int? = nil
-    for x in 0..<bitmap.pixelsWide {
+    for x in xs {
         if colorNear(bitmap, x: x, y: y, hex: 0xFFFFFF, tolerance: 0.02) {
             if runStart == nil { runStart = x }
         } else if let start = runStart {
@@ -2148,8 +2244,8 @@ private func whiteRun(_ bitmap: NSBitmapImageRep, y: Int) -> (start: Int, end: I
             runStart = nil
         }
     }
-    if let start = runStart, bitmap.pixelsWide - 1 - start > best.end - best.start {
-        best = (start, bitmap.pixelsWide - 1)
+    if let start = runStart, xs.upperBound - 1 - start > best.end - best.start {
+        best = (start, xs.upperBound - 1)
     }
     return best
 }

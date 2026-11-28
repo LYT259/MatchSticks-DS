@@ -7,10 +7,35 @@ import DSCore
 // MARK: - Mac 状态监控（NI DS 的 PC 电量/CPU 对应项，§7 功能矩阵「DS 自身监控」）
 
 struct MacStatusSnapshot: Sendable {
-    var batteryPercent: Int?     // nil = 无电池（台式机）
+    var batteryPercent: Int?
     var onAC: Bool?
+    var isCharging: Bool?
     var systemCPUPercent: Double
+    var coreCPUPercentages: [Double]
     var processMemoryMB: Double
+    var memory: MacMemoryStatus?
+    var gpu: MacGPUStatus?
+    var temperatures: [MacTemperatureReading]
+    var processes: [MacProcessMemory]
+    var sampledAt: Date
+
+    init(systemCPUPercent: Double, coreCPUPercentages: [Double] = [], processMemoryMB: Double,
+         memory: MacMemoryStatus? = nil, gpu: MacGPUStatus? = nil,
+         temperatures: [MacTemperatureReading] = [], processes: [MacProcessMemory] = [],
+         batteryPercent: Int? = nil, onAC: Bool? = nil, isCharging: Bool? = nil,
+         sampledAt: Date = .distantPast) {
+        self.batteryPercent = batteryPercent
+        self.onAC = onAC
+        self.isCharging = isCharging
+        self.systemCPUPercent = systemCPUPercent
+        self.coreCPUPercentages = coreCPUPercentages
+        self.processMemoryMB = processMemoryMB
+        self.memory = memory
+        self.gpu = gpu
+        self.temperatures = temperatures
+        self.processes = processes
+        self.sampledAt = sampledAt
+    }
 }
 
 enum MacStatusMonitor {
@@ -24,6 +49,10 @@ enum MacStatusMonitor {
         private var timer: DispatchSourceTimer?
         // 采样差分状态（仅 queue 上访问）
         private var lastTicks: (idle: UInt64, total: UInt64)?
+        private var lastCoreTicks: [[UInt64]]?
+        private let temperatureSource = MacTemperatureSource()
+        private var lastProcesses: [MacProcessMemory] = []
+        private var lastProcessesAt: Date = .distantPast
 
         /// 最近一次后台采样结果（尚未采到时为 nil）
         var latest: MacStatusSnapshot? {
@@ -48,29 +77,43 @@ enum MacStatusMonitor {
         }
 
         private func sample() {
-            var s = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
-            (s.batteryPercent, s.onAC) = MacStatusMonitor.battery()
+            let now = Date()
+            var s = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0, sampledAt: now)
+            (s.batteryPercent, s.onAC, s.isCharging) = MacStatusMonitor.battery()
             s.systemCPUPercent = MacStatusMonitor.systemCPU(&lastTicks)
+            let coreTicks = MacCPUTicks.read()
+            if let coreTicks {
+                s.coreCPUPercentages = MacHardwareMath.cpuPercentages(previous: lastCoreTicks ?? [], current: coreTicks)
+                lastCoreTicks = coreTicks
+            }
             s.processMemoryMB = MacStatusMonitor.processMemory()
+            s.memory = MacMemorySource.read()
+            s.gpu = MacGPUSource.read()
+            s.temperatures = temperatureSource.read()
+            if now.timeIntervalSince(lastProcessesAt) >= 5 {
+                lastProcesses = MacProcessMemorySource.read()
+                lastProcessesAt = now
+            }
+            s.processes = lastProcesses
             lock.lock(); cached = s; lock.unlock()
         }
     }
 
-    private static func battery() -> (Int?, Bool?) {
+    private static func battery() -> (Int?, Bool?, Bool?) {
         // Copy/Get 语义：Copy 走 takeRetainedValue；IOPSGetPowerSourceDescription 是
         // Get（+0），必须 takeUnretainedValue——此前误用 retained 导致过度释放崩溃
         guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] else {
-            return (nil, nil)
+            return (nil, nil, nil)
         }
         for source in list {
             guard let desc = IOPSGetPowerSourceDescription(blob, source)?.takeUnretainedValue() as? [String: Any],
                   let capacity = desc[kIOPSCurrentCapacityKey] as? Int else { continue }
             // CLT SDK 未导出 kIOPSStateKey/kIOPSACPowerValue 常量，用文档字面值
             let state = desc["State"] as? String
-            return (capacity, state == "AC Power")
+            return (capacity, state == "AC Power", desc[kIOPSIsChargingKey] as? Bool)
         }
-        return (nil, nil)
+        return (nil, nil, nil)
     }
 
     /// 全系统 CPU 占用（两次采样 tick 差值；首次返回 0）

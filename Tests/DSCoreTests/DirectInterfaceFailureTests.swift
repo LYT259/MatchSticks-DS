@@ -1,7 +1,15 @@
 // MARK: 直连绑定失败安全（绑定失败不得绕过看门狗/失联，且 latch 阻断陈旧 enabled）
 
-import Darwin
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
 import DSCore
 
 private let bindFailureControlPortA: UInt16 = 32410
@@ -145,25 +153,18 @@ final class BindFailureResponder: @unchecked Sendable {
     init(port: UInt16) { self.port = port }
 
     func start() -> Bool {
-        let rx = socket(AF_INET, SOCK_DGRAM, 0)
-        let tx = socket(AF_INET, SOCK_DGRAM, 0)
+        let rx = SocketCompat.udpSocket()
+        let tx = SocketCompat.udpSocket()
         guard rx >= 0, tx >= 0 else {
-            if rx >= 0 { close(rx) }
-            if tx >= 0 { close(tx) }
+            if rx >= 0 { SocketCompat.closeSocket(rx) }
+            if tx >= 0 { SocketCompat.closeSocket(tx) }
             return false
         }
-        _ = fcntl(rx, F_SETFL, fcntl(rx, F_GETFL, 0) | O_NONBLOCK)
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let rc = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(rx, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
+        _ = SocketCompat.setNonBlocking(rx)
+        var addr = SocketCompat.loopbackAddress(port: port)
+        let rc = SocketCompat.bindSocket(rx, &addr)
         guard rc == 0 else {
-            close(rx); close(tx)
+            SocketCompat.closeSocket(rx); SocketCompat.closeSocket(tx)
             return false
         }
         rxSock = rx
@@ -174,8 +175,8 @@ final class BindFailureResponder: @unchecked Sendable {
 
     func stop() {
         lock.lock(); stopped = true; lock.unlock()
-        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock); rxSock = -1 }
-        if txSock >= 0 { close(txSock); txSock = -1 }
+        if rxSock >= 0 { SocketCompat.shutdownReadWrite(rxSock); SocketCompat.closeSocket(rxSock); rxSock = -1 }
+        if txSock >= 0 { SocketCompat.closeSocket(txSock); txSock = -1 }
     }
 
     func setRepliesEnabled(_ enabled: Bool) {
@@ -206,13 +207,8 @@ final class BindFailureResponder: @unchecked Sendable {
             lock.unlock()
             if stopNow { break }
 
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let n = withUnsafeMutablePointer(to: &src) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(rxSock, &buffer, buffer.count, 0, sa, &len)
-                }
-            }
+            var src = SocketCompat.emptyAddress()
+            let n = SocketCompat.receiveFrom(rxSock, &buffer, buffer.count, &src)
             if n <= 0 {
                 Thread.sleep(forTimeInterval: 0.01)
                 continue
@@ -245,14 +241,7 @@ final class BindFailureResponder: @unchecked Sendable {
         w.u8(0)
 
         var dst = src
-        _ = withUnsafePointer(to: &dst) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                w.data.withUnsafeBytes { raw in
-                    sendto(txSock, raw.baseAddress, raw.count, 0, sa,
-                           socklen_t(MemoryLayout<sockaddr_in>.size))
-                }
-            }
-        }
+        _ = SocketCompat.sendDatagram(txSock, w.data, &dst)
     }
 }
 
@@ -285,10 +274,12 @@ func directInterfaceBindFailureSafetyTests() {
     }
     defer { responder.stop() }
 
-    let loIndex = if_nametoindex("lo0")
-    check(loIndex != 0, "绑定失败安全：lo0 存在")
+    let loIndex = SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName)
+    // Windows 不实现接口钉绑：interfaceIndex 按定义返回 0；本测试验证的是「绑定失败不得绕过安全闩锁」的控制流
+    check(!SocketCompat.supportsInterfaceBinding || loIndex != 0,
+          "绑定失败安全：\(SocketCompat.loopbackInterfaceName) 存在")
     let snapshot = BindFailureSnapshotBox(true)
-    let script = BindFailureBindScript(.bound(name: "lo0", index: loIndex))
+    let script = BindFailureBindScript(.bound(name: SocketCompat.loopbackInterfaceName, index: loIndex))
     let events = BindFailureEventBox()
     let client = bindFailureMakeClient(controlPort: bindFailureControlPortA,
                                        tcpPort: bindFailureTCPPortA,
@@ -305,7 +296,7 @@ func directInterfaceBindFailureSafetyTests() {
     }, "绑定失败安全：先建立连接并发送 enabled")
 
     let searchingBeforeFailure = events.searchingCount
-    script.set(.failed(errno: EIO))
+    script.set(.failed(errno: SocketCompat.eio))
     check(bindFailureWait(5.0) {
         events.autoDisabledReasons.contains { $0.contains("bind failed") }
     }, "绑定失败触发 autoDisabled（等待 2s 绑定刷新窗口）")
@@ -332,7 +323,7 @@ func directInterfaceBindFailureSafetyTests() {
           "失败重试间隔远小于 2s（\(deltas.map { String(format: "%.3f", $0) })）")
 
     let ticksBeforeRecovery = events.tickCount
-    script.set(.bound(name: "lo0", index: loIndex))
+    script.set(.bound(name: SocketCompat.loopbackInterfaceName, index: loIndex))
     Thread.sleep(forTimeInterval: 0.3)
     check(events.tickCount == ticksBeforeRecovery,
           "绑定恢复但 snapshot 仍 enabled 时 latch 保持、tickHook 不恢复")
@@ -352,7 +343,7 @@ func directInterfaceBindFailureSafetyTests() {
 
 func directInterfaceBindFailureRetryTests() {
     let snapshot = BindFailureSnapshotBox(true)
-    let script = BindFailureBindScript(.failed(errno: EIO))
+    let script = BindFailureBindScript(.failed(errno: SocketCompat.eio))
     let events = BindFailureEventBox()
     let heartbeat = BindFailureHeartbeatBox()
     let client = bindFailureMakeClient(controlPort: bindFailureControlPortB,
@@ -383,8 +374,8 @@ func directInterfaceBindFailureRetryTests() {
     Thread.sleep(forTimeInterval: 0.2)
     check(events.tickCount == 0, "绑定仍失败时 tickHook 不因上层 false 提前恢复")
 
-    let loIndex = if_nametoindex("lo0")
-    script.set(.bound(name: "lo0", index: loIndex))
+    let loIndex = SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName)
+    script.set(.bound(name: SocketCompat.loopbackInterfaceName, index: loIndex))
     check(bindFailureWait(1.0) { events.tickCount > 0 },
           "绑定恢复且上层 false 后 tickHook 恢复")
 }
@@ -397,9 +388,9 @@ func directInterfaceSilenceDisableLatchTests() {
     }
     defer { responder.stop() }
 
-    let loIndex = if_nametoindex("lo0")
+    let loIndex = SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName)
     let snapshot = BindFailureSnapshotBox(true)
-    let script = BindFailureBindScript(.bound(name: "lo0", index: loIndex))
+    let script = BindFailureBindScript(.bound(name: SocketCompat.loopbackInterfaceName, index: loIndex))
     let events = BindFailureEventBox()
     let client = bindFailureMakeClient(controlPort: bindFailureControlPortC,
                                        tcpPort: bindFailureTCPPortC,

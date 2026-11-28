@@ -107,13 +107,13 @@ enum Diag {
     }
 }
 
-// MARK: radio 探测目标盒（主线程写队号，probe 队列读——hostProvider 不再跨线程读 MainActor 状态）
+// MARK: radio 探测目标盒（主线程写目标，probe 队列读——hostProvider 不跨线程读 MainActor 状态）
 
-final class RadioTeamBox: @unchecked Sendable {
+final class RadioTargetBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var team = 0
-    func set(_ t: Int) { lock.lock(); team = t; lock.unlock() }
-    func get() -> Int { lock.lock(); defer { lock.unlock() }; return team }
+    private var target: (host: String, port: UInt16)?
+    func set(_ target: (host: String, port: UInt16)?) { lock.lock(); self.target = target; lock.unlock() }
+    func get() -> (host: String, port: UInt16)? { lock.lock(); defer { lock.unlock() }; return target }
 }
 
 // MARK: - DSModel：应用层唯一状态源（@MainActor + @Observable）
@@ -163,7 +163,7 @@ final class DSModel {
     var teamNumber: Int = 0 {
         didSet {
             settings.set("teamNumber", teamNumber)
-            radioTeamBox.set(teamNumber)
+            updateRadioTarget()
             syncClientConfig()
         }
     }
@@ -175,6 +175,20 @@ final class DSModel {
             }
             syncClientConfig()
         }
+    }
+    var manualRadioIP: String = "" {
+        didSet {
+            if persistenceEnabled {
+                settings.set("manualRadioIP", manualRadioIP.isEmpty ? nil : manualRadioIP)
+            }
+            updateRadioTarget()
+        }
+    }
+    var currentRadioTarget: (host: String, port: UInt16)? {
+        RadioProbe.autoTarget(autoSim: Self.isAutoSim, teamNumber: teamNumber, manualIP: manualRadioIP)
+    }
+    private func updateRadioTarget() {
+        radioTargetBox.set(currentRadioTarget)
     }
     /// 已应用手动地址的提示（读 model，不读编辑中的草稿）。
     /// 普通手动地址：自动发现已关闭，仅向该地址发送；
@@ -213,6 +227,10 @@ final class DSModel {
     private(set) var watchdogNotFed = false
     private var watchdogMissCount = 0
     var macStatus = MacStatusSnapshot(systemCPUPercent: 0, processMemoryMB: 0)
+    var macCPUHistory: [MacCPUHistorySample] = []
+    var macGPUHistory: [MacGPUHistorySample] = []
+    var macTemperatureHistory: [MacTemperatureHistorySample] = []
+    var macBatteryHistory: [MacBatteryHistorySample] = []
     var localNetworkSummary = tr("检测中…")
     let permissionMonitor = PermissionRuntimeMonitor()
     private let networkMonitor = NetworkPathMonitor()
@@ -252,6 +270,7 @@ final class DSModel {
     var ramTotal: UInt32 = 0
     var diskFree: UInt32 = 0
     var can = CANMetrics()
+    var canHistory: [CANHistorySample] = []
     var joystickOutputs: [JoystickOutput] = []
     var lossPercent: Double = 0
     var txCount: UInt64 = 0
@@ -443,6 +462,19 @@ final class DSModel {
     let appIconCenter = AppIconCenter()
     private var isRestoringIconPreferences = false
 
+    // MARK: 更新渠道（stable / beta；UpdateCenter 映射为 Sparkle allowedChannels）
+
+    /// 渠道偏好：didSet 即时落盘（键 updateChannel，新旧键规则由 SettingsStore 统一处理）；
+    /// 真实变化时通知 UpdateCenter（attach 注入），由其在 GitHub 可达时重新检查。
+    var onUpdateChannelChange: ((UpdateChannel) -> Void)?
+    var updateChannel: UpdateChannel = .stable {
+        didSet {
+            guard updateChannel != oldValue else { return }
+            settings.set("updateChannel", updateChannel.rawValue)
+            onUpdateChannelChange?(updateChannel)
+        }
+    }
+
     // MARK: 事件日志
 
     var dsEvents: [LogLine] = []
@@ -477,7 +509,7 @@ final class DSModel {
     private let client = DSClient()
     private let snapshotBox = SnapshotBox()
     private let heartbeatBox = HeartbeatBox()
-    private let radioTeamBox = RadioTeamBox()
+    private let radioTargetBox = RadioTargetBox()
     private let settings: SettingsStore
     private var appSupportDirectory: AppSupportDirectory?
     private let persistenceAllowed: Bool
@@ -543,9 +575,14 @@ final class DSModel {
         if let raw = settings.string("miniReferenceStyle"), let style = MiniReferenceStyle(rawValue: raw) {
             miniReferenceStyle = style
         }
+        // 更新渠道与语言 / 外观 / 图标同属偏好：门控前恢复（AUTO_SIM 会话同样按上次选择检查更新）
+        if let raw = settings.string("updateChannel"), let channel = UpdateChannel(rawValue: raw) {
+            updateChannel = channel
+        }
         guard persistenceEnabled else { return }
         if let t = settings.integer("teamNumber"), t > 0 { teamNumber = t }
         if let ip = settings.string("manualIP") { manualIP = ip }
+        if let ip = settings.string("manualRadioIP") { manualRadioIP = ip }
         if let raw = settings.string("alliance"), let a = AllianceStation(rawValue: UInt8(raw) ?? 255) { alliance = a }
         // 新多选键优先；缺失或损坏时回退旧版单选键（空串 = 全部取消，属合法值）
         if let stored = settings.string("dashboards").flatMap(DashboardKind.selection(from:)) {
@@ -639,15 +676,13 @@ final class DSModel {
             Task { @MainActor in self.handle(event) }
         }
         // radio 选址（root cause ②，2026-10-31 真机确认）：
-        // - 纯函数 RadioProbe.autoTarget 决定目标——普通自动 = 队号派生 10.T.E.1:80，
-        //   与 roboRIO manualIP 无关（旧实现填手动 IP 后 radio 灯亮来自 roboRIO:80）；
+        // - 普通自动 = 队号派生 10.T.E.1:80；manualRadioIP 可独立指定 Cudy 等第三方 radio，
+        //   roboRIO manualIP 始终不参与（旧实现曾让 radio 灯亮来自 roboRIO:80）；
         // - AUTO_SIM 保持 127.0.0.1 + 模拟 radio 端口 8080；
-        // - hostProvider 只捕获值盒（不跨线程读 MainActor 属性）；队号变化经 radioTeamBox 生效。
-        radioTeamBox.set(teamNumber)
+        // - hostProvider 只捕获已解析目标值盒，不跨线程读 MainActor 属性。
+        updateRadioTarget()
         let probe = RadioProbe(configuration: RadioProbe.Configuration())
-        probe.hostProvider = { [radioTeamBox] in
-            RadioProbe.autoTarget(autoSim: DSModel.isAutoSim, teamNumber: radioTeamBox.get())
-        }
+        probe.hostProvider = { [radioTargetBox] in radioTargetBox.get() }
         probe.onResult = { [weak self] ok in
             Task { @MainActor in self?.applyRadioResult(ok) }
         }
@@ -1679,7 +1714,7 @@ final class DSModel {
         seatPositions = seatPositions.filter { present.contains($0.key) || seatMemory.contains($0.key) }
     }
 
-    // MARK: .dslog 采样（1Hz）
+    // MARK: 本机监控历史与 .dslog 采样（1Hz）
 
     private func updateDSLogWriter() {
         if dslogEnabled {
@@ -1704,11 +1739,43 @@ final class DSModel {
         }
     }
 
+    func recordMacStatusSample(_ sample: MacStatusSnapshot) {
+        let now = sample.sampledAt
+        guard now != .distantPast else { return }
+        macCPUHistory = MacHardwareMath.trimmed(macCPUHistory, at: now, timestamp: \.timestamp)
+        macGPUHistory = MacHardwareMath.trimmed(macGPUHistory, at: now, timestamp: \.timestamp)
+        macTemperatureHistory = MacHardwareMath.trimmed(macTemperatureHistory, at: now, timestamp: \.timestamp)
+        macBatteryHistory = MacHardwareMath.trimmed(macBatteryHistory, at: now, timestamp: \.timestamp)
+        macCPUHistory.append(MacCPUHistorySample(timestamp: now, systemPercent: sample.systemCPUPercent,
+                                                 loads: sample.coreCPUPercentages))
+        if let gpu = sample.gpu {
+            macGPUHistory.append(MacGPUHistorySample(timestamp: now, deviceUtilization: gpu.deviceUtilization,
+                                                     rendererUtilization: gpu.rendererUtilization,
+                                                     tilerUtilization: gpu.tilerUtilization))
+        }
+        if !sample.temperatures.isEmpty {
+            macTemperatureHistory.append(MacTemperatureHistorySample(timestamp: now, readings: sample.temperatures))
+        }
+        if let percent = sample.batteryPercent {
+            macBatteryHistory.append(MacBatteryHistorySample(timestamp: now, percent: percent,
+                                                             onAC: sample.onAC ?? false, charging: sample.isCharging))
+        }
+    }
+
+    func recordCANSample(utilization: Float, connected: Bool, at now: Date = Date()) {
+        canHistory = MacHardwareMath.trimmed(canHistory, at: now, window: 3_600, timestamp: \.timestamp)
+        guard connected, utilization.isFinite else { return }
+        canHistory.append(CANHistorySample(timestamp: now,
+                                          utilization: Double(min(100, max(0, utilization)))))
+    }
+
     private func appendDSLogEntry() {
         // 读后台采样缓存（IOKit/mach 重采样已移出主线程）；日志写器仍在本主线程 tick 内
-        if let sampled = macStatusSampler.latest {
+        if let sampled = macStatusSampler.latest, sampled.sampledAt != macStatus.sampledAt {
             macStatus = sampled
+            recordMacStatusSample(sampled)
         }
+        recordCANSample(utilization: can.utilizationPercent, connected: commConnected)
         applyLocalNetworkSummary(networkMonitor.summary)
         appendWPILogSamples()
         guard let w = dslogWriter, commConnected else { return }
