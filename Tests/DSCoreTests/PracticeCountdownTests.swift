@@ -44,6 +44,16 @@ func practiceCountdownTests() {
     check(countdownCues(in: seven.tick(1)) == [.four], "随后到 4 秒报 four")
     check(countdownCues(in: seven.tick(1)) == [.three], "随后到 3 秒报 three")
 
+    var partiallyStalled = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 5))
+    _ = partiallyStalled.start()
+    let partialCatchUp = partiallyStalled.tick(3.1)
+    check(countdownCues(in: partialCatchUp) == [.two],
+          "局部追赶跨过 3 和 2 但未跨过 1 时只播当前数字 2")
+    check(countdownCues(in: partiallyStalled.tick(0)).isEmpty,
+          "局部追赶跨过的旧数字已标记播报，不在下一 tick 重放")
+    check(countdownCues(in: partiallyStalled.tick(1)) == [.one],
+          "局部追赶后仍在正常阈值播 1")
+
     var stalled = PracticeSequencer(config: .init(autoTime: 20, teleopTime: 140, delayTime: 3, startDelay: 5))
     _ = stalled.start()
     let stalledEvents = stalled.tick(5)

@@ -198,7 +198,7 @@ public struct PracticeSequencer: Sendable, Equatable {
             announcedCountdownCues.insert(cue)
             events.append(.countdown(cue))
         }
-        return events
+        return events.last.map { [$0] } ?? []
     }
 
     /// A-Stop：立即失能并结束

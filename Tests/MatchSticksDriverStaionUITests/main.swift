@@ -1636,6 +1636,19 @@ struct UIStateTests {
         timelineModel.practiceDelayTime = 3
         timelineModel.practiceTransitionShiftTime = 10
 
+        timelineModel.practiceStartDelay = 5
+        let preparationTotal = timelineModel.practiceTimingConfiguration.totalDuration
+        let preparationBoundary = PracticeTimeline.editingBoundaries(
+            for: timelineModel.practiceTimingConfiguration)[0]
+        let accessibilityDecremented = PracticeTimeline.configuration(
+            timelineModel.practiceTimingConfiguration, dragging: preparationBoundary, deltaSeconds: -1)
+        timelineModel.applyPracticeTimelineConfiguration(accessibilityDecremented)
+        check(timelineModel.practiceStartDelay == 5 && timelineModel.practiceAutoTime == 20 &&
+              timelineModel.practiceTimingConfiguration.totalDuration == preparationTotal,
+              "accessibility decrement from Preparation 5 / Auto 20 preserves both normalized values and total duration")
+        timelineModel.practiceStartDelay = 0
+        timelineModel.practiceAutoTime = 20
+
         // 独立渲染时间线：宽窗（1000）与较窄窗口（560）下轨道都占满全宽、
         // 区段落在比例位置，Transition / Transition Shift 等区段内真实画出了文字。
         for timelineWidth in [1000, 560] {

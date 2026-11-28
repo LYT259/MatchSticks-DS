@@ -194,6 +194,23 @@ func practiceTimelineTests() {
     check(near(createdStart.startDelay, 5) && near(createdStart.autoTime, 15) &&
           near(createdStart.totalDuration, noStart.totalDuration),
           "0 秒开始等待也能从最左边界拖出 5 秒，Auto 同步缩短")
+    let smallStartDrag = PracticeTimeline.configuration(noStart, dragging: startBoundary, deltaSeconds: 1)
+    check(near(smallStartDrag.startDelay, 5) && near(smallStartDrag.autoTime, 15) &&
+          near(smallStartDrag.totalDuration, noStart.totalDuration),
+          "从 0 拖动 1 秒先归一到最小 5 秒，再从 Auto 扣 5 秒保持总时长")
+    var fiveSecondStart = noStart
+    fiveSecondStart.startDelay = 5
+    let fiveSecondBoundary = PracticeTimeline.editingBoundaries(for: fiveSecondStart)[0]
+    let decrementedStart = PracticeTimeline.configuration(fiveSecondStart, dragging: fiveSecondBoundary,
+                                                          deltaSeconds: -1)
+    check(near(decrementedStart.startDelay, 5) && near(decrementedStart.autoTime, 20) &&
+          near(decrementedStart.totalDuration, fiveSecondStart.totalDuration),
+          "5 秒准备向下调整 1 秒时先归一候选值，Auto 不增加，总时长不变")
+    let disabledStart = PracticeTimeline.configuration(fiveSecondStart, dragging: fiveSecondBoundary,
+                                                       deltaSeconds: -5)
+    check(near(disabledStart.startDelay, 0) && near(disabledStart.autoTime, 25) &&
+          near(disabledStart.totalDuration, fiveSecondStart.totalDuration),
+          "准备时间拖到 0 保留关闭语义，并把 5 秒全部还给 Auto")
     let allianceBoundary = dragBoundaries[3]
     let sharedAlliance = PracticeTimeline.configuration(rebuilt, dragging: allianceBoundary, deltaSeconds: 4)
     check(near(sharedAlliance.transitionShift, 14) && near(sharedAlliance.allianceShift, 24) &&

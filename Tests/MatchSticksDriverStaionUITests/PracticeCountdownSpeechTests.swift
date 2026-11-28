@@ -54,6 +54,20 @@ func practiceCountdownSpeechTests(_ check: (@autoclosure () -> Bool, String) -> 
               "\(invalid) 秒自动归一到 5 秒并完整播报")
     }
 
+    let persistenceSuiteName = "org.ghfrc.driverstation.test.uitests.practice-start-delay.\(UUID().uuidString)"
+    let persistenceSuite = UserDefaults(suiteName: persistenceSuiteName)!
+    defer { persistenceSuite.removePersistentDomain(forName: persistenceSuiteName) }
+    let persisted = DSModel(settingsDefaults: persistenceSuite, persistenceEnabled: true)
+    persisted.practiceStartDelay = 0
+    persisted.practiceStartDelay = 1
+    check(persisted.practiceStartDelay == 5 &&
+          persistenceSuite.double(forKey: "matchsticks.practiceStartDelay") == 5,
+          "normalizing a rejected preparation value persists the normalized 5 seconds")
+    let restored = DSModel(settingsDefaults: persistenceSuite, persistenceEnabled: true)
+    restored.loadPersistedSettings()
+    check(restored.practiceStartDelay == 5,
+          "normalized preparation delay survives recreating the model")
+
     for language in [LanguageMode.chinese, .english] {
         let model = DSModel(persistenceEnabled: false)
         let spy = CountdownSpeechSpy()
@@ -80,6 +94,26 @@ func practiceCountdownSpeechTests(_ check: (@autoclosure () -> Bool, String) -> 
         model.aStop()
     }
     LanguageManager.shared.setMode(.system)
+
+    let partialCatchUp = DSModel(persistenceEnabled: false)
+    let partialCatchUpSpy = CountdownSpeechSpy()
+    var partialCatchUpNow: TimeInterval = 0
+    partialCatchUp.practiceCountdownSpeech = partialCatchUpSpy
+    partialCatchUp.practiceClock = { partialCatchUpNow }
+    partialCatchUp.practiceStartDelay = 5
+    partialCatchUp.startPractice()
+    partialCatchUpNow = 3.1
+    partialCatchUp.practiceTick()
+    check(partialCatchUpSpy.cues == [.driversBehindLine, .two],
+          "partial catch-up across 3 and 2 plays only the current number 2")
+    partialCatchUp.practiceTick()
+    check(partialCatchUpSpy.cues == [.driversBehindLine, .two],
+          "partial catch-up marks crossed numbers announced without replaying them")
+    partialCatchUpNow = 4.1
+    partialCatchUp.practiceTick()
+    check(partialCatchUpSpy.cues == [.driversBehindLine, .two, .one],
+          "partial catch-up still plays 1 at its normal threshold")
+    partialCatchUp.aStop()
 
     let seven = DSModel(persistenceEnabled: false)
     let sevenSpy = CountdownSpeechSpy()

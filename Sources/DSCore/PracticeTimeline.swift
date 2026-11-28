@@ -228,7 +228,11 @@ public enum PracticeTimeline {
         guard deltaSeconds.isFinite else { return original }
         switch (boundary.left, boundary.right) {
         case (.startDelay, .autonomous):
-            return adjusting(original, \.startDelay, \.autoTime, 0...30, 1...60, deltaSeconds)
+            return adjusting(original, \.startDelay, \.autoTime, 0...30, 1...60, deltaSeconds,
+                             normalizingLeft: { candidate in
+                candidate > 0 && candidate < PracticeCountdownPlan.minimumStartDelay
+                    ? PracticeCountdownPlan.minimumStartDelay : candidate
+                             })
         case (.autonomous, .autoToTeleop):
             return adjusting(original, \.autoTime, \.delayTime, 1...60, 0...30, deltaSeconds)
         case (.autoToTeleop, .transitionShift):
@@ -252,7 +256,8 @@ public enum PracticeTimeline {
                                   _ leftRange: ClosedRange<TimeInterval>,
                                   _ rightRange: ClosedRange<TimeInterval>,
                                   _ delta: TimeInterval,
-                                  leftToRightRatio: TimeInterval = 1) -> PracticeTimingConfiguration {
+                                  leftToRightRatio: TimeInterval = 1,
+                                  normalizingLeft: (TimeInterval) -> TimeInterval = { $0 }) -> PracticeTimingConfiguration {
         let oldLeft = original[keyPath: left]
         let oldRight = original[keyPath: right]
         // Alliance Shift 的属性同时作用于四段；比例把共享字段折算回总时长守恒。
@@ -262,9 +267,13 @@ public enum PracticeTimeline {
                         (oldRight - rightRange.lowerBound) / leftToRightRatio)
         guard lower <= upper else { return original }
         let accepted = min(max(delta.rounded(), lower), upper)
+        let candidate = oldLeft + accepted
+        let normalizedLeft = normalizingLeft(candidate)
+        let normalizedRight = oldRight - (normalizedLeft - oldLeft) * leftToRightRatio
+        guard normalizedLeft == candidate || rightRange.contains(normalizedRight) else { return original }
         var updated = original
-        updated[keyPath: left] = oldLeft + accepted
-        updated[keyPath: right] = oldRight - accepted * leftToRightRatio
+        updated[keyPath: left] = normalizedLeft
+        updated[keyPath: right] = normalizedRight
         return updated
     }
 
