@@ -58,7 +58,8 @@ swiftc -parse-as-library -swift-version 5 \
   Sources/MatchSticksDriverStaion/PermissionRuntimeMonitor.swift \
   Sources/MatchSticksDriverStaion/FirewallVerificationProbe.swift \
   Sources/MatchSticksDriverStaion/HIDInputManager.swift \
-  Sources/MatchSticksDriverStaion/MacStatusMonitor.swift Sources/MatchSticksDriverStaion/Views/DSStyle.swift \
+  Sources/MatchSticksDriverStaion/MacStatusMonitor.swift Sources/MatchSticksDriverStaion/MacHardware.swift \
+  Sources/MatchSticksDriverStaion/MacHardwareSources.swift Sources/MatchSticksDriverStaion/Views/DSStyle.swift \
   Sources/MatchSticksDriverStaion/Views/DSControls.swift Sources/MatchSticksDriverStaion/PracticeAudioPlayer.swift \
   Sources/MatchSticksDriverStaion/PracticeCountdownSpeech.swift \
   Sources/MatchSticksDriverStaion/AppLifecycle.swift \
@@ -112,5 +113,7 @@ swiftc -parse-as-library -swift-version 5 \
   Tests/MatchSticksDriverStaionUITests/FirewallVerificationProbeTests.swift \
   Tests/MatchSticksDriverStaionUITests/PracticeProgressTests.swift \
   Tests/MatchSticksDriverStaionUITests/PracticeCountdownSpeechTests.swift \
+  Tests/MatchSticksDriverStaionUITests/MacHardwareMonitoringTests.swift \
+  Tests/MatchSticksDriverStaionUITests/MacHardwareInterfaceTests.swift \
   -o .build/MatchSticksDriverStaionUIStateTests
 .build/MatchSticksDriverStaionUIStateTests "$@"
