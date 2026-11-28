@@ -8,32 +8,31 @@
 // ⑥ 0x0C 按钮声明数截到 64 但字节数用未截断 n → n>64 时包结构错位
 
 import Foundation
-import DSCore
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(WinSDK)
+import WinSDK
+#endif
+import DSCore
 
 // MARK: 回环测试辅具
 
 /// 在 127.0.0.1 绑定临时端口并 listen，返回 (fd, port)
 @discardableResult
 func loopbackListen(backlog: Int32) -> (fd: Int32, port: UInt16) {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
-    var yes: Int32 = 1
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = 0
-    addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let bound = withUnsafePointer(to: &addr) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
-    }
-    precondition(bound == 0, "loopbackListen bind 失败 errno \(errno)")
-    precondition(listen(fd, backlog) == 0, "loopbackListen listen 失败")
-    var got = sockaddr_in()
-    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-    _ = withUnsafeMutablePointer(to: &got) {
-        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &len) }
-    }
-    return (fd, UInt16(bigEndian: got.sin_port))
+    let fd = SocketCompat.tcpSocket()
+    precondition(fd >= 0, "loopbackListen socket 失败 errno \(SocketCompat.lastError)")
+    SocketCompat.setReuseAddress(fd)
+    var addr = SocketCompat.loopbackAddress(port: 0)
+    let bound = SocketCompat.bindSocket(fd, &addr)
+    precondition(bound == 0, "loopbackListen bind 失败 errno \(SocketCompat.lastError)")
+    precondition(SocketCompat.listenSocket(fd, backlog: backlog) == 0, "loopbackListen listen 失败")
+    let port = SocketCompat.localAddress(fd).map { SocketCompat.port(of: $0) } ?? 0
+    return (fd, port)
 }
 
 /// 回环黑洞：listen(backlog 1) + 一条永不 accept 的连接填满积压 → 后续 SYN 被内核丢弃，
@@ -45,28 +44,26 @@ final class LoopbackBlackhole {
     private(set) var port: UInt16 = 0
 
     func start() -> Bool {
+        #if os(Linux)
+        // Linux 的 backlog=1 仍可让第二条回环连接完成；backlog=0 才能在首条滞留连接后丢弃后续 SYN。
+        let (lfd, p) = loopbackListen(backlog: 0)
+        #else
         let (lfd, p) = loopbackListen(backlog: 1)
+        #endif
         listener = lfd
         port = p
         // 首条连接立即完成并滞留在 accept 队列（回环实测：填满后后续 connect 全部悬挂）
-        let c = socket(AF_INET, SOCK_STREAM, 0)
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = p.bigEndian
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-        let rc = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(c, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        guard rc == 0 else { close(c); close(lfd); return false }
+        let c = SocketCompat.tcpSocket()
+        var addr = SocketCompat.loopbackAddress(port: p)
+        let rc = SocketCompat.connectSocket(c, &addr)
+        guard rc == 0 else { SocketCompat.closeSocket(c); SocketCompat.closeSocket(lfd); return false }
         filler = c
         return true
     }
 
     func stop() {
-        if filler >= 0 { close(filler) }
-        if listener >= 0 { close(listener) }
+        if filler >= 0 { SocketCompat.closeSocket(filler) }
+        if listener >= 0 { SocketCompat.closeSocket(listener) }
         filler = -1
         listener = -1
     }
@@ -83,9 +80,9 @@ final class GarbageResponder {
     private(set) var replies = 0
 
     func start() -> Bool {
-        rxSock = socket(AF_INET, SOCK_DGRAM, 0)
-        txSock = socket(AF_INET, SOCK_DGRAM, 0)
-        _ = fcntl(rxSock, F_SETFL, fcntl(rxSock, F_GETFL, 0) | O_NONBLOCK)
+        rxSock = SocketCompat.udpSocket()
+        txSock = SocketCompat.udpSocket()
+        _ = SocketCompat.setNonBlocking(rxSock)
         guard bindChecked(rxSock, port: NICodec.udpControlPort, what: "畸形应答器 控制口") else { return false }
         Thread.detachNewThread { [weak self] in self?.loop() }
         return true
@@ -94,29 +91,18 @@ final class GarbageResponder {
     private func loop() {
         var buf = [UInt8](repeating: 0, count: 2048)
         while !stopFlag {
-            var src = sockaddr_in()
-            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
-            let n = withUnsafeMutablePointer(to: &src) { p in
-                p.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    recvfrom(rxSock, &buf, buf.count, 0, sa, &len)
-                }
-            }
+            var src = SocketCompat.emptyAddress()
+            let n = SocketCompat.receiveFrom(rxSock, &buf, buf.count, &src)
             if n <= 0 { Thread.sleep(forTimeInterval: 0.02); continue }
             replies += 1
-            withUnsafePointer(to: &src) { dst in
-                dst.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    Self.garbage.withUnsafeBytes { raw in
-                        _ = sendto(txSock, raw.baseAddress, raw.count, 0, sa, socklen_t(MemoryLayout<sockaddr_in>.size))
-                    }
-                }
-            }
+            _ = SocketCompat.sendDatagram(txSock, Self.garbage, &src)
         }
     }
 
     func stop() {
         stopFlag = true
-        if rxSock >= 0 { shutdown(rxSock, SHUT_RDWR); close(rxSock) }
-        if txSock >= 0 { close(txSock) }
+        if rxSock >= 0 { SocketCompat.shutdownReadWrite(rxSock); SocketCompat.closeSocket(rxSock) }
+        if txSock >= 0 { SocketCompat.closeSocket(txSock) }
     }
 }
 
@@ -145,27 +131,59 @@ func outcomeTag(_ o: DSClient.TCPConnectOutcome) -> String {
 func boundedConnectClassificationTests() {
     // connected：监听中
     let live = loopbackListen(backlog: 4)
-    defer { close(live.fd) }
+    defer { SocketCompat.closeSocket(live.fd) }
     var t0 = Date()
     var outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: live.port, timeout: 1.0)
     check(outcomeTag(outcome) == "connected", "监听中 → connected（got \(outcomeTag(outcome))）")
     if case .connected(let fd) = outcome {
         check(fd >= 0, "connected 返回可用 fd")
-        check(DirectInterface.boundInterfaceIndex(fd: fd) == if_nametoindex("lo0"),
-              "TCP 回环连接绑定 lo0，直连接入已覆盖 boundedTCPConnect")
-        close(fd)
+        if SocketCompat.supportsInterfaceBinding {
+            check(DirectInterface.boundInterfaceIndex(fd: fd) == SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName),
+                  "TCP 回环连接绑定 \(SocketCompat.loopbackInterfaceName)，直连接入已覆盖 boundedTCPConnect")
+        } else {
+            check(DirectInterface.boundInterfaceIndex(fd: fd) == nil,
+                  "不支持接口钉绑的平台：TCP 回环连接按系统路由（无绑定）")
+        }
+        SocketCompat.closeSocket(fd)
     }
     check(-t0.timeIntervalSinceNow < 1.0, "connected 快速返回")
 
     // refused：端口关但主机活（真机 OM5P:80 形态 → RST）
+    // Windows 的 TCP 收到 RST 后会先重发 SYN，约 2s 才报 WSAECONNREFUSED；POSIX 立即返回
+    //（2026-11-24 首次真实 Windows 运行实测：1s 截止被判成 timedOut，WSAPoll 要到 ~1.8s 后才报 POLLERR）。
+    // 截止时间按平台给足——这里验证的是「refused」这一分类本身，不是操作系统的 RST 时延。
+    #if os(Windows)
+    let refusedTimeout = 5.0
+    #else
+    let refusedTimeout = 1.0
+    #endif
     let dead = loopbackListen(backlog: 4)
-    close(dead.fd)
+    SocketCompat.closeSocket(dead.fd)
     t0 = Date()
-    outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: dead.port, timeout: 1.0)
+    outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: dead.port, timeout: refusedTimeout)
+    let refusedElapsed = -t0.timeIntervalSinceNow
+    #if os(Windows)
+    print("windows: refused reported after \(String(format: "%.2f", refusedElapsed))s")
+    #endif
     check(outcomeTag(outcome) == "refused", "端口关闭 → refused（ECONNREFUSED 独立分类，got \(outcomeTag(outcome))）")
-    check(-t0.timeIntervalSinceNow < 2.0, "refused 即时返回（不等待）")
+    check(refusedElapsed < refusedTimeout,
+          "refused 在截止时间内返回，不等到超时（\(String(format: "%.2f", refusedElapsed))s）")
 
     // timedOut：黑洞链路（accept 积压填满 → SYN 被丢）
+    #if os(Windows)
+    // Winsock 的 backlog 语义与 BSD 不同：accept 队列满时对端直接被拒（RST）而非丢弃 SYN，
+    // 无法用同样的手法造出「静默黑洞」。此处仍断言有界性（截止时间内必有结局、绝不悬挂）。
+    let hole = LoopbackBlackhole()
+    check(hole.start(), "黑洞监听就绪（Windows：退化为被拒链路）")
+    defer { hole.stop() }
+    t0 = Date()
+    outcome = DSClient.boundedTCPConnect(to: "127.0.0.1", port: hole.port, timeout: 0.6)
+    let elapsed = -t0.timeIntervalSinceNow
+    check(["timedOut", "refused"].contains(outcomeTag(outcome)),
+          "Windows：积压满的链路结局为 timedOut/refused 之一（got \(outcomeTag(outcome))）")
+    check(elapsed <= 2.5, "截止时间有界（\(String(format: "%.2f", elapsed))s）")
+    if case .connected(let fd) = outcome { SocketCompat.closeSocket(fd) }
+    #else
     let hole = LoopbackBlackhole()
     check(hole.start(), "黑洞监听就绪")
     defer { hole.stop() }
@@ -175,6 +193,7 @@ func boundedConnectClassificationTests() {
     let elapsed = -t0.timeIntervalSinceNow
     check(elapsed >= 0.5 && elapsed <= 2.5,
           "截止时间有界（\(String(format: "%.2f", elapsed))s；阻塞式回环实测 ~7.8s、真机 ~75s）")
+    #endif
 
     // error：非数字 IP（分类而非崩溃/悬挂）
     outcome = DSClient.boundedTCPConnect(to: "roboRIO-2590-FRC.local", port: 1740, timeout: 1.0)
@@ -195,29 +214,54 @@ func waitUntil(_ timeout: Double, _ condition: () -> Bool) -> Bool {
 // MARK: ① RadioProbe 语义：connected 或 refused = radio 在线；其余 = 离线
 
 func radioProbeClassificationTests() {
-    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.4, timeout: 0.5))
+    // 探测截止按平台给足：Windows 上「被拒」要 ~2s 才由系统报出，截止太短只能看到超时，验证不了 refused → 可达
+    #if os(Windows)
+    let probeTimeout = 3.0
+    #else
+    let probeTimeout = 0.5
+    #endif
+    let probe = RadioProbe(configuration: RadioProbe.Configuration(interval: 0.4, timeout: probeTimeout))
 
     // 1. 黑洞（物理断线等价物）→ 不可达
+    // Windows 的 accept 积压一满就对端直接被拒（RST → refused → 可达，2026-11-24 首次真实 Windows 运行实测），
+    // 回环积压造不出「静默黑洞」；改用不会被应答的保留地址 192.0.2.1（RFC 5737 TEST-NET-1）：
+    // SYN 得不到任何应答 → 超时 / 不可达 → 不可达。
+    #if os(Windows)
+    probe.hostProvider = { (host: "192.0.2.1", port: 9) }
+    check(true, "黑洞就绪（Windows：保留地址 192.0.2.1 得不到应答）")
+    #else
     let hole = LoopbackBlackhole()
     check(hole.start(), "黑洞就绪")
     probe.hostProvider = { (host: "127.0.0.1", port: hole.port) }
+    #endif
     probe.start()
     check(waitUntil(8.0) { probe.probeAttempts >= 2 }, "黑洞阶段探测已运行 ≥2 次")
     check(!probe.isReachable, "黑洞链路（超时）→ 不可达")
 
     // 2. 关闭端口 → RST（真机 OM5P:80 形态）→ 必须仍判可达（假阴性修复）
+    #if os(Windows)
+    let deadPort = loopbackListen(backlog: 4)
+    SocketCompat.closeSocket(deadPort.fd)
+    probe.hostProvider = { (host: "127.0.0.1", port: deadPort.port) }
+    #else
     hole.stop()
+    #endif
     check(waitUntil(8.0) { probe.isReachable }, "RST 拒绝 = 主机在线 → 仍可达（OM5P:80 假阴性修复）")
 
     // 3. 再次黑洞 → 重新判离线（证明上一状态的 true 来自 refused 而非残留）
+    #if os(Windows)
+    probe.hostProvider = { (host: "192.0.2.1", port: 9) }
+    check(true, "黑洞 2 就绪（保留地址）")
+    #else
     let hole2 = LoopbackBlackhole()
     check(hole2.start(), "黑洞 2 就绪")
     probe.hostProvider = { (host: "127.0.0.1", port: hole2.port) }
+    #endif
     check(waitUntil(8.0) { !probe.isReachable }, "黑洞 2（超时）→ 重新不可达")
 
     // 4. 活监听 → connected → 可达
     let live = loopbackListen(backlog: 4)
-    defer { close(live.fd) }
+    defer { SocketCompat.closeSocket(live.fd) }
     probe.hostProvider = { (host: "127.0.0.1", port: live.port) }
     check(waitUntil(8.0) { probe.isReachable }, "监听中 → 可达")
 
@@ -241,6 +285,21 @@ func radioAutoTargetTests() {
     check(RadioProbe.autoTarget(autoSim: false, teamNumber: 2590)?.host == "10.25.90.1", "队号 2590 → 10.25.90.1")
     check(RadioProbe.autoTarget(autoSim: false, teamNumber: 8810)?.host == "10.88.10.1", "队号 8810 → Radio 10.88.10.1")
     check(RadioProbe.autoTarget(autoSim: false, teamNumber: 0) == nil, "队号未设置 → 不探测")
+}
+
+func thirdPartyRadioTargetTests() {
+    let cudy = RadioProbe.autoTarget(autoSim: false, teamNumber: 0, manualIP: " 192.168.10.1\n")
+    check(cudy?.host == "192.168.10.1", "Cudy TR1200 出厂 Radio 地址可独立指定并去除空白（got \(cudy?.host ?? "nil")）")
+    check(cudy?.port == 80, "第三方 Radio 默认仍探测 TCP 80")
+
+    let custom = RadioProbe.autoTarget(autoSim: false, teamNumber: 2590, manualIP: "192.168.10.1")
+    check(custom?.host == "192.168.10.1", "手动 Radio 地址优先于队号派生地址（got \(custom?.host ?? "nil")）")
+    check(RadioProbe.autoTarget(autoSim: false, teamNumber: 2590, manualIP: "192.168.10") == nil,
+          "损坏的手动 Radio 地址不得回退队号地址造成误报")
+    check(RadioProbe.autoTarget(autoSim: false, teamNumber: 2590, manualIP: "  ")?.host == "10.25.90.1",
+          "空白手动 Radio 地址保留原队号自动选址")
+    check(RadioProbe.autoTarget(autoSim: true, teamNumber: 2590, manualIP: "192.168.10.1")?.host == "127.0.0.1",
+          "AUTO_SIM 始终使用本机模拟 Radio，不受持久化手动地址影响")
 }
 
 // MARK: ③ 发送候选：只收数字 IP；.local 仅作 mDNS 解析输入
@@ -305,8 +364,13 @@ func startEmitsSearchingTest() {
     Thread.sleep(forTimeInterval: 0.4)
     check(client.localUDPPortForTest == NICodec.udpResponsePort,
           "roboRIO 2.0 真机应答固定发往 1150，UDP 本地端口不得再随机分配")
-    check(client.localUDPBoundInterfaceIndexForTest == if_nametoindex("lo0"),
-          "DSClient UDP 回环目标实际绑定 lo0")
+    if SocketCompat.supportsInterfaceBinding {
+        check(client.localUDPBoundInterfaceIndexForTest == SocketCompat.interfaceIndex(named: SocketCompat.loopbackInterfaceName),
+              "DSClient UDP 回环目标实际绑定 \(SocketCompat.loopbackInterfaceName)")
+    } else {
+        check(client.localUDPBoundInterfaceIndexForTest == nil,
+              "不支持接口钉绑的平台：DSClient UDP 按系统路由")
+    }
     client.stop()
 
     box.lock.lock(); defer { box.lock.unlock() }
@@ -419,6 +483,7 @@ func runAllOM5PReadinessTests() {
     runTest("boundedConnectClassification", boundedConnectClassificationTests)
     runTest("radioProbeClassification", radioProbeClassificationTests)
     runTest("radioAutoTarget", radioAutoTargetTests)
+    runTest("thirdPartyRadioTarget", thirdPartyRadioTargetTests)
     runTest("sendCandidatesNoHostname", sendCandidatesTests)
     runTest("manualResponseSource", manualResponseSourceTests)
     runTest("sendRotationUnique", sendRotationTests)

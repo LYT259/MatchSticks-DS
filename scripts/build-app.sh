@@ -286,10 +286,23 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>SUFeedURL</key>
     <string>${SU_FEED_URL:-https://github.com/LYT259/MatchSticks-DriverStaion/releases/latest/download/appcast.xml}</string>
     <key>SUPublicEDKey</key>
-    <string>${SU_PUBLIC_ED_KEY:-YHHW4wKUsjO8HlZkuZc4vdJWZj4y4ftbiFcEsJkNop4=}</string>
+    <string>${SU_PUBLIC_ED_KEY:-qQwltPD68k5anSzJBvRC+Z0xvUSfEvKbEarPKhFHyfA=}</string>
 </dict>
 </plist>
 PLIST
+
+# Sparkle downloader XPC 是独立进程，进程内 URLProtocol / route / 凭据清理不会覆盖它。
+# 任何未来开启 SUEnableDownloaderService 的改动都必须显式重审更新路由，不能由打包静默带入。
+python3 - "$APP/Contents/Info.plist" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    info = plistlib.load(stream)
+if "SUEnableDownloaderService" in info:
+    print("  ✗ 产物 Info.plist 不得包含 SUEnableDownloaderService（会绕过进程内更新路由）", file=sys.stderr)
+    sys.exit(1)
+PY
 
 echo "PBPB" > "$APP/Contents/PkgInfo"
 
