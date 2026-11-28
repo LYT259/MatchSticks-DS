@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import DSCore
 
 struct PracticeTimingEditor: View {
@@ -61,7 +62,18 @@ struct PracticeTimingEditor: View {
 }
 
 extension DSModel {
-    /// 时间线与时长卡共用同一份练习时序配置，滑杆改动即时反映到比例轨道。
+    func applyPracticeTimelineConfiguration(_ configuration: PracticeTimingConfiguration) {
+        practiceStartDelay = configuration.startDelay
+        practiceAutoTime = configuration.autoTime
+        practiceDelayTime = configuration.delayTime
+        practiceTeleopTime = configuration.teleopTime
+        practiceTransitionShiftTime = configuration.transitionShift
+        practiceAllianceShiftTime = configuration.allianceShift
+        practiceEndgameTime = configuration.endgame
+    }
+
+
+    /// 时间线与时长卡共用同一份练习时序配置，拖动分隔线即时反映到比例轨道。
     var practiceTimingConfiguration: PracticeTimingConfiguration {
         PracticeTimingConfiguration(
             seasonYear: practiceSeasonYear,
@@ -77,7 +89,7 @@ extension DSModel {
 }
 
 extension PracticeTimingConfiguration {
-    /// Practice Match 时长卡取值：Autonomous 原始时长 + Teleop 总时长（随滑杆即时变化）。
+    /// Practice Match 时长卡取值：Autonomous 原始时长 + Teleop 总时长（随分隔线拖动即时变化）。
     var durationCardValues: (auto: TimeInterval, teleop: TimeInterval) {
         (autoTime, teleopTotal)
     }
@@ -89,16 +101,25 @@ func practiceClock(_ seconds: TimeInterval) -> String {
     return String(format: "%d:%02d", value / 60, value % 60)
 }
 
-/// Drive 页全宽比赛时间线：真实比例轨道，区段位置与宽度只由时长占比决定，标签不参与几何计算。
-/// 标签是轨道的派生层：每个区段都渲染「标题 + 秒数」，靠缩放与裁剪保证可见且不溢出。
+private struct PracticeTimelineDragSession {
+    let boundary: PracticeTimeline.TimingBoundary
+    let initial: PracticeTimingConfiguration
+    var current: PracticeTimingConfiguration
+    let startX: CGFloat
+}
+
+/// 真实比例比赛时间线：拖动相邻阶段的分隔线调整时长，松开后一次性写回模型。
 struct PracticeMatchTimeline: View {
     let model: DSModel
-
-    private static let clockMinimumWidth: Double = 84
+    @State private var dragSession: PracticeTimelineDragSession?
+    @State private var hoveredBoundaryID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
+                    .buttonStyle(DSActionStyle())
+                    .controlSize(.small)
                 Spacer(minLength: 12)
                 Text(practiceClock(configuration.totalDuration))
                     .font(.system(size: 20, weight: .semibold).monospacedDigit())
@@ -113,7 +134,7 @@ struct PracticeMatchTimeline: View {
                 .frame(width: CGFloat(layout.totalWidth), alignment: .leading)
                 .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(height: 84)
+            .frame(height: 100)
         }
     }
 
@@ -126,17 +147,26 @@ struct PracticeMatchTimeline: View {
                 ZStack {
                     Rectangle().fill(presentation.color)
                     VStack(spacing: 2) {
-                        Text(presentation.title)
-                            .font(.system(size: 10, weight: .semibold))
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.5)
-                        Text(tr("%d 秒", Int(item.segment.duration)))
-                            .font(.system(size: 11, weight: .medium).monospacedDigit())
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.5)
+                        if item.segment.duration <= 3 {
+                            Text(tr("%d 秒", Int(item.segment.duration)))
+                                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.5)
+                        } else {
+                            Text(presentation.title)
+                                .font(.system(size: 10, weight: .semibold))
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.5)
+                            Text(tr("%d 秒", Int(item.segment.duration)))
+                                .font(.system(size: 11, weight: .medium).monospacedDigit())
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.5)
+                        }
                     }
                     .foregroundStyle(presentation.textColor)
                     .padding(.horizontal, 2)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
                 }
                 .frame(width: CGFloat(item.width), height: 64)
                 .clipped()
@@ -145,25 +175,123 @@ struct PracticeMatchTimeline: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(presentation.title) \(tr("%d 秒", Int(item.segment.duration)))")
             }
+            ForEach(PracticeTimeline.editingBoundaries(for: configuration)) { boundary in
+                dividerHandle(boundary, layout: layout)
+            }
         }
         .frame(width: CGFloat(layout.totalWidth), height: 64, alignment: .topLeading)
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
-    /// 时间刻度同样是标签层：只显示在宽度足够的区段，不反向影响轨道。
+    /// 每一段都显示开始与结束时刻，不用宽度阈值隐藏窄段（包括 3 秒 Transition Shift）。
     private func timelineClocks(_ layout: PracticeTimeline.Layout) -> some View {
         ZStack(alignment: .topLeading) {
-            ForEach(PracticeTimeline.labels(in: layout, minimumWidth: Self.clockMinimumWidth)) { item in
-                Text("\(practiceClock(item.segment.start))–\(practiceClock(item.segment.end))")
-                    .font(.system(size: 9).monospacedDigit())
-                    .foregroundStyle(DSTheme.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: CGFloat(item.width), alignment: .leading)
-                    .offset(x: CGFloat(item.x))
+            ForEach(layout.items) { item in
+                VStack(spacing: 0) {
+                    Text(practiceClock(item.segment.start))
+                    Text(practiceClock(item.segment.end))
+                }
+                .font(.system(size: 8).monospacedDigit())
+                .foregroundStyle(DSTheme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+                .frame(width: CGFloat(item.width))
+                .offset(x: CGFloat(item.x))
             }
         }
-        .frame(width: CGFloat(layout.totalWidth), height: 12, alignment: .topLeading)
+        .frame(width: CGFloat(layout.totalWidth), height: 24, alignment: .topLeading)
+    }
+
+    private func dividerHandle(_ boundary: PracticeTimeline.TimingBoundary,
+                               layout: PracticeTimeline.Layout) -> some View {
+        let handleWidth: Double = 14
+        let rawX = layout.totalDuration > 0
+            ? boundary.offset / layout.totalDuration * layout.totalWidth : 0
+        let x = min(max(rawX, 0), layout.totalWidth)
+        let offsetX = min(max(x - handleWidth / 2, 0), max(0, layout.totalWidth - handleWidth))
+        let active = hoveredBoundaryID == boundary.id || dragSession?.boundary.id == boundary.id
+        let values = boundaryValues(boundary)
+        return ZStack {
+            Rectangle()
+                .fill(active ? DSTheme.textPrimary.opacity(0.65) : DSTheme.textSecondary.opacity(0.35))
+                .frame(width: 1, height: 64)
+                .offset(x: CGFloat(x - offsetX - handleWidth / 2))
+            if active {
+                Capsule()
+                    .fill(DSTheme.card)
+                    .frame(width: 8, height: 24)
+                    .overlay(Capsule().stroke(DSTheme.textSecondary, lineWidth: 0.7))
+            }
+        }
+        .frame(width: handleWidth, height: 64)
+        .contentShape(Rectangle())
+        .offset(x: offsetX)
+        .onHover { inside in
+            if inside {
+                hoveredBoundaryID = boundary.id
+                NSCursor.resizeLeftRight.push()
+            } else {
+                if hoveredBoundaryID == boundary.id { hoveredBoundaryID = nil }
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in updateDrag(boundary, value: value, layout: layout) }
+                .onEnded { _ in finishDrag() }
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tr("拖动调整 %@ 与 %@ 的时长",
+                               presentation(for: boundary.left).title,
+                               presentation(for: boundary.right).title))
+        .accessibilityValue("\(tr("%d 秒", Int(values.left))) / \(tr("%d 秒", Int(values.right)))")
+        .accessibilityHint(tr("左右拖动，松开后保存"))
+        .accessibilityAdjustableAction { adjustment in
+            switch adjustment {
+            case .increment: adjust(boundary, deltaSeconds: 1)
+            case .decrement: adjust(boundary, deltaSeconds: -1)
+            @unknown default: break
+            }
+        }
+       }
+
+    private func updateDrag(_ boundary: PracticeTimeline.TimingBoundary,
+                            value: DragGesture.Value,
+                            layout: PracticeTimeline.Layout) {
+        var session = dragSession ?? PracticeTimelineDragSession(
+            boundary: boundary, initial: configuration, current: configuration,
+            startX: value.startLocation.x)
+        let secondsPerPoint = layout.totalWidth > 0 ? layout.totalDuration / layout.totalWidth : 0
+        session.current = PracticeTimeline.configuration(
+            session.initial, dragging: boundary,
+            deltaSeconds: (value.location.x - session.startX) * secondsPerPoint)
+        dragSession = session
+    }
+
+    private func finishDrag() {
+        guard let session = dragSession else { return }
+        model.applyPracticeTimelineConfiguration(session.current)
+        dragSession = nil
+        hoveredBoundaryID = nil
+    }
+
+    private func adjust(_ boundary: PracticeTimeline.TimingBoundary, deltaSeconds: TimeInterval) {
+        let updated = PracticeTimeline.configuration(configuration, dragging: boundary,
+                                                     deltaSeconds: deltaSeconds)
+        model.applyPracticeTimelineConfiguration(updated)
+        dragSession = nil
+    }
+
+    private func boundaryValues(_ boundary: PracticeTimeline.TimingBoundary) -> (left: TimeInterval, right: TimeInterval) {
+        switch (boundary.left, boundary.right) {
+        case (.startDelay, .autonomous): return (configuration.startDelay, configuration.autoTime)
+        case (.autonomous, .autoToTeleop): return (configuration.autoTime, configuration.delayTime)
+        case (.autoToTeleop, .transitionShift): return (configuration.delayTime, configuration.transitionShift)
+        case (.autoToTeleop, .teleoperated): return (configuration.delayTime, configuration.teleopTime)
+        case (.transitionShift, .allianceShift1): return (configuration.transitionShift, configuration.allianceShift)
+        case (.allianceShift4, .endgame): return (configuration.allianceShift, configuration.endgame)
+        default: return (0, 0)
+        }
     }
 
     private func presentation(for kind: PracticeTimeline.SegmentKind) -> (title: String, color: Color, textColor: Color) {
@@ -181,7 +309,9 @@ struct PracticeMatchTimeline: View {
         }
     }
 
-    private var configuration: PracticeTimingConfiguration { model.practiceTimingConfiguration }
+    private var configuration: PracticeTimingConfiguration {
+        dragSession?.current ?? model.practiceTimingConfiguration
+    }
 }
 
 /// Practice Match 标题下的两张时长卡：Autonomous 与 Teleop 各多少秒（不显示 Transition Shift 摘要卡）。

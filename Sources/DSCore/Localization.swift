@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Combine)
 import Combine
+#endif
 
 // MARK: - 语言管理：默认跟随系统，设置页可手动覆盖（中文 / English），立即生效
 //
@@ -7,10 +9,13 @@ import Combine
 // - 中文文案即查找键：chinese 模式零查找直接返回键本身，无需 zh 表；
 //   english 模式查 en.lproj/Localizable.strings（SPM resources → Bundle.module），
 //   未命中回退中文键并在 DEBUG 打缺失告警——只维护一张 en 表，无两表漂移问题。
+// - 英文表由 OpenStepStringsTable 纯 Swift 解析（见 EnglishStrings），不依赖 Bundle.localizedString
+//   在 corelibs Foundation 上的差异；macOS 的 en 表行为测试覆盖同一解析器。
 // - 回退策略：system 模式按系统首选语言解析，zh*（含繁体）→ 中文，其余（en/ja/fr/…）→ 英文。
 // - 持久化不走本类：与其他设置一致，由 DSModel 的 languageMode 属性 didSet 写 SettingsStore
 //   （键 matchsticks.language），启动时读回并 setMode；WebUI 的 language 键也走同一条链。
 // - 线程模型：setMode 仅主线程调用；tr() 任意线程可调（内部以锁读当前语言快照）。
+// - ObservableObject（Combine）只在 Apple 平台可用；Linux/Windows 上 effective 为普通属性。
 
 /// 语言选择（持久化的值）：跟随系统 / 手动中文 / 手动英文。
 public enum LanguageMode: String, CaseIterable, Sendable {
@@ -25,13 +30,17 @@ public enum AppLanguage: String, Sendable {
     case english
 }
 
-public final class LanguageManager: ObservableObject, @unchecked Sendable {
+public final class LanguageManager: @unchecked Sendable {
     /// 全局共享实例：状态默认跟随系统；宿主 App 启动时按持久化值 setMode。
     /// 测试不要用 shared——用 init() 自建实例隔离。
     public static let shared = LanguageManager()
 
     /// UI 观察用（主线程写）：观察 effective 即可重算文案，无需重建视图整树。
+    #if canImport(Combine)
     @Published public private(set) var effective: AppLanguage
+    #else
+    public private(set) var effective: AppLanguage
+    #endif
     /// 跨线程 tr() 读用快照（控制环线程、server 线程也会产出用户可见文案）。
     /// 命名避开 @Published 合成的 _effective 存储。
     private let lock = NSLock()
@@ -75,6 +84,43 @@ public final class LanguageManager: ObservableObject, @unchecked Sendable {
     }
 }
 
+#if canImport(Combine)
+extension LanguageManager: ObservableObject {}
+#endif
+
+// MARK: - 英文表加载（Bundle.module 资源）
+//
+// SwiftPM 把 en.lproj/Localizable.strings 原样拷进资源包（macOS 原生构建与 Linux/Windows 均为文本）；
+// 若某工具链把它处理成二进制/XML plist，交给 PropertyListSerialization 兜底。
+
+enum EnglishStrings {
+    static let table: [String: String] = load()
+
+    static func load() -> [String: String] {
+        guard let data = resourceData() else { return [:] }
+        let head = data.prefix(8)
+        if head.starts(with: "bplist".utf8) || head.starts(with: "<?xml".utf8) {
+            return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: String] ?? [:]
+        }
+        guard let text = String(data: data, encoding: .utf8) else { return [:] }
+        return OpenStepStringsTable.parse(text)
+    }
+
+    static func resourceData() -> Data? {
+        let bundle = Bundle.module
+        let candidates: [URL?] = [
+            bundle.url(forResource: "Localizable", withExtension: "strings", subdirectory: "en.lproj"),
+            bundle.url(forResource: "Localizable", withExtension: "strings", subdirectory: nil, localization: "en"),
+            bundle.bundleURL.appendingPathComponent("en.lproj/Localizable.strings"),
+            bundle.bundleURL.appendingPathComponent("Contents/Resources/en.lproj/Localizable.strings"),
+        ]
+        for case let url? in candidates where FileManager.default.fileExists(atPath: url.path) {
+            if let data = try? Data(contentsOf: url) { return data }
+        }
+        return nil
+    }
+}
+
 // MARK: - 查找入口
 
 /// 便捷查找：key 即中文原文；插值文案改写为 %@/%d 等格式键后传入对应参数。
@@ -93,8 +139,7 @@ extension LanguageManager {
         case .chinese:
             format = key
         case .english:
-            let localized = Bundle.module.localizedString(forKey: key, value: nil, table: nil)
-            if localized != key {
+            if let localized = EnglishStrings.table[key] {
                 format = localized
             } else {
                 #if DEBUG

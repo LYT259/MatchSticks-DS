@@ -7,8 +7,10 @@ struct MatchSticksDriverStaionApp: App {
     @State private var shortcuts = ShortcutManager()
     @State private var updates = UpdateCenter()
     @State private var windowFlow = DriverStationWindowFlow()
+    private let appDelegate = AppLifecycleDelegate()
 
     init() {
+        NSApplication.shared.delegate = appDelegate
         if !Bundle.main.bundlePath.hasSuffix(".app") {
             NSApplication.shared.setActivationPolicy(.regular)
         }
@@ -134,6 +136,7 @@ struct RootView: View {
                     .buttonStyle(DSActionStyle())
                     .help(tr("切换到迷你驾驶台；主窗口将隐藏，关闭迷你窗口即可返回。"))
                     UpdateBadge(flow: updates.flow) { updates.requestRestartAndRelaunch() }
+                    GitHubStarButton()
                 }
             }
         }

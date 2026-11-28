@@ -317,6 +317,10 @@ func appSupportDirectoryTests() {
           "GHDriverStation 独有文件补齐到新目录")
     check(fm.fileExists(atPath: newCaptures.appendingPathComponent("old.dsrec").path),
           "最旧目录有的录制补齐到新目录")
+    // 发布必须是硬链接：Windows 上 Foundation 的 linkItem 建的是符号链接，目标会指向随后被清理的临时文件而悬空。
+    check((try? fm.destinationOfSymbolicLink(atPath: newLogs.appendingPathComponent("old.dslog").path)) == nil
+          && (try? fm.destinationOfSymbolicLink(atPath: newCaptures.appendingPathComponent("old.dsrec").path)) == nil,
+          "补齐的文件不是符号链接（硬链接发布，不依赖随后被清理的临时文件）")
     check((try? String(contentsOf: interimLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "station-log",
           "MatchSticksDriverStation 文件保留且未改写")
     check((try? String(contentsOf: dsLogs.appendingPathComponent("old.dslog"), encoding: .utf8)) == "ds-log",

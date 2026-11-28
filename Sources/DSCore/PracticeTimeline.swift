@@ -180,6 +180,94 @@ public enum PracticeTimeline {
         return layout.items.filter { $0.width >= threshold }
     }
 
+    /// 可拖动的相邻阶段边界。`offset` 是该边界在完整时间线中的秒数位置，包含零时长区段。
+    public struct TimingBoundary: Sendable, Equatable, Identifiable {
+        public let left: SegmentKind
+        public let right: SegmentKind
+        public let offset: TimeInterval
+
+        public var id: String { "\(left.rawValue)-\(right.rawValue)" }
+
+        public init(left: SegmentKind, right: SegmentKind, offset: TimeInterval) {
+            self.left = left
+            self.right = right
+            self.offset = offset
+        }
+    }
+
+    /// 只为彼此独立的时长字段生成边界；四个 Alliance Shift 共用时长，内部不生成假边界。
+    public static func editingBoundaries(for configuration: PracticeTimingConfiguration) -> [TimingBoundary] {
+        let d = PracticeTimingConfiguration.sanitize
+        let start = d(configuration.startDelay)
+        let auto = d(configuration.autoTime)
+        let delay = d(configuration.delayTime)
+        var result = [
+            TimingBoundary(left: .startDelay, right: .autonomous, offset: start),
+            TimingBoundary(left: .autonomous, right: .autoToTeleop, offset: start + auto),
+        ]
+        if configuration.usesRebuiltTeleop {
+            let transition = d(configuration.transitionShift)
+            let alliance = d(configuration.allianceShift)
+            result.append(TimingBoundary(left: .autoToTeleop, right: .transitionShift,
+                                         offset: start + auto + delay))
+            result.append(TimingBoundary(left: .transitionShift, right: .allianceShift1,
+                                         offset: start + auto + delay + transition))
+            result.append(TimingBoundary(left: .allianceShift4, right: .endgame,
+                                         offset: start + auto + delay + transition + alliance * 4))
+        } else {
+            result.append(TimingBoundary(left: .autoToTeleop, right: .teleoperated,
+                                         offset: start + auto + delay))
+        }
+        return result
+    }
+
+    /// 拖动一个边界：左段增加的量等于右段减少的量，总时长不变；两侧同时夹在各自合法范围内。
+    public static func configuration(_ original: PracticeTimingConfiguration,
+                                     dragging boundary: TimingBoundary,
+                                     deltaSeconds: TimeInterval) -> PracticeTimingConfiguration {
+        guard deltaSeconds.isFinite else { return original }
+        switch (boundary.left, boundary.right) {
+        case (.startDelay, .autonomous):
+            return adjusting(original, \.startDelay, \.autoTime, 0...30, 1...60, deltaSeconds)
+        case (.autonomous, .autoToTeleop):
+            return adjusting(original, \.autoTime, \.delayTime, 1...60, 0...30, deltaSeconds)
+        case (.autoToTeleop, .transitionShift):
+            return adjusting(original, \.delayTime, \.transitionShift, 0...30, 0...60, deltaSeconds)
+        case (.autoToTeleop, .teleoperated):
+            return adjusting(original, \.delayTime, \.teleopTime, 0...30, 15...600, deltaSeconds)
+        case (.transitionShift, .allianceShift1):
+            return adjusting(original, \.transitionShift, \.allianceShift, 0...60, 1...120, deltaSeconds,
+                             leftToRightRatio: 1.0 / 4.0)
+        case (.allianceShift4, .endgame):
+            return adjusting(original, \.allianceShift, \.endgame, 1...120, 0...120, deltaSeconds,
+                             leftToRightRatio: 4)
+        default:
+            return original
+        }
+    }
+
+    private static func adjusting(_ original: PracticeTimingConfiguration,
+                                  _ left: WritableKeyPath<PracticeTimingConfiguration, TimeInterval>,
+                                  _ right: WritableKeyPath<PracticeTimingConfiguration, TimeInterval>,
+                                  _ leftRange: ClosedRange<TimeInterval>,
+                                  _ rightRange: ClosedRange<TimeInterval>,
+                                  _ delta: TimeInterval,
+                                  leftToRightRatio: TimeInterval = 1) -> PracticeTimingConfiguration {
+        let oldLeft = original[keyPath: left]
+        let oldRight = original[keyPath: right]
+        // Alliance Shift 的属性同时作用于四段；比例把共享字段折算回总时长守恒。
+        let lower = max(leftRange.lowerBound - oldLeft,
+                        (oldRight - rightRange.upperBound) / leftToRightRatio)
+        let upper = min(leftRange.upperBound - oldLeft,
+                        (oldRight - rightRange.lowerBound) / leftToRightRatio)
+        guard lower <= upper else { return original }
+        let accepted = min(max(delta.rounded(), lower), upper)
+        var updated = original
+        updated[keyPath: left] = oldLeft + accepted
+        updated[keyPath: right] = oldRight - accepted * leftToRightRatio
+        return updated
+    }
+
     private static func practiceClamp(_ fraction: Double) -> Double {
         guard fraction.isFinite else { return 0 }
         return min(max(fraction, 0), 1)

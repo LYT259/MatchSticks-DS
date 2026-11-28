@@ -187,12 +187,24 @@ final class ConnectionDraft {
         case manualIP(String)
     }
 
+    enum RadioTarget: Equatable {
+        case automatic
+        case manualIP(String)
+    }
+
     private var loading = false
     var targetText = "" { didSet { if !loading { userEdited = true } } }
+    var radioIPText = "" { didSet { if !loading { userEdited = true } } }
     var protocolKind: DSClient.ProtocolKind = .ni { didSet { if !loading { userEdited = true } } }
     var userEdited = false
 
     var parsedTarget: Target? { Self.parseTarget(targetText) }
+    var parsedRadioTarget: RadioTarget? {
+        let value = radioIPText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty { return .automatic }
+        guard let target = Self.parseTarget(value), case .manualIP(let ip) = target else { return nil }
+        return .manualIP(ip)
+    }
 
     static func parseTarget(_ text: String) -> Target? {
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -208,29 +220,47 @@ final class ConnectionDraft {
     func load(from model: DSModel) {
         loading = true
         targetText = model.manualIP.isEmpty ? String(model.teamNumber) : model.manualIP
+        radioIPText = model.manualRadioIP
         protocolKind = model.protocolKind
         userEdited = false
         loading = false
     }
 
     func hasChanges(comparedTo model: DSModel) -> Bool {
-        guard protocolKind == model.protocolKind, let target = parsedTarget else { return true }
+        guard protocolKind == model.protocolKind,
+              let target = parsedTarget,
+              let radioTarget = parsedRadioTarget else { return true }
+        let targetChanged: Bool
         switch target {
         case .team(let team):
-            return team != model.teamNumber || !model.manualIP.isEmpty
+            targetChanged = team != model.teamNumber || !model.manualIP.isEmpty
         case .manualIP(let ip):
-            return ip != model.manualIP
+            targetChanged = ip != model.manualIP
         }
+        let radioChanged: Bool
+        switch radioTarget {
+        case .automatic:
+            radioChanged = !model.manualRadioIP.isEmpty
+        case .manualIP(let ip):
+            radioChanged = ip != model.manualRadioIP
+        }
+        return targetChanged || radioChanged
     }
 
     func apply(to model: DSModel) -> Bool {
-        guard let target = parsedTarget else { return false }
+        guard let target = parsedTarget, let radioTarget = parsedRadioTarget else { return false }
         switch target {
         case .team(let team):
             if model.teamNumber != team { model.teamNumber = team }
             if !model.manualIP.isEmpty { model.manualIP = "" }
         case .manualIP(let ip):
             if model.manualIP != ip { model.manualIP = ip }
+        }
+        switch radioTarget {
+        case .automatic:
+            if !model.manualRadioIP.isEmpty { model.manualRadioIP = "" }
+        case .manualIP(let ip):
+            if model.manualRadioIP != ip { model.manualRadioIP = ip }
         }
         return true
     }
