@@ -39,11 +39,12 @@ struct MatchSticksDriverStaionApp: App {
         // 内容不自绘标题栏背景；宽横向驾驶台见 MiniConsoleBar。
         Window("Mini Driver Station", id: "mini") {
             MiniView(model: model, flow: windowFlow)
-                .frame(minWidth: 768, minHeight: 128)
+                .frame(minWidth: 768, minHeight: 200)
+                .background(MiniFloatingWindowConfigurator())
                 .background(WindowIdentity(identifier: DriverStationWindowPresenter.miniWindowIdentifier))
                 .background(MiniWindowCloseObserver { windowFlow.send(.miniWindowClosed) })
         }
-        .defaultSize(width: 768, height: 168)
+        .defaultSize(width: 1280, height: 200)
         .windowResizability(.contentMinSize)
     }
 }

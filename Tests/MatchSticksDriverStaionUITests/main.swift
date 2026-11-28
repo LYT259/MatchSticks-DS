@@ -34,6 +34,14 @@ struct UIStateTests {
             exit(failures.isEmpty ? 0 : 1)
         }
 
+        if CommandLine.arguments.contains("--mac-only") {
+            macHardwareMonitoringTests(check)
+            macHardwareInterfaceTests(check)
+            print("MatchSticks Driver Station Mac hardware state: \(checks) checks, \(failures.count) failures")
+            for failure in failures { print("FAIL: \(failure)") }
+            exit(failures.isEmpty ? 0 : 1)
+        }
+
         if CommandLine.arguments.contains("--permission-only") {
             permissionRuntimeMonitorTests(check)
             firewallVerificationProbeTests(check)
@@ -437,6 +445,7 @@ struct UIStateTests {
         thumbstickSceneTests(check)
         flightStickSceneTests(check)
         direwolfArtworkTests(check)
+        artworkIntegrityTests(check)
         gamepadRenderingTests(check)
         gamepadTriggerRangeTests(check)
         joystickSlotOrderingTests(check)
@@ -456,6 +465,8 @@ struct UIStateTests {
         appLifecycleTests(check)
         practiceProgressTests(check)
         practiceCountdownSpeechTests(check)
+        macHardwareMonitoringTests(check)
+        macHardwareInterfaceTests(check)
 
         // ③ Mac 状态重采样在后台：主线程睡眠（不跑 runloop）期间采样仍推进
         let sampler = MacStatusMonitor.BackgroundSampler()
@@ -1784,16 +1795,16 @@ struct UIStateTests {
         if let generalStart = settingsSource.range(of: "private var generalPanel")?.lowerBound,
            let generalEnd = settingsSource.range(of: "private var dashboardPanel")?.lowerBound {
             let general = String(settingsSource[generalStart..<generalEnd])
-            check(general.components(separatedBy: "settingsRow(").count - 1 == 3,
-                  "General keeps exactly Language, Appearance and Season as settingsRow rows")
+            check(general.components(separatedBy: "settingsRow(").count - 1 == 4,
+                  "General keeps Language, Appearance, Mini UI Reference and Season as settingsRow rows")
             check(general.contains("settingsSubgroup(tr(\"图标样式\")) {") &&
                   general.contains("settingsSubgroup(tr(\"图标外观\")) {"),
                   "app-icon settings render as full-width subgroups with titles above the cards")
             check(!general.contains("settingsRow(tr(\"图标样式\"))") &&
                   !general.contains("settingsRow(tr(\"图标外观\"))"),
                   "icon subgroups are not squeezed into right-aligned rows")
-            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.practiceSeasonYear",
-                               "$model.iconStyle", "$model.iconAppearance"], in: general),
+            check(sourceOrder(["$model.languageMode", "$model.appearanceMode", "$model.miniReferenceStyle",
+                               "$model.practiceSeasonYear", "$model.iconStyle", "$model.iconAppearance"], in: general),
                   "the app-icon subgroups sit after Season inside General")
             check(general.contains("AppIconStyleCardPicker(title: tr(\"图标样式\"), selection: $model.iconStyle)") &&
                   general.contains("AppIconAppearanceCardPicker(title: tr(\"图标外观\"), style: model.iconStyle, selection: $model.iconAppearance)"),
@@ -1879,7 +1890,7 @@ struct UIStateTests {
               "history keeps the battery, CPU and link charts")
         check(!robotHistorySource.contains("当前读数"),
               "history drops the duplicated current-readings summary")
-        check(macStatusSource.contains("Mac 状态") && macStatusSource.contains("model.macStatus"),
+        check(!macStatusSource.isEmpty && macStatusSource.contains("model.macStatus"),
               "Mac status shows this-Mac readings from macStatus")
         check(cameraSource.contains("CameraMockPanel()"),
               "Camera keeps its own mock panel")

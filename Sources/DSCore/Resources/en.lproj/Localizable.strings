@@ -6,6 +6,7 @@
 "跟随系统" = "Follow System";
 "界面语言" = "Language";
 "外观" = "Appearance";
+"Mini UI 参考" = "Mini UI Reference";
 "浅色" = "Light";
 "深色" = "Dark";
 "默认跟随系统语言；手动选择立即生效。" = "Follows the system language by default; a manual choice takes effect immediately.";
@@ -50,6 +51,11 @@
 "已请求重新搜索机器人" = "Robot re-search requested";
 "已连接机器人，无需刷新；刷新仅在未连接时重新搜索。" = "The robot is already connected; refresh only re-searches while disconnected.";
 "失能机器人" = "Disable the robot";
+"已使能时间" = "Enabled Time";
+"PC 电池" = "PC Battery";
+"正常" = "OK";
+"未就绪" = "Not Ready";
+"机器人电压历史" = "Robot Battery History";
 
 /* ===== GitHub Star（Views/GitHubStarButton，主窗口工具栏可访问名称与帮助）===== */
 "在 GitHub 上给 MatchSticks Driver Station 点 Star" = "Star MatchSticks Driver Station on GitHub";
@@ -211,8 +217,63 @@
 "%@ · 类型 %d" = "%@ · Type %d";
 "等待控制器回传资源数据" = "Waiting for controller resource data";
 
-/* ===== MacStatusView（Mac 页：Mac 状态面板）===== */
+/* ===== MacStatusView（Mac 页：逐核心 CPU / GPU / 内存 / 温度 / 电池）===== */
 "Mac 状态" = "Mac Status";
+"CPU" = "CPU";
+"GPU" = "GPU";
+"物理内存" = "Physical Memory";
+"本机网络" = "Local Network";
+"%d 个核心" = "%d Cores";
+"总占用" = "Total Usage";
+"最近 10 分钟" = "Last 10 Minutes";
+"正在采集逐核心 CPU 数据" = "Collecting Per-Core CPU Data";
+"至少获得两次采样后显示各核心占用。" = "Per-core usage appears after at least two samples.";
+"GPU 核心" = "GPU Cores";
+"GPU 使用中的统一内存" = "GPU Unified Memory in Use";
+"GPU 数据不可用" = "GPU Data Unavailable";
+"当前系统没有提供可读取的 GPU 性能统计。" = "The system is not providing readable GPU performance statistics.";
+"系统没有提供逐核心 GPU 占用；这里只显示真实可用的指标，不生成逐核心估计值。" = "The system does not provide per-core GPU utilization. Only actual available metrics are shown; per-core values are not estimated.";
+"曲线为 GPU Device 总占用 · 最近 10 分钟" = "The chart shows total GPU Device utilization · last 10 minutes";
+"已用 %@ / 共 %@" = "%@ Used of %@";
+"内存分类：App、联动内存、已压缩" = "Memory categories: App, wired, compressed";
+"App 内存" = "App Memory";
+"联动内存" = "Wired Memory";
+"已压缩" = "Compressed";
+"可用内存" = "Available Memory";
+"物理内存数据暂不可用" = "Physical memory data is temporarily unavailable";
+"主要进程（按常驻内存排序）" = "Top Processes by Resident Memory";
+"进程内存数据暂不可用" = "Process memory data is temporarily unavailable";
+"温度" = "Temperature";
+"SoC 最高温" = "SoC Maximum";
+"电池温度" = "Battery Temperature";
+"未检测到可用的温度传感器" = "No Usable Temperature Sensors";
+"读取失败或当前硬件不提供温度数据时，不会显示估计温度。" = "No estimated temperatures are shown when readings fail or the hardware does not provide them.";
+"全部传感器" = "All Sensors";
+"SoC 取 PMU tdie 传感器最高值。其他名称来自系统；没有依据时不猜测其与 CPU 或 GPU 的对应关系。" = "SoC is the highest PMU tdie reading. Other names come from the system; mappings to CPU or GPU are not guessed without evidence.";
+"风扇转速" = "Fan Speed";
+"不可用" = "Unavailable";
+"风扇转速不可用：macOS 未授权当前应用读取风扇；本应用不安装特权辅助工具。" = "Fan speed is unavailable: macOS does not grant this app access to fan readings; no privileged helper is installed.";
+"电池电量" = "Battery Level";
+"电量" = "Charge";
+"正在充电" = "Charging";
+"绿色区间为正在充电；其余时间为未充电。仅保留最近 10 分钟。" = "Green intervals are charging; other intervals are not charging. Only the last 10 minutes are retained.";
+"没有检测到电池。" = "No battery detected.";
+"正在积累历史数据" = "Collecting History";
+"至少获得两次采样后显示曲线。" = "The chart appears after at least two samples.";
+"正在积累温度历史" = "Collecting Temperature History";
+"正在积累电池历史" = "Collecting Battery History";
+"传感器" = "Sensor";
+"开始" = "Start";
+"结束" = "End";
+"最小" = "Minimum";
+"最大" = "Maximum";
+"CAN 总线历史" = "CAN Bus History";
+"连接期间每秒记录 · 最近 1 小时" = "Recorded once per second while connected · last hour";
+"当前 %.1f%% · 仅在机器人连接期间记录，不用离线零值填充曲线。" = "Current: %.1f%% · Recorded only while the robot is connected; no offline zero-value filler.";
+"等待 CAN 采样" = "Waiting for CAN Samples";
+"连接机器人后持续记录 CAN 总线占用率，便于回看异常。" = "CAN bus utilization is recorded continuously after connecting, making earlier anomalies visible.";
+"自动识别" = "Auto-Detect";
+
 "电池" = "Battery";
 "供电方式" = "Power Source";
 "外接电源" = "AC Power";
