@@ -14,13 +14,13 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
 
     // ===== A. 主线程停顿跨越阶段边界：恢复后进入正确阶段 =====
     // 定时器已挂在 .common 模式，但 NSTimer 在主线程停顿后只补发一次：固定 tick(0.1)
-    // 会让停顿 0.5s 跨过 0.3s 开始等待后仍停在「准备自动阶段」。
+    // 会让停顿 5.2s 跨过 5s 开始等待后仍停在「准备自动阶段」。
     let stalled = DSModel(settingsDefaults: suite, persistenceEnabled: false)
-    stalled.practiceStartDelay = 0.3
+    stalled.practiceStartDelay = 5
     stalled.practiceCountdownSpeech = CountdownSpeechSpy()
     stalled.startPractice()
     check(stalled.practicePhase == .delayBeforeAuto, "练习从开始等待进入")
-    Thread.sleep(forTimeInterval: 0.5)   // 模拟主线程被阻塞（拖窗口/菜单期间的同步工作）
+    Thread.sleep(forTimeInterval: 5.2)   // 模拟主线程被阻塞（拖窗口/菜单期间的同步工作）
     RunLoop.main.run(until: Date().addingTimeInterval(0.02))
     check(stalled.practicePhase == .autonomous,
           "主线程停顿 0.5s 跨过 0.3s 开始等待后，恢复时按真实时间进入自动阶段（实际 \(stalled.practicePhase.rawValue)）")
@@ -34,25 +34,25 @@ func practiceProgressTests(_ check: @MainActor (@autoclosure () -> Bool, String)
     var now: TimeInterval = 1_000
     model.practiceClock = { now }
     model.practiceSeasonYear = 2025   // 旧赛季：等待 2 → Auto 15 → 过渡 3 → Teleop 135
-    model.practiceStartDelay = 2
+    model.practiceStartDelay = 5
     model.practiceAutoTime = 15
     model.practiceDelayTime = 3
     model.practiceTeleopTime = 135
     model.practiceCountdownSpeech = CountdownSpeechSpy()
     model.startPractice()
-    check(model.practicePhase == .delayBeforeAuto && model.practiceRemaining == 2, "开始练习：进入开始等待，剩余 2")
+    check(model.practicePhase == .delayBeforeAuto && model.practiceRemaining == 5, "开始练习：进入开始等待，剩余 5")
     let start = model.practiceDisplay(at: now)
-    check(start.remaining == 2 && start.progress == 0, "开始瞬间显示剩余 2.0、进度 0")
+    check(start.remaining == 5 && start.progress == 0, "开始瞬间显示剩余 5.0、进度 0")
     now += 0.75
     let midway = model.practiceDisplay(at: now)
-    check(abs(midway.remaining - 1.25) < 1e-9,
-          "两次 tick 之间显示按同一时钟外推：0.75s 后剩 1.25（实际 \(midway.remaining)）")
-    check(abs(midway.progress - 0.375) < 1e-9, "进度与剩余同源：1 − 1.25/2 = 0.375（实际 \(midway.progress)）")
-    check(model.practiceRemaining == 2 && model.practicePhase == .delayBeforeAuto, "显示外推不推进状态机")
+    check(abs(midway.remaining - 4.25) < 1e-9,
+          "两次 tick 之间显示按同一时钟外推：0.75s 后剩 4.25（实际 \(midway.remaining)）")
+    check(abs(midway.progress - 0.15) < 1e-9, "进度与剩余同源：1 − 4.25/5 = 0.15（实际 \(midway.progress)）")
+    check(model.practiceRemaining == 5 && model.practicePhase == .delayBeforeAuto, "显示外推不推进状态机")
     model.pollAndPublishSnapshot()
-    check(abs((model.latestPublishedMatchTime ?? -1) - 1.25) < 1e-4,
+    check(abs((model.latestPublishedMatchTime ?? -1) - 4.25) < 1e-4,
           "控制快照 matchTime 与界面剩余同源（实际 \(model.latestPublishedMatchTime.map { "\($0)" } ?? "nil")）")
-    now = 1_002.5
+    now = 1_005.5
     let atDeadline = model.practiceDisplay(at: now)
     check(atDeadline.remaining == 0 && atDeadline.progress == 1, "截止后、下一次 tick 前显示夹在 0 / 100%，不出现负数")
     model.practiceTick()

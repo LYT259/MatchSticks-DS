@@ -2,6 +2,28 @@ import SwiftUI
 import AppKit
 import DSCore
 
+struct PracticePreparationTimeControl: View {
+    @Bindable var model: DSModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(tr("准备时间"))
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Text(tr("%d 秒", Int(model.practiceStartDelay)))
+                    .font(.system(size: 12).monospacedDigit())
+            }
+            Slider(value: $model.practiceStartDelay, in: 0...30, step: 1)
+                .accessibilityLabel(tr("准备时间"))
+                .controlSize(.small)
+            Text(tr("0 秒关闭；开启至少 5 秒，保证完整播报"))
+                .font(.caption)
+                .foregroundStyle(DSTheme.textSecondary)
+        }
+    }
+}
+
 extension DSModel {
     func applyPracticeTimelineConfiguration(_ configuration: PracticeTimingConfiguration) {
         practiceStartDelay = configuration.startDelay
@@ -57,6 +79,7 @@ struct PracticeMatchTimeline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            PracticePreparationTimeControl(model: model)
             HStack {
                 Button(tr("应用官方时序")) { model.applyPracticeTimingPreset() }
                     .buttonStyle(DSActionStyle())
